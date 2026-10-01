@@ -38,8 +38,81 @@ export type Database = {
         }
         Relationships: []
       }
+      broker_connections: {
+        Row: {
+          account_id: string | null
+          account_summary: Json | null
+          api_key_encrypted: string | null
+          broker: string
+          created_at: string
+          environment: string
+          id: string
+          last_sync_at: string | null
+          last_sync_cursor: string | null
+          status: string | null
+          user_id: string
+        }
+        Insert: {
+          account_id?: string | null
+          account_summary?: Json | null
+          api_key_encrypted?: string | null
+          broker: string
+          created_at?: string
+          environment?: string
+          id?: string
+          last_sync_at?: string | null
+          last_sync_cursor?: string | null
+          status?: string | null
+          user_id?: string
+        }
+        Update: {
+          account_id?: string | null
+          account_summary?: Json | null
+          api_key_encrypted?: string | null
+          broker?: string
+          created_at?: string
+          environment?: string
+          id?: string
+          last_sync_at?: string | null
+          last_sync_cursor?: string | null
+          status?: string | null
+          user_id?: string
+        }
+        Relationships: []
+      }
+      broker_holdings: {
+        Row: {
+          avg_price_usd: number | null
+          broker: string
+          id: string
+          shares: number
+          ticker: string
+          updated_at: string | null
+          user_id: string
+        }
+        Insert: {
+          avg_price_usd?: number | null
+          broker: string
+          id?: string
+          shares: number
+          ticker: string
+          updated_at?: string | null
+          user_id: string
+        }
+        Update: {
+          avg_price_usd?: number | null
+          broker?: string
+          id?: string
+          shares?: number
+          ticker?: string
+          updated_at?: string | null
+          user_id?: string
+        }
+        Relationships: []
+      }
       daily_snapshots: {
         Row: {
+          cash_usd: number | null
           created_at: string
           fx_rate: number
           id: string
@@ -52,6 +125,7 @@ export type Database = {
           value_usd: number
         }
         Insert: {
+          cash_usd?: number | null
           created_at?: string
           fx_rate: number
           id?: string
@@ -64,6 +138,7 @@ export type Database = {
           value_usd: number
         }
         Update: {
+          cash_usd?: number | null
           created_at?: string
           fx_rate?: number
           id?: string
@@ -77,11 +152,51 @@ export type Database = {
         }
         Relationships: []
       }
+      deposits: {
+        Row: {
+          amount_usd: number
+          broker: string | null
+          broker_account: string | null
+          created_at: string | null
+          ext_id: string | null
+          flow_date: string
+          id: string
+          source: string | null
+          user_id: string
+        }
+        Insert: {
+          amount_usd: number
+          broker?: string | null
+          broker_account?: string | null
+          created_at?: string | null
+          ext_id?: string | null
+          flow_date: string
+          id?: string
+          source?: string | null
+          user_id: string
+        }
+        Update: {
+          amount_usd?: number
+          broker?: string | null
+          broker_account?: string | null
+          created_at?: string | null
+          ext_id?: string | null
+          flow_date?: string
+          id?: string
+          source?: string | null
+          user_id?: string
+        }
+        Relationships: []
+      }
       dividends: {
         Row: {
           amount_per_share: number
+          broker: string
+          broker_account: string | null
+          cash_delta_applied: number
           created_at: string
           ex_date: string
+          ext_id: string | null
           id: string
           pay_date: string | null
           shares_held: number | null
@@ -92,8 +207,12 @@ export type Database = {
         }
         Insert: {
           amount_per_share: number
+          broker?: string
+          broker_account?: string | null
+          cash_delta_applied?: number
           created_at?: string
           ex_date: string
+          ext_id?: string | null
           id?: string
           pay_date?: string | null
           shares_held?: number | null
@@ -104,8 +223,12 @@ export type Database = {
         }
         Update: {
           amount_per_share?: number
+          broker?: string
+          broker_account?: string | null
+          cash_delta_applied?: number
           created_at?: string
           ex_date?: string
+          ext_id?: string | null
           id?: string
           pay_date?: string | null
           shares_held?: number | null
@@ -248,6 +371,24 @@ export type Database = {
         }
         Relationships: []
       }
+      price_history: {
+        Row: {
+          close: number
+          date: string
+          symbol: string
+        }
+        Insert: {
+          close: number
+          date: string
+          symbol: string
+        }
+        Update: {
+          close?: number
+          date?: string
+          symbol?: string
+        }
+        Relationships: []
+      }
       splits: {
         Row: {
           applied_at: string | null
@@ -260,6 +401,7 @@ export type Database = {
           split_date: string
           status: string
           ticker: string
+          user_id: string
         }
         Insert: {
           applied_at?: string | null
@@ -272,6 +414,7 @@ export type Database = {
           split_date: string
           status?: string
           ticker: string
+          user_id?: string
         }
         Update: {
           applied_at?: string | null
@@ -284,15 +427,10 @@ export type Database = {
           split_date?: string
           status?: string
           ticker?: string
+          user_id?: string
         }
         Relationships: []
       }
-      // Hand-written: this file is generated, but it has not been regenerated since
-      // 20260624240000_ticker_alias.sql / 20260624260000_alias_yahoo_symbol.sql or
-      // 20260809100000_ticker_profiles.sql landed. Both entries are transcribed from those
-      // migrations (NOT from the design docs — the plan's draft shows a single miss_count,
-      // while the table carries one counter PER PROVIDER). Regenerating the file will
-      // reproduce them; until then, deleting them breaks useTickerProfiles().
       ticker_alias: {
         Row: {
           alias: string
@@ -364,41 +502,53 @@ export type Database = {
       }
       transactions: {
         Row: {
+          broker: string
+          broker_account: string | null
           cash_delta_applied: number
           created_at: string
           executed_at: string
+          ext_id: string | null
           fee_usd: number
           id: string
           note: string | null
           price_usd: number
           shares: number
           side: string
+          t212_id: string | null
           ticker: string
           user_id: string | null
         }
         Insert: {
+          broker?: string
+          broker_account?: string | null
           cash_delta_applied?: number
           created_at?: string
           executed_at: string
+          ext_id?: string | null
           fee_usd?: number
           id?: string
           note?: string | null
           price_usd: number
           shares: number
           side: string
+          t212_id?: string | null
           ticker: string
           user_id?: string | null
         }
         Update: {
+          broker?: string
+          broker_account?: string | null
           cash_delta_applied?: number
           created_at?: string
           executed_at?: string
+          ext_id?: string | null
           fee_usd?: number
           id?: string
           note?: string | null
           price_usd?: number
           shares?: number
           side?: string
+          t212_id?: string | null
           ticker?: string
           user_id?: string | null
         }
@@ -439,30 +589,26 @@ export type Database = {
       [_ in never]: never
     }
     Functions: {
-      apply_cash_delta: {
-        Args: { p_delta: number; p_user_id: string }
-        Returns: number
-      }
+      apply_cash_delta: { Args: { p_delta: number; p_user_id: string }; Returns: number }
       apply_split: { Args: { split_id: string }; Returns: undefined }
       claim_orphan_data: { Args: { p_email: string }; Returns: Json }
+      delete_broker_connection: { Args: { p_broker: string }; Returns: undefined }
       dismiss_split: { Args: { split_id: string }; Returns: undefined }
+      get_broker_connection_status: { Args: never; Returns: { account_summary: Json; broker: string; environment: string; last_sync_at: string; status: string }[] }
+      get_broker_key: { Args: { p_broker: string; p_user_id: string }; Returns: { api_key: string; environment: string; last_sync_cursor: string }[] }
       guess_sector_for_ticker: { Args: { t: string }; Returns: string }
+      import_broker_transactions: { Args: { p_account?: string; p_broker: string; p_recalc?: boolean; p_replace?: boolean; p_rows: Json; p_user_id: string }; Returns: number }
+      price_history_coverage: { Args: { p_symbols: string[] }; Returns: { earliest: string; symbol: string }[] }
       recalc_cash:
         | { Args: never; Returns: undefined }
         | { Args: { p_user_id: string }; Returns: undefined }
       recalc_position:
         | { Args: { p_ticker: string }; Returns: undefined }
         | { Args: { p_ticker: string; p_user_id: string }; Returns: undefined }
-      transaction_cash_delta: {
-        Args: {
-          p_fee_usd: number
-          p_price_usd: number
-          p_shares: number
-          p_side: string
-          p_ticker: string
-        }
-        Returns: number
-      }
+      reconcile_broker_account: { Args: { p_account: string; p_broker: string; p_holdings: Json; p_note?: string; p_user_id: string }; Returns: number }
+      reconcile_broker_to_portfolio: { Args: { p_broker: string; p_holdings: Json; p_user_id: string }; Returns: undefined }
+      set_broker_connection: { Args: { p_broker: string; p_env: string; p_key: string }; Returns: Json }
+      transaction_cash_delta: { Args: { p_fee_usd: number; p_price_usd: number; p_shares: number; p_side: string; p_ticker: string }; Returns: number }
     }
     Enums: {
       [_ in never]: never

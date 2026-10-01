@@ -337,7 +337,9 @@ export async function executeImport(plan: ImportPlan): Promise<ImportSummary> {
     if (r.ticker && isin && /^[A-Z]{2}[A-Z0-9]{9}[0-9]$/.test(isin)) aliasSeed.set(r.ticker, isin);
   }
   if (aliasSeed.size) {
-    await supabase.rpc("seed_ticker_aliases", { p_rows: [...aliasSeed].map(([alias, isin]) => ({ alias, isin })) }).then(() => {}, () => {});
+    // seed_ticker_aliases is not defined in supabase/migrations/, so it is not in the generated types.
+    const untyped = supabase as unknown as { rpc: (fn: string, args: Record<string, unknown>) => PromiseLike<unknown> };
+    await untyped.rpc("seed_ticker_aliases", { p_rows: [...aliasSeed].map(([alias, isin]) => ({ alias, isin })) }).then(() => {}, () => {});
   }
   // Deposits/withdrawals go to the dedicated deposits table (dated external cash flows),
   // NOT to CASH transactions — those would wrongly move the live cash balance, since the
