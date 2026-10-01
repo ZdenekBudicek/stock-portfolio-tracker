@@ -48,7 +48,7 @@ describe("parseXtbRows", () => {
     ["Type", "Ticker", "Instrument", "Time", "Amount", "ID", "Comment", "Product"],
     ["Stock purchase", "AMD.US", "AMD", 45750.72, -85.92, "700000001", "OPEN BUY 0.8956 @ 95.94", "My Trades"],
     ["Stock sell", "ASML.US", "ASML", 45750.72, 85.47, "700000002", "CLOSE BUY 0.135 @ 633.10", "My Trades"],
-    ["Deposit", "", "", 45000, 107.89, "12602214", "PayPal deposit", "x"],
+    ["Deposit", "", "", 45000, 107.89, "700000003", "PayPal deposit", "x"],
     ["Dividend", "ASML.US", "ASML", 45000, 0.21, "d1", "ASML.US USD 1.5855/ SHR", "x"],
     ["Fractional shares", "LRCX.US", "LRCX", 45000, 93.13, "s1", "LRCX.US split 10 for 1", "x"],
     ["Withholding tax", "ASML.US", "ASML", 45000, -0.03, "w1", "ASML.US USD WHT 15%", "x"],
@@ -64,7 +64,7 @@ describe("parseXtbRows", () => {
     expect(parsed.find((p) => p.external_id === "700000002")).toMatchObject({ kind: "TRADE", side: "SELL", ticker: "ASML" });
   });
   it("parses deposit, dividend, split, fee", () => {
-    expect(parsed.find((p) => p.external_id === "12602214")).toMatchObject({ kind: "DEPOSIT", amount_usd: 107.89 });
+    expect(parsed.find((p) => p.external_id === "700000003")).toMatchObject({ kind: "DEPOSIT", amount_usd: 107.89 });
     expect(parsed.find((p) => p.external_id === "d1")).toMatchObject({ kind: "DIVIDEND", ticker: "ASML", amount_usd: 0.21 });
     expect(parsed.find((p) => p.external_id === "s1")).toMatchObject({ kind: "SPLIT", ratio: 10 });
     expect(parsed.find((p) => p.external_id === "w1")).toMatchObject({ kind: "FEE" });

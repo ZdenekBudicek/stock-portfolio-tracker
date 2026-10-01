@@ -18,7 +18,7 @@ A full-stack tracker for a stock & crypto portfolio spread across several broker
 | Database | PostgreSQL on Supabase — row-level security on every table, triggers that keep positions and cash consistent with the transaction ledger, RPC functions for imports and reconciliation |
 | Backend | Supabase Edge Functions (Deno) for price refresh, broker sync, snapshots, splits, news and sectors |
 | Scheduling | `pg_cron` inside the database + GitHub Actions workers (`scripts/*.mjs`) |
-| Tests | Vitest (~230 unit tests) |
+| Tests | Vitest (229 unit tests) |
 
 Some design decisions worth a look:
 
@@ -29,8 +29,10 @@ Some design decisions worth a look:
 
 ## Running it locally
 
+Use Node.js 22 or newer. The SheetJS package is pinned to its official distribution tarball as described in the [SheetJS installation guide](https://docs.sheetjs.com/docs/getting-started/installation/nodejs/).
+
 ```bash
-npm install
+npm ci
 cp .env.example .env.local   # fill in your Supabase project URL and publishable key
 npm run dev
 npm test                     # unit tests run without a .env file
@@ -45,3 +47,10 @@ The database schema lives in `supabase/migrations/`; with the Supabase CLI you c
 - This is a public snapshot of my private working repository, without its commit history.
 
 — [Zdeněk Budíček](https://zdenekbudicek.github.io)
+
+
+## Public snapshot validation
+
+The publication review ran 229 unit tests, the TypeScript check and the production build. Dependencies were updated and `npm audit` reported no known advisories at that time. Live broker synchronization and a deployment against a new Supabase project were not exercised; those require your own configured backend and credentials. The browser demo uses a separate in-memory data adapter and does not prove the live integrations.
+
+Scheduled data workers are disabled unless the repository variable ENABLE_PORTFOLIO_WORKERS is set to true. Configure the required repository secrets for your own backend before opting in.

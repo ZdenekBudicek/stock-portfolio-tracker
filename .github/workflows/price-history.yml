@@ -10,6 +10,7 @@ on:
 
 jobs:
   backfill:
+    if: vars.ENABLE_PORTFOLIO_WORKERS == 'true'
     runs-on: ubuntu-latest
     concurrency:
       group: price-history
@@ -32,6 +33,7 @@ jobs:
   # yahoo_miss_count; never touches finnhub_miss_count. Independent of the backfill job —
   # neither reads the other's tables — so they run in parallel.
   sectors:
+    if: vars.ENABLE_PORTFOLIO_WORKERS == 'true'
     runs-on: ubuntu-latest
     concurrency:
       group: sector-profiles
