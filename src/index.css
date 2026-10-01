@@ -1,0 +1,206 @@
+@import url('https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500;600;700;800&family=Inter:wght@300;400;500;600;700;800&display=swap');
+
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+@layer base {
+  :root {
+    --background: 222 24% 5%;
+    --foreground: 210 25% 96%;
+
+    --card: 222 22% 8%;
+    --card-foreground: 210 25% 96%;
+
+    --popover: 222 22% 10%;
+    --popover-foreground: 210 25% 96%;
+
+    --primary: 152 76% 52%;
+    --primary-foreground: 222 24% 5%;
+    --primary-glow: 152 90% 65%;
+
+    --secondary: 222 18% 14%;
+    --secondary-foreground: 210 20% 82%;
+
+    --muted: 222 16% 12%;
+    --muted-foreground: 215 14% 55%;
+
+    --accent: 222 18% 16%;
+    --accent-foreground: 210 25% 96%;
+
+    --destructive: 358 75% 58%;
+    --destructive-foreground: 210 40% 98%;
+
+    --border: 222 16% 14%;
+    --input: 222 16% 16%;
+    --ring: 152 76% 52%;
+
+    --radius: 1rem;
+
+    --profit: 152 76% 52%;
+    --profit-glow: 152 90% 65%;
+    --loss: 358 75% 60%;
+    --loss-glow: 358 88% 70%;
+    --warning: 38 95% 58%;
+    --info: 212 95% 62%;
+    --info-glow: 212 100% 72%;
+    --violet: 268 80% 65%;
+    --cyan: 188 88% 55%;
+
+    --chart-1: 152 76% 52%;
+    --chart-2: 212 95% 62%;
+    --chart-3: 38 95% 58%;
+    --chart-4: 268 80% 65%;
+    --chart-5: 358 75% 60%;
+    --chart-6: 188 88% 55%;
+    --chart-7: 320 75% 60%;
+    --chart-8: 50 90% 58%;
+    --chart-9: 25 88% 60%;
+
+    --sidebar-background: 222 22% 8%;
+    --sidebar-foreground: 210 25% 96%;
+    --sidebar-primary: 152 76% 52%;
+    --sidebar-primary-foreground: 222 24% 5%;
+    --sidebar-accent: 222 18% 16%;
+    --sidebar-accent-foreground: 210 25% 96%;
+    --sidebar-border: 222 16% 14%;
+    --sidebar-ring: 152 76% 52%;
+
+    --font-display: 'JetBrains Mono', monospace;
+    --font-body: 'Inter', sans-serif;
+
+    /* Reusable design tokens */
+    --gradient-card: linear-gradient(140deg, hsl(222 22% 9%) 0%, hsl(222 24% 6%) 100%);
+    --gradient-card-hover: linear-gradient(140deg, hsl(222 22% 11%) 0%, hsl(222 24% 7%) 100%);
+    --gradient-profit: linear-gradient(135deg, hsl(var(--profit)) 0%, hsl(var(--profit-glow)) 100%);
+    --gradient-loss: linear-gradient(135deg, hsl(var(--loss)) 0%, hsl(var(--loss-glow)) 100%);
+    --gradient-info: linear-gradient(135deg, hsl(var(--info)) 0%, hsl(var(--info-glow)) 100%);
+    --gradient-mesh: radial-gradient(at 20% 0%, hsl(152 76% 52% / 0.10) 0px, transparent 50%),
+                     radial-gradient(at 80% 0%, hsl(212 95% 62% / 0.08) 0px, transparent 50%),
+                     radial-gradient(at 50% 100%, hsl(268 80% 65% / 0.06) 0px, transparent 50%);
+
+    --shadow-elegant: 0 12px 40px -12px hsl(222 30% 0% / 0.6);
+    --shadow-glow-profit: 0 0 40px -8px hsl(var(--profit) / 0.4);
+    --shadow-glow-loss: 0 0 40px -8px hsl(var(--loss) / 0.4);
+    --shadow-glow-info: 0 0 40px -8px hsl(var(--info) / 0.35);
+
+    --transition-smooth: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+  }
+}
+
+@layer base {
+  * {
+    @apply border-border;
+  }
+
+  html {
+    scroll-behavior: smooth;
+  }
+
+  body {
+    @apply bg-background text-foreground;
+    font-family: var(--font-body);
+    background-image: var(--gradient-mesh);
+    background-attachment: fixed;
+    -webkit-font-smoothing: antialiased;
+    -moz-osx-font-smoothing: grayscale;
+  }
+
+  h1, h2, h3, h4, h5, h6 {
+    font-family: var(--font-display);
+    letter-spacing: -0.02em;
+  }
+
+  /* Custom scrollbars */
+  ::-webkit-scrollbar { width: 10px; height: 10px; }
+  ::-webkit-scrollbar-track { background: hsl(var(--background)); }
+  ::-webkit-scrollbar-thumb {
+    background: hsl(var(--border));
+    border-radius: 8px;
+    border: 2px solid hsl(var(--background));
+  }
+  ::-webkit-scrollbar-thumb:hover { background: hsl(var(--muted-foreground) / 0.5); }
+}
+
+@layer utilities {
+  .text-profit { color: hsl(var(--profit)); }
+  .text-loss { color: hsl(var(--loss)); }
+  .bg-card-hover { background-color: hsl(var(--accent)); }
+
+  .glow-profit { text-shadow: 0 0 24px hsl(var(--profit) / 0.45); }
+  .glow-loss { text-shadow: 0 0 24px hsl(var(--loss) / 0.45); }
+
+  .gradient-card {
+    background: var(--gradient-card);
+    box-shadow: var(--shadow-elegant);
+  }
+  .gradient-card-hover:hover {
+    background: var(--gradient-card-hover);
+  }
+  .glass {
+    background: hsl(var(--card) / 0.6);
+    backdrop-filter: blur(16px) saturate(140%);
+    -webkit-backdrop-filter: blur(16px) saturate(140%);
+  }
+  .glass-strong {
+    background: hsl(var(--card) / 0.85);
+    backdrop-filter: blur(20px) saturate(180%);
+    -webkit-backdrop-filter: blur(20px) saturate(180%);
+  }
+
+  .ring-profit { box-shadow: var(--shadow-glow-profit); }
+  .ring-loss { box-shadow: var(--shadow-glow-loss); }
+  .ring-info { box-shadow: var(--shadow-glow-info); }
+
+  .text-gradient-profit {
+    background: var(--gradient-profit);
+    -webkit-background-clip: text;
+    background-clip: text;
+    color: transparent;
+  }
+  .text-gradient-loss {
+    background: var(--gradient-loss);
+    -webkit-background-clip: text;
+    background-clip: text;
+    color: transparent;
+  }
+
+  .hover-lift {
+    transition: var(--transition-smooth);
+  }
+  .hover-lift:hover {
+    transform: translateY(-2px);
+  }
+
+  .grid-bg {
+    background-image:
+      linear-gradient(hsl(var(--border) / 0.4) 1px, transparent 1px),
+      linear-gradient(90deg, hsl(var(--border) / 0.4) 1px, transparent 1px);
+    background-size: 32px 32px;
+  }
+
+  @keyframes shimmer {
+    0% { background-position: -200% 0; }
+    100% { background-position: 200% 0; }
+  }
+  .shimmer {
+    background: linear-gradient(90deg,
+      transparent,
+      hsl(var(--foreground) / 0.05),
+      transparent);
+    background-size: 200% 100%;
+    animation: shimmer 2.5s infinite;
+  }
+
+  @keyframes pulse-glow {
+    0%, 100% { opacity: 0.4; }
+    50% { opacity: 0.8; }
+  }
+  .pulse-glow { animation: pulse-glow 2.5s ease-in-out infinite; }
+
+  @keyframes float {
+    0%, 100% { transform: translateY(0px); }
+    50% { transform: translateY(-6px); }
+  }
+  .float { animation: float 6s ease-in-out infinite; }
+}

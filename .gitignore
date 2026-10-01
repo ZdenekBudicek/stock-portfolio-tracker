@@ -1,0 +1,39 @@
+# Logs
+logs
+*.log
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+pnpm-debug.log*
+lerna-debug.log*
+
+node_modules
+dist
+dist-ssr
+*.local
+
+# Secrets & private data — never commit
+.env
+.env.*
+!.env.example
+scripts/*
+!scripts/price-worker.mjs
+# Runs from .github/workflows/price-history.yml, so it has to be in the repo.
+!scripts/sector-worker.mjs
+audit/
+migration-data/
+
+# Editor directories and files
+.vscode/*
+!.vscode/extensions.json
+.idea
+.DS_Store
+*.suo
+*.ntvs*
+*.njsproj
+*.sln
+*.sw?
+.claude/settings.local.json
+
+# Supabase CLI local state
+supabase/.temp/

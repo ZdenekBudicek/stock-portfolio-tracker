@@ -1,0 +1,54 @@
+name: Price history backfill
+
+# Runs the multi-source historical price worker from GitHub's IP (not throttled by
+# Yahoo, unlike the Supabase edge). Fills the shared price_history for every traded
+# ticker and recomputes all users' daily_snapshots. Idempotent & free.
+on:
+  schedule:
+    - cron: "30 5 * * *" # daily 05:30 UTC (after US close of the prior day)
+  workflow_dispatch: {} # allow manual run from the Actions tab
+
+jobs:
+  backfill:
+    runs-on: ubuntu-latest
+    concurrency:
+      group: price-history
+      cancel-in-progress: false
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+      - name: Run price worker
+        env:
+          SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
+          SUPABASE_SERVICE_KEY: ${{ secrets.SUPABASE_SERVICE_KEY }}
+          TWELVE_DATA_KEY: ${{ secrets.TWELVE_DATA_KEY }}
+        run: node scripts/price-worker.mjs
+
+  # Fills the shared ticker_profiles table with sector/industry from Yahoo, which answers 401
+  # from the Supabase edge but works fine from here. Refines every row the sync-sectors edge
+  # function could only classify from Finnhub's single coarse industry string. Owns
+  # yahoo_miss_count; never touches finnhub_miss_count. Independent of the backfill job —
+  # neither reads the other's tables — so they run in parallel.
+  sectors:
+    runs-on: ubuntu-latest
+    concurrency:
+      group: sector-profiles
+      cancel-in-progress: false
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          # NOT "20" like the backfill job above. sector-worker.mjs imports
+          # supabase/functions/_shared/profile-providers.ts, and TypeScript type stripping
+          # only exists from Node 22.6 (--experimental-strip-types) / 22.18 and 24 (on by
+          # default). Under Node 20 the import fails with ERR_UNKNOWN_FILE_EXTENSION ".ts"
+          # before a single line of the worker runs. Verified locally on v24.16.0.
+          node-version: "24"
+      - name: Run sector worker
+        env:
+          SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
+          SUPABASE_SERVICE_KEY: ${{ secrets.SUPABASE_SERVICE_KEY }}
+          FINNHUB_API_KEY: ${{ secrets.FINNHUB_API_KEY }}
+        run: node scripts/sector-worker.mjs

@@ -1,0 +1,1 @@
+REVOKE EXECUTE ON FUNCTION public.on_transaction_change() FROM anon, authenticated, public;

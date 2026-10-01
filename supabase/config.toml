@@ -1,0 +1,24 @@
+project_id = "your-project-ref"
+
+[functions.get-live-prices]
+verify_jwt = true
+
+[functions.refresh-prices]
+verify_jwt = false
+
+[functions.sync-broker]
+verify_jwt = true
+
+[functions.daily-snapshot-cron]
+verify_jwt = true
+
+[functions.backfill-snapshots]
+verify_jwt = true
+
+# Same as the CLI default, pinned rather than implied because this one is about to go to a
+# live project. auto-sync calls it with the service-role key, which satisfies this; so does
+# the anon key from a browser. Note that any authenticated caller can therefore also pass
+# ?force=TICKER — that only re-asks Finnhub about tickers somebody already holds or
+# watches, and returns no user data, so the worst case is spent API quota.
+[functions.sync-sectors]
+verify_jwt = true
