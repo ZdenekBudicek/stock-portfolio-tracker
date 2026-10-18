@@ -1,3 +1,5 @@
+import { currentLang } from "@/i18n";
+
 // Pure formatting utilities. All actual data now lives in the database
 // and is fetched through React Query hooks (see src/hooks/usePortfolio.ts).
 
@@ -9,11 +11,16 @@ export const formatUsd = (n: number) => {
 
 export const formatCzk = (n: number) => {
   const abs = Math.abs(n);
-  const formatted = abs.toLocaleString('cs-CZ', { minimumFractionDigits: 0, maximumFractionDigits: 0 });
+  const en = currentLang() === 'en';
+  const formatted = abs.toLocaleString(en ? 'en-US' : 'cs-CZ', { minimumFractionDigits: 0, maximumFractionDigits: 0 });
+  if (en) return n < 0 ? `-CZK ${formatted}` : `CZK ${formatted}`;
   return n < 0 ? `-${formatted} Kč` : `${formatted} Kč`;
 };
 
-export const formatPct = (n: number) => `${n >= 0 ? '+' : ''}${n.toFixed(2)}%`;
+/** Signed percent in the UI language: '+5.12%' (en) / '+5,12 %' (cs). */
+export const formatPct = (n: number) => currentLang() === 'en'
+  ? `${n >= 0 ? '+' : ''}${n.toFixed(2)}%`
+  : `${n >= 0 ? '+' : ''}${n.toFixed(2).replace('.', ',')} %`;
 
 // Chart palette (kept here so chart components don't duplicate it)
 export const CHART_COLORS = [

@@ -1,10 +1,14 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
-import { createChart, AreaSeries, type IChartApi, type ISeriesApi, type Time, ColorType, CrosshairMode } from 'lightweight-charts';
+import { createChart, AreaSeries, LineSeries, LineStyle, type IChartApi, type ISeriesApi, type Time, ColorType, CrosshairMode } from 'lightweight-charts';
 import { TrendingUp, TrendingDown } from 'lucide-react';
 import { useCurrency } from '@/contexts/CurrencyContext';
-import { computeTradeFlows, useComputedPortfolio, useDailySnapshots, useTransactions } from '@/hooks/usePortfolio';
-import { useBenchmark } from '@/hooks/useExtras';
+import { useComputedPortfolio } from '@/hooks/usePortfolio';
+import { usePerformanceSeries } from '@/hooks/usePerformanceSeries';
 import { formatPct } from '@/data/portfolio';
+import { useTranslation } from 'react-i18next';
+import { currentLang, currentLocale } from '@/i18n';
+import { fmtCzk, fmtPercent } from '@/i18n/format';
+import { type SeriesPoint } from '@/lib/performanceSeries';
 
 const timeRanges = ['1M', '3M', '6M', 'YTD', '1R', '5R', 'VŠE'] as const;
 type RangeKey = typeof timeRanges[number] | '';
@@ -21,113 +25,48 @@ const toDateStr = (t: Time): string => {
   return `${b.year}-${String(b.month).padStart(2, '0')}-${String(b.day).padStart(2, '0')}`;
 };
 
-interface Point { date: string; total: number; cumDep: number; benchVal: number | null; }
+type Point = SeriesPoint;
+
+/**
+ * Time-weighted growth index per point: each day's change net of that day's money in, chained.
+ * The same method as the Výnosy screen, so the % curve and its headline match the TWR there
+ * (a deposit after a gain no longer dilutes the percentage).
+ */
+const twrIndex = (pts: Point[], bench: boolean): WeakMap<Point, number> => {
+  const m = new WeakMap<Point, number>();
+  let idx = 1;
+  let prev: Point | null = null;
+  for (const p of pts) {
+    const v = bench ? p.benchVal : p.total;
+    if (v == null) { prev = null; continue; }
+    const pv = prev ? (bench ? prev.benchVal : prev.total) : null;
+    if (prev && pv != null && pv > 0) {
+      const r = (v - (p.cumDep - prev.cumDep)) / pv;
+      if (Number.isFinite(r) && r > 0) idx *= r;
+    }
+    m.set(p, idx);
+    prev = p;
+  }
+  return m;
+};
 interface WindowStats { delta: number; pct: number; benchPct: number | null; isFull: boolean; }
 
-const PerformanceChart = () => {
+/** `embedded`: drawn inside another card (the Přehled hero) — no own frame, title or footnote. */
+const PerformanceChart = ({ embedded = false }: { embedded?: boolean } = {}) => {
+  const { t } = useTranslation();
   const [range, setRange] = useState<RangeKey>('YTD');
   const [showBench, setShowBench] = useState(true);
-  const { format, convert, currency, hidden } = useCurrency();
-  const { data: snapshots = [] } = useDailySnapshots();
+  const { formatAt, pick, convert, currency, hidden } = useCurrency();
   const portfolio = useComputedPortfolio();
-  const { data: bench = [] } = useBenchmark('SPX');
-  const { data: transactions = [] } = useTransactions();
-
-  const cashUsd = portfolio.positions.find((p) => p.ticker === 'CASH')?.value ?? 0;
-  const holdingsUsd = portfolio.totalValue - cashUsd;
-
-  const sorted = useMemo(() => {
-    const data = [...snapshots].sort((a, b) => a.snapshot_date.localeCompare(b.snapshot_date));
-    const today = new Date().toISOString().slice(0, 10);
-    // Live point = today's holdings from the same `positions` table the stored snapshots are
-    // reconstructed against, so the curve joins the live value without a step.
-    if (Number.isFinite(holdingsUsd) && holdingsUsd > 0) {
-      const last = data[data.length - 1];
-      const livePoint = {
-        ...(last ?? { value_czk: 0, profit_usd: 0, profit_pct: 0, profit_czk: 0 }),
-        snapshot_date: today,
-        value_usd: holdingsUsd,
-        cash_usd: cashUsd, // today's balance is known exactly — no estimate needed
-      };
-      if (!last || last.snapshot_date < today) data.push(livePoint);
-      else if (last.snapshot_date === today) data[data.length - 1] = livePoint;
-    }
-    return data;
-  }, [snapshots, holdingsUsd, cashUsd]);
-
-  // Sorted benchmark dates for nearest-match lookups (handles weekends/holidays)
-  const benchSorted = useMemo(() => [...bench].sort((a, b) => a.date.localeCompare(b.date)), [bench]);
-  const findBenchAt = (date: string): number | null => {
-    if (benchSorted.length === 0) return null;
-    let lo = 0, hi = benchSorted.length - 1, best: number | null = null;
-    while (lo <= hi) {
-      const mid = (lo + hi) >> 1;
-      if (benchSorted[mid].date <= date) { best = benchSorted[mid].close_value; lo = mid + 1; }
-      else hi = mid - 1;
-    }
-    return best;
-  };
-
-  // Cash per day, as RECORDED by the daily snapshot (daily_snapshots.cash_usd). The past
-  // balance was never stored and reconstructing it was measured and rejected — with deposits
-  // missing from the records it claimed $10 928 of cash in June 2021, when the whole
-  // portfolio was worth $5 348. So days before tracking started carry no cash and show the
-  // positions only; from the first recorded day the curve is the whole portfolio, and selling
-  // a big position no longer looks like a crash because the proceeds stay visible as cash.
-  const cashByDate = useMemo(() => {
-    const m = new Map<string, number>();
-    for (const s of sorted) {
-      const c = (s as any).cash_usd;
-      if (c != null && Number.isFinite(Number(c))) m.set(s.snapshot_date, Number(c));
-    }
-    return m;
-  }, [sorted]);
-
-  // Money that entered the plotted series, by day. Where cash is part of the curve a purchase
-  // is an INTERNAL move (cash → positions) and must not count as money in; what counts is the
-  // change in cash plus what was spent on stock, which is exactly the external cash-in.
-  // Derived from the cash series itself, so the baseline stays consistent with the curve on
-  // both sides of the day tracking began.
-  const tradeFlows = useMemo(() => computeTradeFlows(transactions as any), [transactions]);
-
-  // Cumulative money in + the dollar-matched S&P (the same money, on the same days, in the
-  // index instead) over the FULL series.
-  const { cumDepByDate, benchValByDate } = useMemo(() => {
-    const cumDepByDate = new Map<string, number>();
-    const benchValByDate = new Map<string, number | null>();
-    let cum = 0, units = 0, prevCash = 0;
-    for (const s of sorted) {
-      const cash = cashByDate.get(s.snapshot_date) ?? 0;
-      const flow = (cash - prevCash) + (tradeFlows.get(s.snapshot_date) ?? 0);
-      prevCash = cash;
-      if (flow !== 0) {
-        cum += flow;
-        const spxAt = findBenchAt(s.snapshot_date);
-        if (spxAt) units += flow / spxAt;
-      }
-      cumDepByDate.set(s.snapshot_date, cum);
-      const spx = findBenchAt(s.snapshot_date);
-      // Sells can push the matched position negative (more taken out than put in). A
-      // negative "what the index would be worth" is meaningless — draw nothing instead.
-      benchValByDate.set(s.snapshot_date, spx && units > 0 ? units * spx : null);
-    }
-    return { cumDepByDate, benchValByDate };
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [sorted, cashByDate, tradeFlows, benchSorted]);
-
-  // Full point series in USD (converted at render/tooltip time): positions + cash.
-  const points: Point[] = useMemo(() => sorted.map((d) => ({
-    date: d.snapshot_date,
-    total: d.value_usd + (cashByDate.get(d.snapshot_date) ?? 0),
-    cumDep: cumDepByDate.get(d.snapshot_date) ?? 0,
-    benchVal: benchValByDate.get(d.snapshot_date) ?? null,
-  })), [sorted, cashByDate, cumDepByDate, benchValByDate]);
+  // Same series as the Výnosy screen (hooks/usePerformanceSeries).
+  const { points, holdingsUsd, cashUsd } = usePerformanceSeries(currency);
 
   /* ── chart engine ─────────────────────────────────────────────── */
   const containerRef = useRef<HTMLDivElement>(null);
   const chartRef = useRef<IChartApi | null>(null);
   const mainRef = useRef<ISeriesApi<'Area'> | null>(null);
   const benchRef = useRef<ISeriesApi<'Area'> | null>(null);
+  const investedRef = useRef<ISeriesApi<'Line'> | null>(null);
   const pointsRef = useRef<Point[]>([]);
   const positiveRef = useRef(true);
   const programmaticMove = useRef(false);
@@ -146,9 +85,11 @@ const PerformanceChart = () => {
   const pctModeRef = useRef(false);
   const baseIdxRef = useRef(0);
   const redrawRef = useRef<() => void>(() => {});
+  const rangeChangedRef = useRef<() => void>(() => {});
   const rebasing = useRef(false);
 
-  useEffect(() => { pointsRef.current = points; }, [points]);
+  const twrRef = useRef<{ main: WeakMap<Point, number>; bench: WeakMap<Point, number> }>({ main: new WeakMap(), bench: new WeakMap() });
+  useEffect(() => { pointsRef.current = points; twrRef.current = { main: twrIndex(points, false), bench: twrIndex(points, true) }; }, [points]);
   useEffect(() => { rangeRef.current = range; }, [range]);
   useEffect(() => { pctModeRef.current = pctMode; }, [pctMode]);
 
@@ -157,13 +98,10 @@ const PerformanceChart = () => {
    * as the headline stat, so the curve and the number always agree.
    */
   const returnPct = (p: Point, base: Point, useBench = false) => {
-    const now = useBench ? p.benchVal : p.total;
-    const then = useBench ? base.benchVal : base.total;
-    if (now == null || then == null) return null;
-    const depIn = p.cumDep - base.cumDep;
-    const den = then + depIn;
-    if (!(den > 0)) return null;
-    return (((now - then) - depIn) / den) * 100;
+    const m = useBench ? twrRef.current.bench : twrRef.current.main;
+    const now = m.get(p), then = m.get(base);
+    if (now == null || then == null || !(then > 0)) return null;
+    return (now / then - 1) * 100;
   };
 
   // Set the visible window for a preset range. Kept as a helper so the data effect can
@@ -208,7 +146,7 @@ const PerformanceChart = () => {
       },
       rightPriceScale: { borderVisible: false, scaleMargins: { top: 0.12, bottom: 0.08 } },
       timeScale: { borderVisible: false, rightOffset: 2, minBarSpacing: 0.2 },
-      localization: { locale: 'cs-CZ' },
+      localization: { locale: currentLocale() },
       handleScroll: true,
       handleScale: true,
     });
@@ -226,9 +164,16 @@ const PerformanceChart = () => {
       crosshairMarkerRadius: 4,
     });
 
+    // Money put in so far (dashed): the gap between it and the curve is the profit.
+    const investedS = chart.addSeries(LineSeries, {
+      color: themeColor('--muted-foreground', 0.8), lineWidth: 1, lineStyle: LineStyle.Dashed,
+      priceLineVisible: false, lastValueVisible: false, crosshairMarkerVisible: false,
+    });
+    investedRef.current = investedS;
+
     // Header stats follow the VISIBLE window — zooming/panning re-bases the return like a
     // pro terminal. Custom pan/zoom clears the preset-range highlight.
-    chart.timeScale().subscribeVisibleLogicalRangeChange((lr) => {
+    const onRange = (lr: { from: number; to: number } | null) => {
       const pts = pointsRef.current;
       if (!lr || pts.length < 2) return;
       const i0 = Math.min(pts.length - 1, Math.max(0, Math.round(lr.from)));
@@ -238,11 +183,9 @@ const PerformanceChart = () => {
       const depIn = b.cumDep - a.cumDep;
       const base = a.total + depIn;
       const delta = (b.total - a.total) - depIn;
-      const benchBase = a.benchVal != null ? a.benchVal + depIn : 0;
-      const benchPct = a.benchVal != null && b.benchVal != null && benchBase > 0
-        ? (((b.benchVal - a.benchVal) - depIn) / benchBase) * 100 : null;
+      const benchPct = returnPct(b, a, true);
       const isFull = i0 === 0 && i1 === pts.length - 1;
-      setStats({ delta, pct: base > 0 ? (delta / base) * 100 : 0, benchPct, isFull });
+      setStats({ delta, pct: returnPct(b, a) ?? (base > 0 ? (delta / base) * 100 : 0), benchPct, isFull });
       // In "%" mode the curve is measured from the first day on screen, so moving the window
       // means every plotted value changes. setData keeps the logical range, so this settles
       // in one pass; the flag is there so it can never feed itself.
@@ -263,7 +206,11 @@ const PerformanceChart = () => {
         const c = pos ? '--profit' : '--loss';
         main.applyOptions({ lineColor: themeColor(c), topColor: themeColor(c, 0.35), bottomColor: themeColor(c, 0.02) });
       }
-    });
+    };
+    chart.timeScale().subscribeVisibleLogicalRangeChange(onRange);
+    // The window stats are amounts in the displayed currency: recompute them when the series
+    // is replaced (currency switch, refresh) even if the visible range did not move.
+    rangeChangedRef.current = () => onRange(chart.timeScale().getVisibleLogicalRange());
 
     chart.subscribeCrosshairMove((param) => {
       if (!param.time || !param.point) { setTip(null); return; }
@@ -299,23 +246,23 @@ const PerformanceChart = () => {
     if (!chart || !main || !benchS || pts.length === 0) return;
     const asPct = pctModeRef.current;
     const base = pts[Math.min(pts.length - 1, Math.max(0, baseIdxRef.current))];
-    const money = (v: number) => (currency === 'USD' ? v : convert(v));
     main.setData(pts.map((p) => ({
       time: p.date as Time,
-      value: asPct ? (returnPct(p, base) ?? 0) : money(p.total),
+      value: asPct ? (returnPct(p, base) ?? 0) : p.total,
     })));
+    investedRef.current?.setData(asPct ? [] : pts.filter((p) => p.cumDep > 0).map((p) => ({ time: p.date as Time, value: p.cumDep })));
     benchS.setData(pts
       .filter((p) => p.benchVal != null && (!asPct || returnPct(p, base, true) != null))
       .map((p) => ({
         time: p.date as Time,
-        value: asPct ? returnPct(p, base, true)! : money(p.benchVal!),
+        value: asPct ? returnPct(p, base, true)! : p.benchVal!,
       })));
     chart.applyOptions({
       localization: {
-        locale: 'cs-CZ',
+        locale: currentLocale(),
         priceFormatter: (v: number) => asPct
-          ? `${v >= 0 ? '+' : ''}${v.toFixed(0)} %`
-          : hidden ? '••••' : (currency === 'CZK' ? `${(v / 1_000_000).toFixed(1)}M` : `$${(v / 1000).toFixed(0)}k`),
+          ? fmtPercent(v, 0, true)
+          : hidden ? '••••' : (currency === 'CZK' ? `${(v / 1_000_000).toFixed(2)}M` : `$${(v / 1000).toFixed(0)}k`),
       },
     });
   };
@@ -327,8 +274,9 @@ const PerformanceChart = () => {
     // Re-apply the active preset window after every data (re)load. A custom zoom/pan
     // (range === '') is left untouched so the user's view survives price refreshes.
     if (rangeRef.current) setWindow(rangeRef.current);
+    rangeChangedRef.current();
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [points, currency, convert, hidden, pctMode]);
+  }, [points, hidden, pctMode]);
 
   useEffect(() => { benchRef.current?.applyOptions({ visible: showBench }); }, [showBench]);
 
@@ -340,52 +288,55 @@ const PerformanceChart = () => {
 
   // "VŠE" (full window) shows the same deposit-based figures as the header so the two
   // prominent totals are identical; any other window shows the re-based window return.
+  // Both are in the displayed currency.
   const useAll = stats.isFull && portfolio.netDepositsUsd != null;
-  const delta = useAll ? portfolio.totalProfit : stats.delta;
-  const deltaPct = useAll ? portfolio.totalReturnPct : stats.pct;
+  const delta = useAll ? pick(portfolio.totalProfit, portfolio.totalProfitCzk) : stats.delta;
+  // The % is always time-weighted (as on Výnosy); the amount above stays profit vs. money in.
+  const deltaPct = stats.pct;
   const positive = delta >= 0;
   const hasBench = points.some((p) => p.benchVal != null);
 
-  const fmtMoney = (v: number) => hidden ? (currency === 'USD' ? '$••••' : '•••• Kč') : currency === 'USD'
+  const fmtMoney = (v: number) => hidden ? (currency === 'USD' ? '$••••' : currentLang() === 'en' ? 'CZK ••••' : '•••• Kč') : currency === 'USD'
     ? `$${v.toLocaleString('en-US', { maximumFractionDigits: 0 })}`
-    : `${v.toLocaleString('cs-CZ', { maximumFractionDigits: 0 })} Kč`;
+    : fmtCzk(v);
+  const rangeLabel = (k: typeof timeRanges[number]) => (k === '1R' ? t('perf.range.1y') : k === '5R' ? t('perf.range.5y') : k === 'VŠE' ? t('perf.range.all') : k);
 
   return (
-    <div className="gradient-card rounded-2xl border border-border p-5 sm:p-6 animate-fade-in-up hover-lift">
+    <div className={embedded ? '' : 'surface-card rounded-3xl border p-5 sm:p-6 animate-fade-in-up'}>
       <div className="flex items-start justify-between flex-wrap gap-3 mb-5">
         <div>
-          <h2 className="font-display font-bold text-lg sm:text-xl text-foreground">Vývoj portfolia</h2>
+          {!embedded && <h2 className="font-display font-semibold text-[15px] text-foreground">{t('perf.title')}</h2>}
           <div className="mt-1.5 flex items-center gap-3 flex-wrap">
             <span className={`inline-flex items-center gap-1 text-sm font-semibold ${positive ? 'text-profit' : 'text-loss'}`}>
               {positive ? <TrendingUp className="w-4 h-4" /> : <TrendingDown className="w-4 h-4" />}
-              {positive ? '+' : ''}{format(delta)} ({formatPct(deltaPct)})
+              {positive ? '+' : ''}{formatAt(delta, delta)} ({formatPct(deltaPct)})
             </span>
             {hasBench && showBench && stats.benchPct != null && (
               <span className="inline-flex items-center gap-1 text-xs px-2 py-0.5 rounded-full border bg-info/10 border-info/30 text-info">
-                S&P 500 {stats.benchPct >= 0 ? '+' : ''}{stats.benchPct.toFixed(2)}%
+                S&P 500 {fmtPercent(stats.benchPct, 2, true)}
               </span>
             )}
             {!stats.isFull && (
-              <span className="text-[10px] uppercase tracking-wider text-muted-foreground">výběr období</span>
+              <span className="text-[10px] uppercase tracking-wider text-muted-foreground">{t('perf.selection')}</span>
             )}
           </div>
           {/* Spelling out the split keeps the curve reconcilable with the big number in the
               page header instead of quietly differing by the cash balance. */}
-          <p className="mt-1 text-[11px] text-muted-foreground tabular-nums">
-            Pozice {fmtMoney(currency === 'USD' ? holdingsUsd : convert(holdingsUsd))}
-            {cashUsd > 0.5 && <> · hotovost {fmtMoney(currency === 'USD' ? cashUsd : convert(cashUsd))}</>}
-            {' '}· celkem <span className="text-foreground font-semibold">{fmtMoney(currency === 'USD' ? portfolio.totalValue : convert(portfolio.totalValue))}</span>
-          </p>
+          {!embedded && <p className="mt-1 text-[11px] text-muted-foreground tabular-nums">
+            {t('perf.positions')} {fmtMoney(currency === 'USD' ? holdingsUsd : convert(holdingsUsd))}
+            {cashUsd > 0.5 && <> · {t('perf.cash')} {fmtMoney(currency === 'USD' ? cashUsd : convert(cashUsd))}</>}
+            {' '}· {t('perf.total')} <span className="text-foreground font-semibold">{fmtMoney(currency === 'USD' ? portfolio.totalValue : convert(portfolio.totalValue))}</span>
+          </p>}
         </div>
         <div className="flex items-center gap-2 flex-wrap">
           <div className="flex rounded-md border border-border overflow-hidden">
-            {([['money', currency === 'USD' ? '$' : 'Kč'], ['pct', '%']] as const).map(([m, label]) => (
+            {([['money', currency === 'USD' ? '$' : currentLang() === 'en' ? 'CZK' : 'Kč'], ['pct', '%']] as const).map(([m, label]) => (
               <button
                 key={m}
                 onClick={() => setPctMode(m === 'pct')}
                 title={m === 'pct'
-                  ? 'Zobrazit zhodnocení v procentech od začátku vybraného období'
-                  : 'Zobrazit hodnotu portfolia v penězích'}
+                  ? t('perf.showPct')
+                  : t('perf.showMoney')}
                 className={`px-2.5 py-1 text-[11px] font-bold transition-colors ${
                   (m === 'pct') === pctMode
                     ? 'bg-primary text-primary-foreground'
@@ -406,30 +357,31 @@ const PerformanceChart = () => {
               S&P 500
             </button>
           )}
-          <div className="flex gap-1 p-1 rounded-xl bg-background/60 border border-border">
+          <div className="flex max-w-full gap-1 overflow-x-auto p-1 rounded-full bg-white/[0.04] border border-white/10">
             {timeRanges.map((r) => (
               <button
                 key={r}
                 onClick={() => applyRange(r)}
-                className={`px-3 py-1.5 text-xs font-semibold rounded-lg transition-all ${
+                className={`px-3 py-1 text-xs font-medium rounded-full transition-all ${
                   range === r
-                    ? 'bg-primary text-primary-foreground shadow-md shadow-primary/20'
+                    ? 'bg-foreground text-background font-semibold'
                     : 'text-muted-foreground hover:text-foreground'
                 }`}
               >
-                {r}
+                {rangeLabel(r)}
               </button>
             ))}
           </div>
         </div>
       </div>
 
-      <div className="relative h-[340px] min-w-0">
+      <div className={`relative ${embedded ? 'h-[260px]' : 'h-[340px]'} min-w-0`}>
+        {/* The chart container is always mounted — the chart is created once, on mount. */}
+        <div ref={containerRef} className="absolute inset-0" />
         {points.length === 0 ? (
-          <div className="h-full flex items-center justify-center text-sm text-muted-foreground">Načítám data…</div>
+          <div className="absolute inset-0 flex items-center justify-center text-sm text-muted-foreground">{t('common.loading')}</div>
         ) : (
           <>
-            <div ref={containerRef} className="absolute inset-0" />
             {tip && (
               // Pinned to the side the cursor is NOT on. Following the cursor meant the box
               // sat on top of the very point being read, so you could not see where on the
@@ -440,15 +392,15 @@ const PerformanceChart = () => {
                 }`}
               >
                 <p className="text-[10px] uppercase tracking-wider text-muted-foreground font-medium mb-1.5">
-                  {new Date(tip.date).toLocaleDateString('cs-CZ', { day: 'numeric', month: 'short', year: 'numeric' })}
+                  {new Date(tip.date).toLocaleDateString(currentLocale(), { day: 'numeric', month: 'short', year: 'numeric' })}
                 </p>
                 <div className="flex items-center justify-between gap-4">
                   <span className="text-xs text-muted-foreground">Portfolio</span>
                   <span className="text-right">
-                    <span className="font-display font-bold text-sm tabular-nums text-foreground">{fmtMoney(currency === 'USD' ? tip.val : convert(tip.val))}</span>
+                    <span className="font-display font-bold text-sm tabular-nums text-foreground">{fmtMoney(tip.val)}</span>
                     {(pctMode ? tip.wpct : tip.pct) != null && (
                       <span className={`ml-1.5 text-[10px] font-semibold tabular-nums ${(pctMode ? tip.wpct! : tip.pct!) >= 0 ? 'text-profit' : 'text-loss'}`}>
-                        {(pctMode ? tip.wpct! : tip.pct!) >= 0 ? '+' : ''}{(pctMode ? tip.wpct! : tip.pct!).toFixed(1)}%
+                        {fmtPercent(pctMode ? tip.wpct! : tip.pct!, 1, true)}
                       </span>
                     )}
                   </span>
@@ -457,31 +409,33 @@ const PerformanceChart = () => {
                   <div className="flex items-center justify-between gap-4 mt-1 pt-1 border-t border-border/40">
                     <span className="text-xs text-muted-foreground">S&P 500</span>
                     <span className="text-right">
-                      <span className="font-display font-bold text-sm tabular-nums text-foreground">{fmtMoney(currency === 'USD' ? tip.bval : convert(tip.bval))}</span>
+                      <span className="font-display font-bold text-sm tabular-nums text-foreground">{fmtMoney(tip.bval)}</span>
                       {(pctMode ? tip.wbpct : tip.bpct) != null && (
                         <span className={`ml-1.5 text-[10px] font-semibold tabular-nums ${(pctMode ? tip.wbpct! : tip.bpct!) >= 0 ? 'text-profit' : 'text-loss'}`}>
-                          {(pctMode ? tip.wbpct! : tip.bpct!) >= 0 ? '+' : ''}{(pctMode ? tip.wbpct! : tip.bpct!).toFixed(1)}%
+                          {fmtPercent(pctMode ? tip.wbpct! : tip.bpct!, 1, true)}
                         </span>
                       )}
                     </span>
                   </div>
                 )}
                 <p className="mt-1 text-[9px] text-muted-foreground">
-                  {pctMode ? 'od začátku zvoleného období' : 'zhodnocení vůči vloženému'}
+                  {pctMode ? t('perf.tipPct') : t('perf.tipMoney')}
                 </p>
               </div>
             )}
           </>
         )}
       </div>
+      {embedded ? (
+        <p className="mt-2 text-[11px] text-muted-foreground">
+          <span className="inline-block w-4 border-t border-dashed border-muted-foreground align-middle mr-1.5" />{t('perf.legendEmbedded')}
+        </p>
+      ) : (
       <p className="mt-2 text-[10px] text-muted-foreground">
-        Křivka = celá hodnota portfolia (pozice + hotovost), takže prodej pozice ji neshodí — peníze
-        zůstanou vidět v hotovosti. Hotovost se zaznamenává od 4. 8. 2026; starší dny ji nemají uloženou
-        a ukazují jen pozice. Přepínačem <span className="font-semibold">%</span> uvidíš zhodnocení od začátku
-        zvoleného období; S&amp;P 500 je stejná částka ve stejné dny v indexu. Kolečkem / pinchem přiblížíš,
-        tažením posouváš. Návratnost nahoře se přepočítává podle viditelného výseku.
-        {' '}Graf: <a href="https://www.tradingview.com/lightweight-charts/" target="_blank" rel="noopener noreferrer" className="underline hover:text-foreground">TradingView Lightweight Charts</a>.
+        {t('perf.footnote')}
+        {' '}{t('perf.chartBy')} <a href="https://www.tradingview.com/lightweight-charts/" target="_blank" rel="noopener noreferrer" className="underline hover:text-foreground">TradingView Lightweight Charts</a>.
       </p>
+      )}
     </div>
   );
 };

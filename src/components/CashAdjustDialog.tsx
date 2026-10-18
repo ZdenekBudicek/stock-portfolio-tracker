@@ -1,3 +1,5 @@
+import { useTranslation } from "react-i18next";
+import { currentLocale } from "@/i18n";
 import { useState } from "react";
 import { Plus, Minus, Wallet } from "lucide-react";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from "@/components/ui/dialog";
@@ -15,6 +17,7 @@ import { useToast } from "@/hooks/use-toast";
  * external deposits must be entered by hand.
  */
 const CashAdjustDialog = () => {
+  const { t } = useTranslation();
   const [open, setOpen] = useState(false);
   const [mode, setMode] = useState<"DEPOSIT" | "WITHDRAW">("DEPOSIT");
   const [amount, setAmount] = useState("");
@@ -36,7 +39,7 @@ const CashAdjustDialog = () => {
 
   const submit = async () => {
     if (!amountN || amountN <= 0) {
-      toast({ title: "Zadej částku", variant: "destructive" });
+      toast({ title: t('legacy.cashAdjustDialog.enterAnAmount'), variant: "destructive" });
       return;
     }
     try {
@@ -47,16 +50,16 @@ const CashAdjustDialog = () => {
         price_usd: 1,
         fee_usd: 0,
         executed_at: new Date(date).toISOString(),
-        note: note || (mode === "DEPOSIT" ? "Vklad" : "Výběr"),
+        note: note || (mode === "DEPOSIT" ? t('legacy.cashAdjustDialog.deposit') : t('legacy.cashAdjustDialog.withdrawal')),
       });
       toast({
-        title: mode === "DEPOSIT" ? "Vklad zaznamenán" : "Výběr zaznamenán",
-        description: `${format(amountN)} → CASH ${format(cashAfter)}`,
+        title: mode === "DEPOSIT" ? t('legacy.cashAdjustDialog.depositRecorded') : t('legacy.cashAdjustDialog.withdrawalRecorded'),
+        description: t('legacy.cashAdjustDialog.cashDetail', { amount: format(amountN), balance: format(cashAfter) }),
       });
       setAmount(""); setNote(""); setDate(new Date().toISOString().slice(0, 16));
       setOpen(false);
     } catch (e: any) {
-      toast({ title: "Chyba", description: e.message, variant: "destructive" });
+      toast({ title: t('legacy.cashAdjustDialog.error'), description: t('legacy.cashAdjustDialog.errorDetail', { message: e.message }), variant: "destructive" });
     }
   };
 
@@ -64,12 +67,11 @@ const CashAdjustDialog = () => {
     <Dialog open={open} onOpenChange={setOpen}>
       <DialogTrigger asChild>
         <Button size="sm" variant="outline" className="gap-1.5">
-          <Wallet className="w-3.5 h-3.5" /> Hotovost
-        </Button>
+          <Wallet className="w-3.5 h-3.5" /> {t('legacy.cashAdjustDialog.cash')}</Button>
       </DialogTrigger>
       <DialogContent className="max-w-sm">
         <DialogHeader>
-          <DialogTitle>Vklad / Výběr hotovosti</DialogTitle>
+          <DialogTitle>{t('legacy.cashAdjustDialog.cashDepositWithdrawal')}</DialogTitle>
         </DialogHeader>
 
         <div className="flex rounded-lg border border-border overflow-hidden">
@@ -79,21 +81,19 @@ const CashAdjustDialog = () => {
               mode === "DEPOSIT" ? "bg-profit text-background" : "text-muted-foreground hover:bg-accent"
             }`}
           >
-            <Plus className="w-4 h-4" /> Vklad
-          </button>
+            <Plus className="w-4 h-4" /> {t('legacy.cashAdjustDialog.deposit')}</button>
           <button
             onClick={() => setMode("WITHDRAW")}
             className={`flex-1 py-2 text-sm font-bold transition-all flex items-center justify-center gap-1.5 ${
               mode === "WITHDRAW" ? "bg-loss text-background" : "text-muted-foreground hover:bg-accent"
             }`}
           >
-            <Minus className="w-4 h-4" /> Výběr
-          </button>
+            <Minus className="w-4 h-4" /> {t('legacy.cashAdjustDialog.withdrawal')}</button>
         </div>
 
         <div className="grid gap-3">
           <div>
-            <label className="text-xs text-muted-foreground font-semibold uppercase tracking-wide">Částka</label>
+            <label className="text-xs text-muted-foreground font-semibold uppercase tracking-wide">{t('legacy.cashAdjustDialog.amount')}</label>
             <div className="flex gap-2">
               <Input type="number" step="0.01" value={amount} onChange={(e) => setAmount(e.target.value)} placeholder="10000" className="flex-1" />
               <select value={ccy} onChange={(e) => setCcy(e.target.value as any)} className="px-2 rounded-md border border-border bg-background text-sm">
@@ -102,21 +102,21 @@ const CashAdjustDialog = () => {
               </select>
             </div>
             {ccy === "CZK" && inputN > 0 && (
-              <p className="text-[10px] text-muted-foreground mt-1">≈ ${amountN.toFixed(2)} (kurz {(usdCzk || 23).toFixed(2)})</p>
+              <p className="text-[10px] text-muted-foreground mt-1">≈ ${amountN.toLocaleString(currentLocale(), { minimumFractionDigits: 2, maximumFractionDigits: 2 })} {t('legacy.cashAdjustDialog.rate')}{" "}{(usdCzk || 23).toLocaleString(currentLocale(), { minimumFractionDigits: 2, maximumFractionDigits: 2 })})</p>
             )}
           </div>
           <div>
-            <label className="text-xs text-muted-foreground font-semibold uppercase tracking-wide">Datum</label>
+            <label className="text-xs text-muted-foreground font-semibold uppercase tracking-wide">{t('legacy.cashAdjustDialog.date')}</label>
             <Input type="datetime-local" value={date} onChange={(e) => setDate(e.target.value)} />
           </div>
           <div>
-            <label className="text-xs text-muted-foreground font-semibold uppercase tracking-wide">Poznámka</label>
-            <Input value={note} onChange={(e) => setNote(e.target.value)} placeholder="(volitelné)" />
+            <label className="text-xs text-muted-foreground font-semibold uppercase tracking-wide">{t('legacy.cashAdjustDialog.note')}</label>
+            <Input value={note} onChange={(e) => setNote(e.target.value)} placeholder={t('legacy.cashAdjustDialog.optional')} />
           </div>
 
           <div className="rounded-lg border border-border bg-card/50 p-3 text-xs">
             <div className="flex justify-between">
-              <span className="text-muted-foreground">CASH před / po</span>
+              <span className="text-muted-foreground">{t('legacy.cashAdjustDialog.cashBeforeAfter')}</span>
               <span className={`font-mono font-bold ${cashAfter < 0 ? "text-loss" : ""}`}>
                 {format(cash)} → {format(cashAfter)}
               </span>
@@ -124,7 +124,7 @@ const CashAdjustDialog = () => {
           </div>
 
           <Button onClick={submit} disabled={add.isPending || !amountN} className="w-full">
-            {add.isPending ? "Ukládám..." : mode === "DEPOSIT" ? "Připsat vklad" : "Odečíst výběr"}
+            {add.isPending ? t('legacy.cashAdjustDialog.saving') : mode === "DEPOSIT" ? t('legacy.cashAdjustDialog.addDeposit') : t('legacy.cashAdjustDialog.deductWithdrawal')}
           </Button>
         </div>
       </DialogContent>

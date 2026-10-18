@@ -11,7 +11,14 @@
 // Only auto rows are deleted/recomputed each run, so the exact T212 API dividends are never
 // touched. Past auto (non-T212) and the T212-API row for the same ex-date coexist; the UI
 // merges same-ticker rows within a month and sums them, so a stock shows once per dividend.
+//
+// Who may run what. The scheduler (service-role key / CRON_SECRET, see _shared/auth.ts) runs
+// it for every user. A signed-in user — the "Sync" buttons in Dividendy and Kalendář —
+// runs it for THEMSELVES only: their positions, trades and auto dividends, plus the shared
+// earnings calendar of their own tickers. Anything else (the public anon key, no token) is
+// refused: it used to delete and re-insert every user's auto dividends for any caller.
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2.45.0";
+import { isSchedulerToken } from "../_shared/auth.ts";
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
@@ -44,10 +51,25 @@ function parseAmount(s: string | undefined | null): number | null {
 Deno.serve(async (req) => {
   if (req.method === "OPTIONS") return new Response("ok", { headers: corsHeaders });
 
-  const supabase = createClient(
-    Deno.env.get("SUPABASE_URL")!,
-    Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!,
-  );
+  const url = Deno.env.get("SUPABASE_URL")!;
+  const serviceKey = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!;
+  const auth = req.headers.get("Authorization");
+  // null = every user (scheduler); otherwise the one signed-in user this run is limited to.
+  let onlyUser: string | null = null;
+  if (!isSchedulerToken(auth, [serviceKey, Deno.env.get("CRON_SECRET")])) {
+    const userClient = createClient(url, Deno.env.get("SUPABASE_ANON_KEY")!, { global: { headers: { Authorization: auth ?? "" } } });
+    const { data: userData } = await userClient.auth.getUser();
+    onlyUser = userData.user?.id ?? null;
+    if (!onlyUser) {
+      return new Response(JSON.stringify({ error: "Not authenticated" }), {
+        status: 401, headers: { ...corsHeaders, "Content-Type": "application/json" },
+      });
+    }
+  }
+  // Narrows a user-data query to `onlyUser` (no-op for the scheduler's all-users run).
+  const scoped = (q: any) => (onlyUser ? q.eq("user_id", onlyUser) : q);
+
+  const supabase = createClient(url, serviceKey);
 
   // PostgREST caps a single select at 1000 rows; heavy accounts have more, so page through.
   const fetchAll = async (make: () => any) => {
@@ -62,8 +84,8 @@ Deno.serve(async (req) => {
   };
 
   try {
-    // All positions (every user) — used to know which tickers to fetch at all.
-    const positions = await fetchAll(() => supabase.from("positions").select("ticker, shares, user_id").neq("type", "Cash"));
+    // All positions (every user, or just the caller) — used to know which tickers to fetch at all.
+    const positions = await fetchAll(() => scoped(supabase.from("positions").select("ticker, shares, user_id").neq("type", "Cash")));
     const heldTickers = Array.from(new Set(
       (positions || []).filter((p: any) => Number(p.shares) > 0).map((p: any) => String(p.ticker)),
     ));
@@ -71,10 +93,10 @@ Deno.serve(async (req) => {
 
     // All trades with broker + user, so we can compute NON-T212 holdings per user/ticker
     // (T212 dividends come from its own API; we must not double-count them here).
-    const allTx = await fetchAll(() => supabase
+    const allTx = await fetchAll(() => scoped(supabase
       .from("transactions")
       .select("ticker, side, shares, executed_at, broker, ext_id, user_id")
-      .neq("ticker", "CASH")
+      .neq("ticker", "CASH"))
       .order("executed_at", { ascending: true }));
     const nonT212 = (allTx || []).filter((t: any) => {
       const ext = String(t.ext_id ?? "");
@@ -157,27 +179,42 @@ Deno.serve(async (req) => {
 
     // ===== DIVIDENDS (per user, non-T212 holdings) =====
     // Seed cadence from existing PAST dividends per user+ticker (resilient to provider gaps).
-    const existingDivs = await fetchAll(() => supabase
-      .from("dividends").select("ticker, ex_date, pay_date, amount_per_share, user_id, broker").order("ex_date", { ascending: true }));
+    const existingDivs = await fetchAll(() => scoped(supabase
+      .from("dividends").select("ticker, ex_date, pay_date, amount_per_share, user_id, broker")).order("ex_date", { ascending: true }));
     const existingByUT = new Map<string, any[]>();
     // Keys (user|ticker|ex_date) that ALREADY exist from ANY source (T212 API or a broker
     // statement) — we never duplicate those; auto only fills what's genuinely missing.
     const existingKeys = new Set<string>();
+    // A statement records only the PAYMENT date (stored as ex_date too), while this function
+    // stores the real ex-date — so comparing ex_dates never matched and the same dividend was
+    // kept twice. Recorded payment dates per user+ticker are matched by a window instead.
+    const recordedPayDates = new Map<string, string[]>();
+    const normT = (t: string) => String(t).toUpperCase().split(".")[0];
     for (const d of (existingDivs || [])) {
       // Only statement-imported rows (non-T212, non-auto) block an auto insert: auto-past
       // covers ONLY non-T212 shares, so it must coexist with the T212-API row for the same
       // ex-date (the display sums them). Blocking on T212 would drop the non-T212 portion.
       // Our own 'auto' rows are deleted and recomputed each run, so they never block.
       const bk = String(d.broker ?? "").toLowerCase();
-      if (bk !== "auto" && bk !== "t212") existingKeys.add(`${d.user_id}|${d.ticker}|${d.ex_date}`);
+      if (bk !== "auto" && bk !== "t212") {
+        existingKeys.add(`${d.user_id}|${d.ticker}|${d.ex_date}`);
+        const rk = `${d.user_id}|${normT(d.ticker)}`;
+        (recordedPayDates.get(rk) || recordedPayDates.set(rk, []).get(rk)!).push(d.pay_date ?? d.ex_date);
+      }
       if (String(d.broker ?? "").toUpperCase() === "T212") continue; // T212 handled by its API
       const key = `${d.user_id}|${d.ticker}`;
       (existingByUT.get(key) || existingByUT.set(key, []).get(key)!).push(d);
     }
     const pushedKeys = new Set<string>();
+    const shiftDays = (day: string, n: number) => dateStr(new Date(new Date(day).getTime() + n * 86400000));
     const pushDiv = (row: any) => {
       const k = `${row.user_id}|${row.ticker}|${row.ex_date}`;
       if (existingKeys.has(k) || pushedKeys.has(k)) return; // statement/T212/dup already covers it
+      // Same window as dedupeDividends (src/lib/dividendTax.ts): a recorded payment from 3 days
+      // before the ex-date to 10 days after the pay date is this dividend.
+      const from = shiftDays(row.ex_date, -3);
+      const to = shiftDays(row.pay_date ?? shiftDays(row.ex_date, 40), 10);
+      if ((recordedPayDates.get(`${row.user_id}|${normT(row.ticker)}`) ?? []).some((x) => x >= from && x <= to)) return;
       pushedKeys.add(k);
       dividendInserts.push(row);
     };

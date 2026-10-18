@@ -90,8 +90,11 @@ describe("Revolut corporate actions", () => {
   it("merger-stock positive => BUY (receive)", () => {
     expect(p.find((r) => r.ticker === "TTWO")).toMatchObject({ kind: "TRADE", side: "BUY", shares: 1.64762699 });
   });
-  it("merger-cash => deposit", () => {
-    expect(p.find((r) => r.kind === "DEPOSIT")).toMatchObject({ amount_usd: 340.83 });
+  it("merger-cash => sale proceeds of the old ticker, not a deposit", () => {
+    expect(p.find((r) => r.kind === "DEPOSIT")).toBeUndefined();
+    expect(p.find((r) => r.external_id.includes(":mergercash:"))).toMatchObject({
+      kind: "TRADE", ticker: "AVLR", side: "SELL", shares: 0, price_usd: 340.83,
+    });
   });
   it("stock split => BUY at price 0", () => {
     expect(p.find((r) => r.ticker === "TSLA")).toMatchObject({ kind: "TRADE", side: "BUY", shares: 4.16447036, price_usd: 0 });

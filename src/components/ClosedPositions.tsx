@@ -1,67 +1,56 @@
+import { useTranslation } from "react-i18next";
+import { currentLocale } from "@/i18n";
 import { useMemo, useState } from 'react';
 import { Archive, ChevronDown } from 'lucide-react';
 import { useTransactions, type DbTransaction } from '@/hooks/usePortfolio';
+import { runFifo, isRealTradeTx } from '@/lib/fifo';
 import { useCurrency } from '@/contexts/CurrencyContext';
 import { formatPct } from '@/data/portfolio';
+import { TickerLogo } from '@/components/TickerLogo';
 
 interface ClosedRow {
   ticker: string;
   sharesSold: number;
   proceeds: number;   // USD received on sells (net of fees)
-  costSold: number;   // FIFO cost of the sold shares
+  costSold: number;   // FIFO cost of the sold shares incl. buy fees
   realized: number;   // proceeds − costSold
   firstBuy: string;
   lastSell: string;
+  /** Shares sold without a matching lot — left out of the numbers above. */
+  unmatched: number;
 }
 
-/** FIFO across each ticker's real trades; a ticker whose net shares end at ~0 is closed. */
+/**
+ * Tickers fully closed across every broker account, from the shared FIFO (the same lots the
+ * header and the tax report use). Closed = nothing beyond dust left open AND something sold.
+ */
 function computeClosed(txs: DbTransaction[]): ClosedRow[] {
-  const byTicker = new Map<string, DbTransaction[]>();
-  for (const t of txs) {
-    if (t.ticker === 'CASH') continue;
-    const ext = String((t as any).ext_id ?? '');
-    if (ext.includes(':adj:') || ext.includes(':pos:')) continue; // reconcile artifacts
-    if (!byTicker.has(t.ticker)) byTicker.set(t.ticker, []);
-    byTicker.get(t.ticker)!.push(t);
+  const { disposals, openLots, warnings } = runFifo(txs.filter(isRealTradeTx));
+  const open = new Map<string, number>();
+  for (const l of openLots) open.set(l.ticker, (open.get(l.ticker) ?? 0) + l.shares);
+  const unmatched = new Map<string, number>();
+  for (const w of warnings) if (w.kind === 'unmatched-sell') unmatched.set(w.ticker, (unmatched.get(w.ticker) ?? 0) + (w.shares ?? 0));
+  const rows = new Map<string, ClosedRow>();
+  for (const d of disposals) {
+    const r = rows.get(d.ticker) ?? { ticker: d.ticker, sharesSold: 0, proceeds: 0, costSold: 0, realized: 0, firstBuy: '', lastSell: '', unmatched: unmatched.get(d.ticker) ?? 0 };
+    r.sharesSold += d.shares;
+    r.proceeds += d.proceedsUsd - d.sellFeeUsd;
+    r.costSold += d.costUsd;
+    r.realized += d.gainUsd;
+    const bought = d.acquiredAt.slice(0, 10), sold = d.soldAt.slice(0, 10);
+    if (!r.firstBuy || bought < r.firstBuy) r.firstBuy = bought;
+    if (sold > r.lastSell) r.lastSell = sold;
+    rows.set(d.ticker, r);
   }
-  const out: ClosedRow[] = [];
-  for (const [ticker, list] of byTicker) {
-    const sorted = [...list].sort((a, b) => a.executed_at.localeCompare(b.executed_at));
-    const open: { shares: number; cost: number }[] = [];
-    let sharesSold = 0, proceeds = 0, costSold = 0, net = 0;
-    let firstBuy = '', lastSell = '';
-    for (const t of sorted) {
-      if (t.side === 'BUY') {
-        open.push({ shares: t.shares, cost: t.price_usd });
-        if (!firstBuy) firstBuy = t.executed_at.slice(0, 10);
-        net += t.shares;
-      } else {
-        let toSell = t.shares;
-        while (toSell > 1e-9 && open.length > 0) {
-          const lot = open[0];
-          const take = Math.min(toSell, lot.shares);
-          costSold += take * lot.cost;
-          lot.shares -= take;
-          toSell -= take;
-          if (lot.shares <= 1e-9) open.shift();
-        }
-        proceeds += t.shares * t.price_usd - (t.fee_usd || 0);
-        sharesSold += t.shares;
-        lastSell = t.executed_at.slice(0, 10);
-        net -= t.shares;
-      }
-    }
-    // Fully closed = nothing (beyond dust) left AND something was actually sold.
-    if (Math.abs(net) <= 0.01 && sharesSold > 1e-6 && lastSell) {
-      out.push({ ticker, sharesSold, proceeds, costSold, realized: proceeds - costSold, firstBuy, lastSell });
-    }
-  }
-  return out.sort((a, b) => b.lastSell.localeCompare(a.lastSell));
+  return [...rows.values()]
+    .filter((r) => (open.get(r.ticker) ?? 0) <= 0.01 && r.sharesSold > 1e-6)
+    .sort((a, b) => b.lastSell.localeCompare(a.lastSell));
 }
 
-const fmtDate = (d: string) => { const [y, m, day] = d.split('-'); return `${day}.${m}.${y}`; };
+const fmtDate = (d: string) => new Date(d + 'T12:00:00Z').toLocaleDateString(currentLocale(), { day: '2-digit', month: '2-digit', year: 'numeric', timeZone: 'UTC' }).replace(/\s/g, '');
 
 const ClosedPositions = () => {
+  const { t } = useTranslation();
   const { data: txs = [] } = useTransactions();
   const { format } = useCurrency();
   const [expanded, setExpanded] = useState(false);
@@ -77,8 +66,7 @@ const ClosedPositions = () => {
     <div className="rounded-2xl border border-border bg-card/60 backdrop-blur p-5 sm:p-6 animate-fade-in-up">
       <div className="flex items-center justify-between flex-wrap gap-2 mb-4">
         <h2 className="font-display text-lg font-bold flex items-center gap-2">
-          <Archive className="w-5 h-5 text-primary" /> Uzavřené pozice
-          <span className="text-xs font-normal text-muted-foreground">· {rows.length} akcií · {winners} v zisku</span>
+          <Archive className="w-5 h-5 text-primary" /> {t('legacy.closedPositions.closedPositions')}<span className="text-xs font-normal text-muted-foreground">· {t('legacy.closedPositions.stockCount', { count: rows.length })}{" "}{winners} {t('legacy.closedPositions.profitable')}</span>
         </h2>
         <div className={`font-display font-bold ${totalRealized >= 0 ? 'text-profit' : 'text-loss'}`}>
           {totalRealized >= 0 ? '+' : ''}{format(totalRealized)}
@@ -89,19 +77,24 @@ const ClosedPositions = () => {
         <table className="w-full text-xs">
           <thead>
             <tr className="text-left text-muted-foreground border-b border-border/60">
-              <th className="py-2">Ticker</th>
-              <th className="text-right">Prodáno ks</th>
-              <th className="text-right">Náklady</th>
-              <th className="text-right">Výnos z prodeje</th>
-              <th className="text-right">Realizovaný zisk</th>
-              <th className="text-right">Drženo</th>
+              <th className="py-2">{t('legacy.closedPositions.ticker')}</th>
+              <th className="text-right">{t('legacy.closedPositions.sharesSold')}</th>
+              <th className="text-right">{t('legacy.closedPositions.costBasis')}</th>
+              <th className="text-right">{t('legacy.closedPositions.saleProceeds')}</th>
+              <th className="text-right">{t('legacy.closedPositions.realizedGain')}</th>
+              <th className="text-right">{t('legacy.closedPositions.heldFor')}</th>
             </tr>
           </thead>
           <tbody>
             {shown.map((r) => (
               <tr key={r.ticker} className="border-b border-border/30 hover:bg-accent/20 transition-colors">
-                <td className="py-2 font-mono font-bold">{r.ticker}</td>
-                <td className="text-right tabular-nums">{r.sharesSold.toLocaleString('cs-CZ', { maximumFractionDigits: 2 })}</td>
+                <td className="py-2 font-mono font-bold">
+                  <span className="inline-flex items-center gap-2"><TickerLogo ticker={r.ticker} size="xs" />{r.ticker}</span>
+                  {r.unmatched > 1e-6 && (
+                    <span className="ml-1 font-sans font-normal text-[10px] text-warning" title={t('legacy.closedPositions.sharesSoldWithoutAMatchingPurchaseExcludedFrom', { v0: r.unmatched.toLocaleString(currentLocale(), { maximumFractionDigits: 4 }) })}>⚠</span>
+                  )}
+                </td>
+                <td className="text-right tabular-nums">{r.sharesSold.toLocaleString(currentLocale(), { maximumFractionDigits: 2 })}</td>
                 <td className="text-right tabular-nums text-muted-foreground">{format(r.costSold)}</td>
                 <td className="text-right tabular-nums">{format(r.proceeds)}</td>
                 <td className={`text-right tabular-nums font-bold ${r.realized >= 0 ? 'text-profit' : 'text-loss'}`}>
@@ -122,13 +115,12 @@ const ClosedPositions = () => {
           onClick={() => setExpanded(!expanded)}
           className="w-full flex items-center justify-center gap-1.5 py-2 mt-1 text-xs text-muted-foreground hover:text-foreground transition-colors"
         >
-          {expanded ? 'Zobrazit méně' : `Zobrazit všech ${rows.length}`}
+          {expanded ? t('legacy.closedPositions.showLess') : t('legacy.closedPositions.showAll', { v0: rows.length })}
           <ChevronDown className={`w-3.5 h-3.5 transition-transform ${expanded ? 'rotate-180' : ''}`} />
         </button>
       )}
       <p className="text-[10px] text-muted-foreground mt-2">
-        FIFO — realizovaný zisk = výnos z prodeje − pořizovací cena prodaných kusů. Bez reconcile korekcí.
-      </p>
+        {t('legacy.closedPositions.fifoWithinEachBrokerageAccountRealizedGainSale')}</p>
     </div>
   );
 };

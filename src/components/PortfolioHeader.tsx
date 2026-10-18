@@ -1,11 +1,12 @@
 import { useEffect, useState } from 'react';
-import { Area, AreaChart, ResponsiveContainer } from 'recharts';
+import { Area, AreaChart, ResponsiveContainer, YAxis } from 'recharts';
 import { TrendingUp, TrendingDown, RefreshCw, AlertCircle, Circle, Sparkles, LogOut, History, Eye, EyeOff } from 'lucide-react';
 import { useQueryClient } from '@tanstack/react-query';
 import { useCurrency } from '@/contexts/CurrencyContext';
 import { useAuth } from '@/contexts/AuthContext';
 import { useComputedPortfolio, useDailySnapshots, useLivePrices } from '@/hooks/usePortfolio';
 import { formatPct } from '@/data/portfolio';
+import { isUsMarketOpen } from '@/lib/marketHours';
 import QuickTradeDialog from '@/components/QuickTradeDialog';
 import CashAdjustDialog from '@/components/CashAdjustDialog';
 import ExportMenu from '@/components/ExportMenu';
@@ -13,13 +14,6 @@ import SplitsBanner from '@/components/SplitsBanner';
 import { supabase } from '@/integrations/supabase/client';
 import { toast } from 'sonner';
 
-/** US stock market open between 13:30–20:00 UTC, Mon–Fri (simplified, ignores holidays). */
-const isMarketOpen = (now: Date) => {
-  const day = now.getUTCDay();
-  if (day === 0 || day === 6) return false;
-  const minutes = now.getUTCHours() * 60 + now.getUTCMinutes();
-  return minutes >= 13 * 60 + 30 && minutes < 20 * 60;
-};
 
 const useNow = () => {
   const [now, setNow] = useState(new Date());
@@ -56,19 +50,21 @@ const Stat = ({ label, value, sub, accent, icon }: {
 );
 
 const PortfolioHeader = () => {
-  const { currency, setCurrency, format, hidden, toggleHidden } = useCurrency();
+  const { currency, setCurrency, format, formatAt, pick, hidden, toggleHidden } = useCurrency();
   const { user, signOut } = useAuth();
   const live = useLivePrices();
   const p = useComputedPortfolio();
   const { data: snapshots = [] } = useDailySnapshots();
   const now = useNow();
-  const marketOpen = isMarketOpen(now);
+  const marketOpen = isUsMarketOpen(now);
   const qc = useQueryClient();
 
   const dailyPositive = p.dailyReturn >= 0;
   // Total profit = current value − net deposits (honest "how much more I have than I put
   // in", includes realized gains from sold positions). Falls back to realized+unrealized.
-  const totalProfit = p.totalProfit;
+  // In CZK against the koruny actually put in, so the currency move is part of the result.
+  const totalProfit = pick(p.totalProfit, p.totalProfitCzk);
+  const unrealized = pick(p.unrealizedProfit, p.unrealizedProfitCzk);
   const prevValue = p.totalValue - p.dailyReturn;
   const dailyPctTotal = prevValue > 0 ? (p.dailyReturn / prevValue) * 100 : 0;
 
@@ -77,7 +73,16 @@ const PortfolioHeader = () => {
   // Sparkline from last 60 snapshots. Colour it by the DAILY change shown right next to it
   // (not the 60-day trend) — otherwise the line is red while "+x % dnes" is green, which
   // reads as a bug. The shape still reflects the 60-day history.
-  const spark = snapshots.slice(-60).map((s) => ({ v: currency === 'USD' ? s.value_usd : s.value_czk }));
+  // Whole portfolio like the number above it (positions + recorded cash, a day without a
+  // recorded balance keeps the last one), each day at its own rate in CZK, ending on today's
+  // live value. The Y axis starts at the lowest point — from 0 a ±5 % move was a flat line.
+  let lastCash = 0;
+  const spark = snapshots.slice(-60).map((s) => {
+    if (s.cash_usd != null) lastCash = s.cash_usd;
+    const fx = s.fx_rate || (s.value_usd > 0 ? s.value_czk / s.value_usd : p.usdCzk);
+    return { v: currency === 'USD' ? s.value_usd + lastCash : s.value_czk + lastCash * fx };
+  });
+  if (!p.loading && p.totalValue > 0) spark.push({ v: currency === 'USD' ? p.totalValue : p.totalValue * p.usdCzk });
   const sparkColor = dailyPositive ? 'hsl(var(--profit))' : 'hsl(var(--loss))';
 
   const [backfilling, setBackfilling] = useState(false);
@@ -177,6 +182,7 @@ const PortfolioHeader = () => {
             <div className="h-16 -mx-1">
               <ResponsiveContainer>
                 <AreaChart data={spark}>
+                  <YAxis hide domain={['dataMin', 'dataMax']} />
                   <defs>
                     <linearGradient id="sparkFill" x1="0" y1="0" x2="0" y2="1">
                       <stop offset="0%" stopColor={sparkColor} stopOpacity={0.5} />
@@ -264,12 +270,17 @@ const PortfolioHeader = () => {
           </div>
 
           <div className="grid grid-cols-2 sm:grid-cols-2 xl:grid-cols-4 gap-2 sm:gap-3">
-            <Stat label="Vloženo" value={format(p.netDepositsUsd ?? p.totalInvested)} />
+            <Stat
+              label="Vloženo"
+              value={p.netDepositsUsd != null
+                ? formatAt(p.netDepositsUsd, p.netDepositsCzk ?? p.netDepositsUsd * p.usdCzk)
+                : formatAt(p.totalInvested, p.totalInvestedCzk)}
+            />
             <Stat
               label="Nerealiz. zisk"
-              value={format(p.unrealizedProfit)}
-              sub={formatPct(p.totalProfitPct)}
-              accent={p.unrealizedProfit >= 0 ? 'profit' : 'loss'}
+              value={formatAt(p.unrealizedProfit, p.unrealizedProfitCzk)}
+              sub={formatPct(pick(p.totalProfitPct, p.totalProfitPctCzk))}
+              accent={unrealized >= 0 ? 'profit' : 'loss'}
             />
             <Stat
               label="Realiz. zisk"
@@ -278,8 +289,9 @@ const PortfolioHeader = () => {
             />
             <Stat
               label="Celkový zisk"
-              value={format(totalProfit)}
-              sub={formatPct(p.totalReturnPct)}
+              value={formatAt(p.totalProfit, p.totalProfitCzk)}
+              sub={formatPct(pick(p.totalReturnPct, p.totalReturnPctCzk))}
+
               accent={totalProfit >= 0 ? 'profit' : 'loss'}
             />
           </div>

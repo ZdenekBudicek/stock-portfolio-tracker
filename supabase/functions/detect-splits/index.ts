@@ -3,19 +3,24 @@
 // splits from any large price drop, which produced false positives that inflated
 // portfolios when confirmed — that heuristic has been removed.
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2.45.0";
+import { isSchedulerToken } from "../_shared/auth.ts";
 import { parseFinnhubSplits } from "./parse.ts";
+import { isCryptoTicker } from "../_shared/crypto.js";
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
   "Access-Control-Allow-Headers": "authorization, x-client-info, apikey, content-type",
 };
 
-const CRYPTO = new Set(["BTC","ETH","SOL","XRP","ADA","DOGE","DOT","AVAX","LINK","BNB","EGLD","LTC","TRX","MATIC","ATOM","NEAR","APT"]);
-const isCrypto = (t: string) => CRYPTO.has(t.toUpperCase().replace(/USD$/, ""));
 const ymd = (d: Date) => d.toISOString().slice(0, 10);
 
 Deno.serve(async (req) => {
   if (req.method === "OPTIONS") return new Response("ok", { headers: corsHeaders });
+  // Scheduler-only: it works on every user's data and the shared provider quotas, so
+  // "has a JWT" (which the public anon key and any signed-up user satisfy) is not enough.
+  if (!isSchedulerToken(req.headers.get("Authorization"), [Deno.env.get("SUPABASE_SERVICE_ROLE_KEY"), Deno.env.get("CRON_SECRET")])) {
+    return new Response(JSON.stringify({ error: "Unauthorized" }), { status: 401, headers: { ...corsHeaders, "Content-Type": "application/json" } });
+  }
 
   const supabase = createClient(
     Deno.env.get("SUPABASE_URL")!,
@@ -31,7 +36,7 @@ Deno.serve(async (req) => {
       .from("positions").select("ticker,user_id").neq("type", "Cash");
     const holders = new Map<string, Set<string>>(); // ticker -> set(user_id)
     for (const p of positions ?? []) {
-      if (!p.ticker || isCrypto(p.ticker) || p.ticker.toUpperCase() === "CASH") continue;
+      if (!p.ticker || isCryptoTicker(p.ticker) || p.ticker.toUpperCase() === "CASH") continue;
       if (!holders.has(p.ticker)) holders.set(p.ticker, new Set());
       holders.get(p.ticker)!.add(p.user_id);
     }

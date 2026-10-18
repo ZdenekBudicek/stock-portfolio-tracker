@@ -103,7 +103,57 @@ describe("computeYearlyGrowth", () => {
     expect(y27.growthCzk).toBe(0);
   });
 
+  it("does not count the first day's purchases twice — once in the start value, once as money in", () => {
+    // History starts on the day of the first buy: $1 000 of stock, worth $1 200 at year end.
+    const out = run(
+      [snap("2025-03-10", 20_000, 20), snap("2025-12-31", 24_000, 20)],
+      { tradeFlowsUsd: new Map([["2025-03-10", 1_000]]), nowYear: 2025 },
+    );
+    const y = year(out, 2025);
+    expect(y.startValueCzk).toBe(20_000);
+    expect(y.depositsCzk).toBe(0);
+    expect(y.growthCzk).toBe(4_000);
+    expect(y.growthPct).toBe(20);
+  });
+
+  it("treats trades before the first snapshot and the first day's cash as part of the start value", () => {
+    const out = run(
+      [snap("2025-03-10", 20_000, 20, 500), snap("2025-12-31", 24_000, 20, 500)],
+      { tradeFlowsUsd: new Map([["2025-01-15", 600], ["2025-03-10", 400], ["2025-06-01", 0]]), nowYear: 2025 },
+    );
+    const y = year(out, 2025);
+    expect(y.startValueCzk).toBe(30_000);
+    expect(y.depositsCzk).toBe(0);
+    expect(y.growthPct).toBeCloseTo((4_000 / 30_000) * 100, 2);
+  });
+
+  it("still counts money put in after the first day of history", () => {
+    const out = run(
+      [snap("2025-03-10", 20_000, 20), snap("2025-12-31", 46_000, 20)],
+      { tradeFlowsUsd: new Map([["2025-03-10", 1_000], ["2025-07-01", 1_000]]), nowYear: 2025 },
+    );
+    const y = year(out, 2025);
+    expect(y.depositsCzk).toBe(20_000);
+    expect(y.growthCzk).toBe(6_000);
+    expect(y.growthPct).toBe(15);
+    expect(y.monthly.find((m) => m.month === 3)!.actualGrowthPct).toBe(0);
+  });
+
   it("returns nothing without history or a live value", () => {
     expect(run([])).toEqual([]);
+  });
+});
+
+describe("missing cash days after tracking began", () => {
+  it("keeps the last recorded balance instead of reading a missed day as 0", () => {
+    const out = run([
+      snap("2025-12-31", 400_000, 20, 1_000),
+      snap("2026-06-30", 400_000, 20, 1_000),
+      snap("2026-07-01", 400_000, 20, null), // nightly job missed the last day
+    ]);
+    const y = year(out, 2026);
+    expect(y.endValueCzk).toBe(420_000); // the cash is still there
+    expect(y.depositsCzk).toBe(0);
+    expect(y.growthCzk).toBe(0);
   });
 });

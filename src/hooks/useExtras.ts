@@ -1,5 +1,6 @@
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { supabase } from "@/integrations/supabase/client";
+import { dedupeDividends } from "@/lib/dividendTax";
 
 const PAGE_SIZE = 1000;
 
@@ -199,18 +200,32 @@ export interface DbDividend {
   status: "upcoming" | "paid";
 }
 
+/** As read back: the columns the generated Supabase types don't list yet. */
+export interface DbDividendRow extends DbDividend {
+  /** "T212" | "Revolut" | "XTB" | "manual" | "auto" (estimated by sync-earnings). */
+  broker?: string | null;
+  broker_account?: string | null;
+  ext_id?: string | null;
+  user_id?: string | null;
+}
+
 export function useDividends() {
   return useQuery({
     queryKey: ["dividends"],
     queryFn: async () => {
-      const { data, error } = await supabase.from("dividends").select("*").order("ex_date", { ascending: false });
-      if (error) throw error;
-      return (data as any[]).map((d) => ({
+      // Paged: a plain select stops at 1000 rows, and the tax report needs every dividend.
+      const data = await fetchAllRows<any>((from, to) =>
+        supabase.from("dividends").select("*").order("ex_date", { ascending: false }).order("id", { ascending: true }).range(from, to),
+      );
+      const rows = data.map((d) => ({
         ...d,
         amount_per_share: Number(d.amount_per_share),
         shares_held: d.shares_held != null ? Number(d.shares_held) : null,
         total_amount_usd: d.total_amount_usd != null ? Number(d.total_amount_usd) : null,
-      })) as DbDividend[];
+      })) as DbDividendRow[];
+      // A statement records the PAYMENT date, sync-earnings the ex-date — drop the auto
+      // estimate of a dividend a statement already holds, or it is counted twice.
+      return dedupeDividends(rows);
     },
   });
 }
@@ -300,6 +315,8 @@ export interface BrokerSummary {
   ppl: number;       // unrealised P&L on open positions
   result: number;    // lifetime realised P&L
   netDepositsUsd: number | null; // combined net deposits across all brokers, in USD (if known)
+  /** Last finished sync of the connection (null when never synced). */
+  lastSyncAt: string | null;
 }
 
 export function useBrokerSummary(broker = "T212") {
@@ -325,6 +342,7 @@ export function useBrokerSummary(broker = "T212") {
         ppl: Number(s.ppl) || 0,
         result: Number(s.result) || 0,
         netDepositsUsd: s.total_net_deposits_usd != null ? Number(s.total_net_deposits_usd) : null,
+        lastSyncAt: row?.last_sync_at ?? null,
       };
     },
   });

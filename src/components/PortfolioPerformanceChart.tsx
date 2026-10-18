@@ -1,18 +1,26 @@
+import { useTranslation } from "react-i18next";
+import { currentLocale } from "@/i18n";
 import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, ReferenceLine } from 'recharts';
 import { useCurrency } from '@/contexts/CurrencyContext';
 import { useComputedPortfolio } from '@/hooks/usePortfolio';
 import { formatPct } from '@/data/portfolio';
 
 const PortfolioPerformanceChart = () => {
-  const { format, convert, currency } = useCurrency();
+  const { t } = useTranslation();
+  const { formatAt, pick, currency, hidden } = useCurrency();
   const { positions } = useComputedPortfolio();
+  // Amounts in the displayed currency. In CZK the cost is at the purchase-day rate, the same
+  // "Investováno" the Pozice table shows, and the profit and % include the currency move.
+  const money = (v: number, digits = 0) => hidden
+    ? (currency === 'USD' ? '$••••' : t('legacy.portfolioPerformanceChart.czk'))
+    : currency === 'USD' ? `$${v.toLocaleString(currentLocale(), { maximumFractionDigits: digits })}` : t('legacy.portfolioPerformanceChart.czk2', { v0: v.toLocaleString(currentLocale(), { maximumFractionDigits: digits }) });
 
   const data = positions
     .filter((p) => p.type !== 'Cash' && p.ticker !== 'CASH')
     .sort((a, b) => b.value - a.value)
     .map((p) => {
-      const invested = convert(p.invested);
-      const profit = convert(p.profitUsd);
+      const invested = pick(p.invested, p.investedCzk);
+      const profit = pick(p.profitUsd, p.profitCzk);
       return {
         ticker: p.ticker,
         name: p.name,
@@ -20,9 +28,8 @@ const PortfolioPerformanceChart = () => {
         profitPos: profit >= 0 ? profit : 0,
         profitNeg: profit < 0 ? profit : 0,
         profit,
-        profitRaw: p.profitUsd,
-        value: convert(p.value),
-        profitPct: p.profitPct,
+        value: pick(p.value, p.valueCzk),
+        profitPct: pick(p.profitPct, p.profitPctCzk),
       };
     });
 
@@ -33,13 +40,15 @@ const PortfolioPerformanceChart = () => {
   const yPadding = Math.max((yMax - yMin) * 0.08, 1);
 
   const tickFormatter = (v: number) => {
+    if (hidden) return '••';
     const abs = Math.abs(v);
     const sign = v < 0 ? '-' : '';
-    if (abs >= 1000) return currency === 'CZK' ? `${sign}${(abs / 1000).toFixed(0)}k` : `${sign}$${(abs / 1000).toFixed(0)}k`;
-    return currency === 'CZK' ? `${sign}${abs.toFixed(0)}` : `${sign}$${abs.toFixed(0)}`;
+    if (abs >= 1000) return currency === 'CZK' ? `${sign}${(abs / 1000).toLocaleString(currentLocale(), { minimumFractionDigits: 0, maximumFractionDigits: 0 })}k` : `${sign}$${(abs / 1000).toLocaleString(currentLocale(), { minimumFractionDigits: 0, maximumFractionDigits: 0 })}k`;
+    return currency === 'CZK' ? `${sign}${abs.toLocaleString(currentLocale(), { minimumFractionDigits: 0, maximumFractionDigits: 0 })}` : `${sign}$${abs.toLocaleString(currentLocale(), { minimumFractionDigits: 0, maximumFractionDigits: 0 })}`;
   };
 
   const CustomTooltip = ({ active, payload, label }: any) => {
+  const { t } = useTranslation();
     if (!active || !payload?.length) return null;
     const d = payload[0].payload;
     return (
@@ -49,23 +58,23 @@ const PortfolioPerformanceChart = () => {
         <div className="space-y-0.5 text-xs">
           <div className="flex items-center gap-2">
             <span className="w-2 h-2 rounded-sm" style={{ background: 'hsl(var(--info))' }} />
-            <span className="text-muted-foreground">Investováno:</span>
+            <span className="text-muted-foreground">{t('legacy.portfolioPerformanceChart.invested')}</span>
             <span className="font-mono tabular-nums font-medium ml-auto">
-              {currency === 'USD' ? `$${d.invested.toLocaleString('en-US', { maximumFractionDigits: 0 })}` : `${d.invested.toLocaleString('cs-CZ', { maximumFractionDigits: 0 })} Kč`}
+              {money(d.invested)}
             </span>
           </div>
           <div className="flex items-center gap-2">
-            <span className="w-2 h-2 rounded-sm" style={{ background: d.profitRaw >= 0 ? 'hsl(var(--profit))' : 'hsl(var(--loss))' }} />
-            <span className="text-muted-foreground">Zisk:</span>
-            <div className={`font-mono tabular-nums font-medium ml-auto text-right ${d.profitRaw >= 0 ? 'text-profit' : 'text-loss'}`}>
-              <div>{d.profitRaw >= 0 ? '+' : ''}{formatPct(d.profitPct)}</div>
-              <div className="text-[11px] opacity-90">{format(d.profitRaw)}</div>
+            <span className="w-2 h-2 rounded-sm" style={{ background: d.profit >= 0 ? 'hsl(var(--profit))' : 'hsl(var(--loss))' }} />
+            <span className="text-muted-foreground">{t('legacy.portfolioPerformanceChart.profit')}</span>
+            <div className={`font-mono tabular-nums font-medium ml-auto text-right ${d.profit >= 0 ? 'text-profit' : 'text-loss'}`}>
+              <div>{formatPct(d.profitPct)}</div>
+              <div className="text-[11px] opacity-90">{formatAt(d.profit, d.profit)}</div>
             </div>
           </div>
           <div className="flex items-center gap-2 pt-1 border-t border-border/50 mt-1">
-            <span className="text-muted-foreground">Hodnota:</span>
+            <span className="text-muted-foreground">{t('legacy.portfolioPerformanceChart.value')}</span>
             <span className="font-mono tabular-nums font-bold ml-auto text-foreground">
-              {currency === 'USD' ? `$${d.value.toLocaleString('en-US', { maximumFractionDigits: 0 })}` : `${d.value.toLocaleString('cs-CZ', { maximumFractionDigits: 0 })} Kč`}
+              {money(d.value)}
             </span>
           </div>
         </div>
@@ -77,24 +86,25 @@ const PortfolioPerformanceChart = () => {
     <div className="gradient-card rounded-2xl border border-border p-5 sm:p-6 animate-fade-in-up min-w-0 overflow-hidden hover-lift">
       <div className="flex items-start justify-between flex-wrap gap-3 mb-5">
         <div>
-          <h2 className="font-display font-bold text-lg sm:text-xl text-foreground">Výkonnost portfolia</h2>
-          <p className="text-xs text-muted-foreground mt-0.5">Investováno vs. nerealizovaný zisk podle akcie</p>
+          <h2 className="font-display font-bold text-lg sm:text-xl text-foreground">{t('legacy.portfolioPerformanceChart.portfolioPerformance')}</h2>
+          <p className="text-xs text-muted-foreground mt-0.5">{t('legacy.portfolioPerformanceChart.investedAmountVsUnrealizedGainByStock')}</p>
         </div>
         <div className="flex items-center gap-3 sm:gap-4 text-xs flex-wrap">
           <div className="flex items-center gap-2 px-2.5 py-1 rounded-lg bg-info/10 border border-info/20">
             <span className="w-2.5 h-2.5 rounded-sm" style={{ background: 'linear-gradient(180deg, hsl(var(--info)), hsl(var(--info) / 0.7))' }} />
-            <span className="text-muted-foreground">Investováno</span>
+            <span className="text-muted-foreground">{t('legacy.portfolioPerformanceChart.invested2')}</span>
             <span className="font-mono tabular-nums font-bold text-foreground">
-              {currency === 'USD' ? `$${totalInvested.toLocaleString('en-US', { maximumFractionDigits: 0 })}` : `${totalInvested.toLocaleString('cs-CZ', { maximumFractionDigits: 0 })} Kč`}
+              {money(totalInvested)}
             </span>
           </div>
           <div className={`flex items-center gap-2 px-2.5 py-1 rounded-lg border ${
             totalProfit >= 0 ? 'bg-profit/10 border-profit/20' : 'bg-loss/10 border-loss/20'
           }`}>
             <span className="w-2.5 h-2.5 rounded-sm" style={{ background: totalProfit >= 0 ? 'linear-gradient(180deg, hsl(var(--profit)), hsl(var(--profit) / 0.7))' : 'linear-gradient(180deg, hsl(var(--loss)), hsl(var(--loss) / 0.7))' }} />
-            <span className="text-muted-foreground">Zisk</span>
+            <span className="text-muted-foreground">{t('legacy.portfolioPerformanceChart.profit2')}</span>
             <span className={`font-mono tabular-nums font-bold ${totalProfit >= 0 ? 'text-profit' : 'text-loss'}`}>
-              {totalProfit >= 0 ? '+' : ''}{currency === 'USD' ? `$${totalProfit.toLocaleString('en-US', { maximumFractionDigits: 0 })}` : `${totalProfit.toLocaleString('cs-CZ', { maximumFractionDigits: 0 })} Kč`}
+              {totalProfit >= 0 ? '+' : ''}{money(totalProfit)}
+
             </span>
           </div>
         </div>

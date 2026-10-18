@@ -110,8 +110,13 @@ export function createHoldingsTimeline(trades, truth, startByTicker = new Map())
   };
 }
 
-/** Split ratios a real corporate action actually uses. */
-const NICE_RATIOS = [1, 1.5, 2, 3, 4, 5, 6, 7, 8, 10, 12, 15, 20, 25, 30, 40, 50, 100];
+/**
+ * Split ratios a real corporate action actually uses — forward (2 = 2-for-1) and reverse
+ * (0.1 = 1-for-10). Without the reverse ones a position from before a reverse split was
+ * valued at 10x in history: as-traded 10 shares times a close already scaled for 1 share.
+ */
+const FORWARD_RATIOS = [1.5, 2, 3, 4, 5, 6, 7, 8, 10, 12, 15, 20, 25, 30, 40, 50, 100];
+const NICE_RATIOS = [1, ...FORWARD_RATIOS, ...FORWARD_RATIOS.map((r) => 1 / r)];
 const snapRatio = (r) => {
   for (const n of NICE_RATIOS) if (Math.abs(r - n) / n <= 0.08) return n;
   return null;
@@ -155,12 +160,27 @@ export function applySplitAdjustment(trades, closeAt, truth) {
       if (!close || !(t.price > 0)) return null;
       return snapRatio(t.price / close);
     });
-    // …then fill the gaps. Split factors only ever step DOWN over time, so an unresolved
-    // trade inherits the next resolved factor at or after it (else the previous one).
-    let carry = 1;
-    for (let i = factors.length - 1; i >= 0; i--) {
-      if (factors[i] == null) factors[i] = carry;
-      else carry = factors[i];
+    // …then fill the gaps. A trade without a same-day close sits between the resolved factor
+    // before it and the one after it — a split may lie on either side. Pick whichever of
+    // {previous, next, 1} best explains its price against the nearest earlier close (up to
+    // 6 days back; too far for a factor of its own, close enough to choose between
+    // candidates that differ by a whole split ratio). With no close at all, prefer the next
+    // resolved factor, then the previous one.
+    const resolved = factors.slice();
+    for (let i = 0; i < factors.length; i++) {
+      if (resolved[i] != null) continue;
+      let prev = null, next = null;
+      for (let j = i - 1; j >= 0; j--) if (resolved[j] != null) { prev = resolved[j]; break; }
+      for (let j = i + 1; j < factors.length; j++) if (resolved[j] != null) { next = resolved[j]; break; }
+      const candidates = [...new Set([next, prev, 1].filter((x) => x != null))];
+      let nearby = null;
+      for (let k = 1; k <= 6 && nearby == null; k++) nearby = closeAt(ticker, new Date(Date.parse(sorted[i].day) - k * 86400000).toISOString().slice(0, 10)) || null;
+      if (nearby && sorted[i].price > 0) {
+        const r = sorted[i].price / nearby;
+        factors[i] = candidates.reduce((best, c) => (Math.abs(Math.log(r / c)) < Math.abs(Math.log(r / best)) ? c : best), candidates[0]);
+      } else {
+        factors[i] = next ?? prev ?? 1;
+      }
     }
     const net = (f) => sorted.reduce((s, t, i) => s + t.signed * (f ? factors[i] : 1), 0);
     const target = truth.get(ticker) ?? 0;
@@ -169,7 +189,7 @@ export function applySplitAdjustment(trades, closeAt, truth) {
     const useSplit = factors.some((f) => f !== 1) &&
       (Math.abs(withSplit - target) <= tol || Math.abs(withSplit - target) < Math.abs(raw - target));
     if (useSplit) {
-      adjusted[ticker] = Math.max(...factors);
+      adjusted[ticker] = factors.reduce((a, f) => (Math.abs(Math.log(f)) > Math.abs(Math.log(a)) ? f : a), 1);
       if (Math.abs(withSplit - target) > tol) unverified.push(ticker);
     } else if (Math.abs(raw - target) > tol && target > 0) {
       unverified.push(ticker);
@@ -177,6 +197,32 @@ export function applySplitAdjustment(trades, closeAt, truth) {
     sorted.forEach((t, i) => out.push(useSplit ? { ...t, signed: t.signed * factors[i] } : t));
   }
   return { trades: out, adjusted, unverified };
+}
+
+/**
+ * Drop data glitches from a daily close series: a point more than 5x away from the last kept
+ * close that comes straight BACK (the next close is again within 2x of the last kept one).
+ * A real crash or rally stays: the old rule compared every later point with the pre-move
+ * close and so dropped the whole rest of the series after a genuine -80 % day.
+ * @param {Map<string, number>} map date -> close
+ * @returns {Map<string, number>}
+ */
+export function sanitizeSeries(map) {
+  const dates = [...map.keys()].sort();
+  const out = new Map();
+  let prev = null;
+  for (let i = 0; i < dates.length; i++) {
+    const c = map.get(dates[i]);
+    if (!(c > 0)) continue;
+    if (prev != null && (c > prev * 5 || c < prev / 5)) {
+      const next = i + 1 < dates.length ? map.get(dates[i + 1]) : null;
+      const reverts = next != null && next > 0 && next <= prev * 2 && next >= prev / 2;
+      if (reverts) continue; // a one-day spike
+    }
+    out.set(dates[i], c);
+    prev = c;
+  }
+  return out;
 }
 
 /** True for rows the ledger carries but that are not real dated trades. */

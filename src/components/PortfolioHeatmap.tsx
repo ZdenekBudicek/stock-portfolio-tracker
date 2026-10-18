@@ -1,6 +1,7 @@
 import { Treemap, ResponsiveContainer } from "recharts";
 import { Grid3X3 } from "lucide-react";
 import { useComputedPortfolio } from "@/hooks/usePortfolio";
+import { useCurrency } from "@/contexts/CurrencyContext";
 
 const colorFor = (pct: number) => {
   const clamped = Math.max(-5, Math.min(5, pct));
@@ -15,7 +16,7 @@ const colorFor = (pct: number) => {
 };
 
 const Tile = (props: any) => {
-  const { x, y, width, height, name, value } = props;
+  const { x, y, width, height, name, value, money } = props;
   const pct = typeof props.pct === "number" ? props.pct : 0;
   if (width < 30 || height < 30 || !name) return null;
   return (
@@ -29,7 +30,7 @@ const Tile = (props: any) => {
       </text>
       {width > 100 && height > 70 && typeof value === "number" && (
         <text x={x + width / 2} y={y + height / 2 + 26} textAnchor="middle" fill="white" fontSize={10} opacity={0.75}>
-          ${(value / 1000).toFixed(1)}k
+          {money(value)}
         </text>
       )}
     </g>
@@ -38,6 +39,10 @@ const Tile = (props: any) => {
 
 const PortfolioHeatmap = () => {
   const { positions } = useComputedPortfolio();
+  const { currency, convert, hidden } = useCurrency();
+  const money = (usd: number) => hidden
+    ? (currency === "USD" ? "$••••" : "•••• Kč")
+    : currency === "USD" ? `$${(usd / 1000).toFixed(1)}k` : `${(convert(usd) / 1000).toFixed(0)}k Kč`;
   const data = positions
     .filter((p) => p.ticker !== "CASH" && p.value > 0)
     .map((p) => ({ name: p.ticker, value: p.value, pct: p.dailyChangePct }));
@@ -52,7 +57,8 @@ const PortfolioHeatmap = () => {
       </div>
       <div className="h-72">
         <ResponsiveContainer>
-          <Treemap data={data} dataKey="value" content={<Tile />} />
+          <Treemap data={data} dataKey="value" content={<Tile money={money} />} />
+
         </ResponsiveContainer>
       </div>
     </div>

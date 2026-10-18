@@ -3,6 +3,7 @@
 // stock detail page shows the headline; clicking it expands the Czech summary, then links
 // out to the source. Yahoo's RSS feed carries a real summary paragraph per item.
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2.45.0";
+import { isSchedulerToken } from "../_shared/auth.ts";
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
@@ -52,6 +53,11 @@ async function translate(text: string): Promise<string> {
 
 Deno.serve(async (req) => {
   if (req.method === "OPTIONS") return new Response("ok", { headers: corsHeaders });
+  // Scheduler-only: it works on every user's data and the shared provider quotas, so
+  // "has a JWT" (which the public anon key and any signed-up user satisfy) is not enough.
+  if (!isSchedulerToken(req.headers.get("Authorization"), [Deno.env.get("SUPABASE_SERVICE_ROLE_KEY"), Deno.env.get("CRON_SECRET")])) {
+    return new Response(JSON.stringify({ error: "Unauthorized" }), { status: 401, headers: { ...corsHeaders, "Content-Type": "application/json" } });
+  }
   const started = Date.now();
   try {
     const svc = createClient(Deno.env.get("SUPABASE_URL")!, Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!);

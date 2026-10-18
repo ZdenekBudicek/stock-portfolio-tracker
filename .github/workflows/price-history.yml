@@ -6,11 +6,16 @@ name: Price history backfill
 on:
   schedule:
     - cron: "30 5 * * *" # daily 05:30 UTC (after US close of the prior day)
-  workflow_dispatch: {} # allow manual run from the Actions tab
+  workflow_dispatch: # manual run from the Actions tab, or on demand from request-fundamentals
+    inputs:
+      symbols:
+        description: "Only these companies (comma separated): fetch statements and price history now. Empty = full nightly run."
+        required: false
+        default: ""
 
 jobs:
   backfill:
-    if: vars.ENABLE_PORTFOLIO_WORKERS == 'true'
+    if: ${{ vars.ENABLE_PORTFOLIO_WORKERS == 'true' && !inputs.symbols }}
     runs-on: ubuntu-latest
     concurrency:
       group: price-history
@@ -33,7 +38,7 @@ jobs:
   # yahoo_miss_count; never touches finnhub_miss_count. Independent of the backfill job —
   # neither reads the other's tables — so they run in parallel.
   sectors:
-    if: vars.ENABLE_PORTFOLIO_WORKERS == 'true'
+    if: ${{ vars.ENABLE_PORTFOLIO_WORKERS == 'true' && !inputs.symbols }}
     runs-on: ubuntu-latest
     concurrency:
       group: sector-profiles
@@ -54,3 +59,66 @@ jobs:
           SUPABASE_SERVICE_KEY: ${{ secrets.SUPABASE_SERVICE_KEY }}
           FINNHUB_API_KEY: ${{ secrets.FINNHUB_API_KEY }}
         run: node scripts/sector-worker.mjs
+
+  # Nightly it fetches only what is due (after results, or a 30-day safety net) — see
+  # fundamentalsDue in scripts/fundamentals-worker.mjs; most nights that is nothing.
+  fundamentals:
+    if: ${{ vars.ENABLE_PORTFOLIO_WORKERS == 'true' && !inputs.symbols }}
+    runs-on: ubuntu-latest
+    concurrency:
+      group: company-fundamentals
+      cancel-in-progress: false
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "24"
+      - name: Run fundamentals worker
+        env:
+          SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
+          SUPABASE_SERVICE_KEY: ${{ secrets.SUPABASE_SERVICE_KEY }}
+        run: node scripts/fundamentals-worker.mjs
+
+  # A company someone just added and nobody had data for (request-fundamentals edge function):
+  # its statements and price history now instead of waiting for the night. The symbols reach
+  # the scripts through env (never interpolated into the shell) and both workers validate them.
+  on-demand:
+    if: ${{ vars.ENABLE_PORTFOLIO_WORKERS == 'true' && inputs.symbols }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    concurrency:
+      group: on-demand-${{ inputs.symbols }}
+      cancel-in-progress: false
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "24"
+      # Whitespace-only input would otherwise reach the workers as "no list" = a full run.
+      - name: Validate input
+        id: validate
+        env:
+          ONLY_SYMBOLS: ${{ inputs.symbols }}
+        run: node -e "const {parseOnlySymbols}=await import('./scripts/only-symbols.mjs'); if(!parseOnlySymbols(process.env.ONLY_SYMBOLS)) throw new Error('empty symbols')" --input-type=module
+      - name: Fetch statements
+        env:
+          SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
+          SUPABASE_SERVICE_KEY: ${{ secrets.SUPABASE_SERVICE_KEY }}
+          ONLY_SYMBOLS: ${{ inputs.symbols }}
+        run: node scripts/fundamentals-worker.mjs
+      - name: Fetch price history
+        if: ${{ !cancelled() && steps.validate.outcome == 'success' }}
+        env:
+          SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
+          SUPABASE_SERVICE_KEY: ${{ secrets.SUPABASE_SERVICE_KEY }}
+          TWELVE_DATA_KEY: ${{ secrets.TWELVE_DATA_KEY }}
+          ONLY_SYMBOLS: ${{ inputs.symbols }}
+        run: node scripts/price-worker.mjs
+      # Only now (statements AND prices attempted) does the app see the request as finished.
+      - name: Finish requests
+        if: ${{ !cancelled() && steps.validate.outcome == 'success' }}
+        env:
+          SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
+          SUPABASE_SERVICE_KEY: ${{ secrets.SUPABASE_SERVICE_KEY }}
+          ONLY_SYMBOLS: ${{ inputs.symbols }}
+        run: node scripts/finish-fundamentals-requests.mjs

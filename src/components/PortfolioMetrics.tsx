@@ -1,14 +1,16 @@
 import { useMemo } from "react";
 import { Activity, TrendingDown, Gauge, Shuffle, AlertTriangle } from "lucide-react";
 import { useDailySnapshots, useComputedPortfolio, useTransactions } from "@/hooks/usePortfolio";
+import { useCurrency } from "@/contexts/CurrencyContext";
 
 const PortfolioMetrics = () => {
   const { data: snaps = [] } = useDailySnapshots();
   const { data: txs = [] } = useTransactions();
   const { positions, totalValue } = useComputedPortfolio();
+  const { currency, hidden } = useCurrency();
 
-  const { sharpe, vol, drawdown, peak } = useMemo(() => {
-    if (snaps.length < 5) return { sharpe: 0, vol: 0, drawdown: 0, peak: 0 };
+  const { sharpe, vol, drawdown, peak, peakCzk } = useMemo(() => {
+    if (snaps.length < 5) return { sharpe: 0, vol: 0, drawdown: 0, peak: 0, peakCzk: 0 };
 
     // Net trade value injected per day (buys add value, sells remove it). Daily RETURNS
     // must exclude this — otherwise a deposit/buy day looks like a huge market move and
@@ -35,7 +37,7 @@ const PortfolioMetrics = () => {
       if (Math.abs(r) < 1e-7) continue; // skip non-trading carried days
       if (Math.abs(r) < 0.5) returns.push(r); // drop residual data glitches (>50%/day)
     }
-    if (returns.length < 5) return { sharpe: 0, vol: 0, drawdown: 0, peak: 0 };
+    if (returns.length < 5) return { sharpe: 0, vol: 0, drawdown: 0, peak: 0, peakCzk: 0 };
 
     const mean = returns.reduce((a, b) => a + b, 0) / returns.length;
     const variance = returns.reduce((a, b) => a + (b - mean) ** 2, 0) / returns.length;
@@ -46,8 +48,9 @@ const PortfolioMetrics = () => {
 
     // Drawdown on the deposit-adjusted cumulative return index (deposits don't count as
     // recovery; a market fall is measured purely as performance). Pure market days only.
-    let idx = 1, peakIdx = 1, maxDd = 0, peakVal = 0;
-    let runVal = snaps.find((s) => s.value_usd >= 500)?.value_usd ?? snaps[0].value_usd;
+    let idx = 1, peakIdx = 1, maxDd = 0, peakVal = 0, peakValCzk = 0;
+    const first = snaps.find((s) => s.value_usd >= 500) ?? snaps[0];
+    let runVal = first.value_usd, runValCzk = first.value_czk;
     for (let i = 1; i < snaps.length; i++) {
       const prev = snaps[i - 1].value_usd;
       if (prev < 500) continue;
@@ -56,11 +59,12 @@ const PortfolioMetrics = () => {
       if (Math.abs(r) < 1e-7 || Math.abs(r) >= 0.5) continue;
       idx *= 1 + r;
       runVal = snaps[i].value_usd;
-      if (idx > peakIdx) { peakIdx = idx; peakVal = runVal; }
+      runValCzk = snaps[i].value_czk;
+      if (idx > peakIdx) { peakIdx = idx; peakVal = runVal; peakValCzk = runValCzk; }
       const dd = (idx - peakIdx) / peakIdx;
       if (dd < maxDd) maxDd = dd;
     }
-    return { sharpe, vol: annVol, drawdown: maxDd * 100, peak: peakVal || runVal };
+    return { sharpe, vol: annVol, drawdown: maxDd * 100, peak: peakVal || runVal, peakCzk: peakValCzk || runValCzk };
   }, [snaps, txs]);
 
   const concentration = useMemo(() => {
@@ -113,7 +117,8 @@ const PortfolioMetrics = () => {
           icon={<TrendingDown className="w-3.5 h-3.5" />}
           label="Max drawdown"
           value={`${drawdown.toFixed(1)}%`}
-          sub={`Peak $${(peak / 1000).toFixed(1)}k`}
+          sub={hidden ? "Peak ••••" : currency === "USD" ? `Peak $${(peak / 1000).toFixed(1)}k` : `Peak ${(peakCzk / 1000).toFixed(0)}k Kč`}
+
           accent="loss"
         />
         <Card

@@ -10,7 +10,7 @@ import { TickerLogo } from '@/components/TickerLogo';
 // Dnes  = today's move (USD + %), Celkem = total unrealized profit (USD + %).
 const RankedPositions = () => {
   const { positions, loading } = useComputedPortfolio();
-  const { format, currency } = useCurrency();
+  const { format, formatAt, pick } = useCurrency();
   const [mode, setMode] = useState<'today' | 'total'>('total');
 
   const stocks = positions
@@ -44,8 +44,10 @@ const RankedPositions = () => {
 
       <div className="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-3 gap-2">
         {stocks.map((p, i) => {
-          const amt = mode === 'today' ? p.dailyChangeUsd : p.profitUsd;
-          const pct = mode === 'today' ? p.dailyChangePct : (currency === 'CZK' ? p.profitPctCzk : p.profitPct);
+          // Celkem in CZK: profit and % both against the koruna cost at the purchase-day rate.
+          const amt = mode === 'today' ? pick(p.dailyChangeUsd, p.dailyChangeUsd) : pick(p.profitUsd, p.profitCzk);
+          const pct = mode === 'today' ? p.dailyChangePct : pick(p.profitPct, p.profitPctCzk);
+          const amtText = mode === 'today' ? format(p.dailyChangeUsd) : formatAt(p.profitUsd, p.profitCzk);
           const pos = amt >= 0;
           return (
             <Link
@@ -62,7 +64,8 @@ const RankedPositions = () => {
               <div className="text-right shrink-0">
                 <div className="font-display text-sm font-bold tabular-nums">{formatUsd(p.currentPrice)}</div>
                 <div className={`text-[11px] font-semibold tabular-nums ${pos ? 'text-profit' : 'text-loss'}`}>
-                  {pos ? '+' : ''}{format(amt)} ({formatPct(pct)})
+                  {pos ? '+' : ''}{amtText} ({formatPct(pct)})
+
                 </div>
               </div>
             </Link>

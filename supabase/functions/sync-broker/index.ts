@@ -4,7 +4,7 @@
 // pulls /equity/portfolio and reconciles so positions are exact. Handles new users with
 // hundreds/thousands of orders despite T212 throttling the server IP + the 150s limit.
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2.45.0";
-import { syncCashFromApi } from "../_shared/t212.ts";
+import { syncCashFromApi, planT212History, reachedPageStop, selectT212OrdersToInsert, t212FillPriceUsd, blockingUnpricedFills, type T212StoredTrade } from "../_shared/t212.ts";
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
@@ -167,9 +167,15 @@ async function syncDividendsFromApi(svc: any, userId: string, account: string, t
 
 // Fetch the broker's live portfolio as [{ticker, qty, avg}] (tickers mapped via the ISIN
 // alias cache, like the order import). This is the truth for what's CURRENTLY held.
+//
+// THROWS when T212 does not answer with a portfolio. A failed call (429, 5xx) is not an
+// empty portfolio: reconciling against [] sells every position of the account to zero and
+// deletes it. Callers skip the reconcile instead, exactly like auto-sync does.
 async function fetchPortfolioHjson(svc: any, t212: (p: string) => Promise<Response>) {
   const pr = await t212("/equity/portfolio");
-  const holdings: any[] = pr.ok ? await pr.json() : [];
+  if (!pr.ok) throw new Error(`Trading 212 /equity/portfolio HTTP ${pr.status}`);
+  const holdings: any[] = await pr.json();
+  if (!Array.isArray(holdings)) throw new Error("Trading 212 /equity/portfolio: neočekávaná odpověď");
   const pBases = [...new Set(holdings.map((h) => stripT212(h.ticker)))];
   const { data: pAlias } = pBases.length ? await svc.from("ticker_alias").select("alias,canonical").in("alias", pBases) : { data: [] };
   const pMap = new Map<string, string>();
@@ -233,10 +239,34 @@ async function reconcileT212Holdings(
     return { ...h, ticker: m[0] };
   });
 
-  await svc.rpc("reconcile_broker_account", {
+  const { error } = await svc.rpc("reconcile_broker_account", {
     p_user_id: userId, p_broker: "T212", p_account: account,
     p_holdings: holdings, p_note: "Dorovnání podle Trading 212",
   });
+  if (error) throw new Error(`reconcile_broker_account: ${error.message}`);
+}
+
+// Every non-cash row of this account that the history model needs (ext_id decides its kind,
+// the rest is the content key of the statement-duplicate guard). PAGED: PostgREST caps a
+// plain select at 1000 rows and a statement import alone can write ~2000.
+//
+// THROWS on a failed read. An empty result would look like a pure-API account, and the
+// first batch of a pure-API sync REPLACES the account's whole t212:* history — including
+// the statement rows a failed read did not see.
+async function loadAccountTrades(svc: any, userId: string, account: string): Promise<T212StoredTrade[]> {
+  const out: T212StoredTrade[] = [];
+  for (let from = 0; ; from += 1000) {
+    const { data, error } = await svc.from("transactions")
+      .select("id,ticker,side,shares,price_usd,executed_at,ext_id")
+      .eq("user_id", userId).eq("broker", "T212").eq("broker_account", account).neq("ticker", "CASH")
+      .order("executed_at", { ascending: true }).order("id", { ascending: true })
+      .range(from, from + 999);
+    if (error) throw new Error(`Nepodařilo se načíst uložené obchody: ${error.message}`);
+    const page = (data ?? []) as T212StoredTrade[];
+    out.push(...page);
+    if (page.length < 1000) break;
+  }
+  return out;
 }
 
 Deno.serve(async (req) => {
@@ -315,37 +345,22 @@ Deno.serve(async (req) => {
       return json({ error: `V datech jsou T212 transakce bez určeného účtu i transakce jiného účtu (${[...foreign].join(", ")}). Naimportuj výpisy znovu, ať je jasné, kam patří — synchronizace se zastavila, aby nic nepřepsala.` });
     }
 
-    // History model. If this ACCOUNT already has T212 trades that did NOT come from this
-    // API — i.e. imported from its broker statement or entered manually — that statement is
-    // the authoritative history. The API then only APPENDS orders executed AFTER the latest
-    // trade we already have. Users with no such trades fall back to the full API import.
-    // (API fills carry ext_id 't212:ord:*'; statement imports carry 't212:act:*'.)
-    const countScoped = (extLike?: string) => {
-      let q = svc.from("transactions").select("id", { count: "exact", head: true })
-        .eq("user_id", userId).eq("broker", "T212").eq("broker_account", account).neq("ticker", "CASH");
-      if (extLike) q = q.like("ext_id", extLike);
-      return q;
-    };
-    const { count: totalT212 } = await countScoped();
-    const { count: apiT212 } = await countScoped("t212:ord%");
-    const statementMode = (totalT212 ?? 0) > (apiT212 ?? 0);
-    let cutoff: string | null = null;
-    if (statementMode) {
-      // Reconciliation rows are stamped with now(), so they must NOT set the cutoff —
-      // otherwise every sync would skip all orders executed since the previous sync.
-      const { data: last } = await svc
-        .from("transactions").select("executed_at")
-        .eq("user_id", userId).eq("broker", "T212").eq("broker_account", account).neq("ticker", "CASH")
-        .not("ext_id", "like", "t212:adj:%")
-        .order("executed_at", { ascending: false }).limit(1);
-      cutoff = last?.[0]?.executed_at ?? null;
-      // Defensive: drop any pre-cutoff API orders left by an older full sync — the
-      // statement already covers that period, so keeping them would double-count.
-      if (isFirstBatch && cutoff) {
-        await svc.from("transactions").delete()
-          .eq("user_id", userId).eq("broker", "T212").eq("broker_account", account)
-          .like("ext_id", "t212:ord%").lte("executed_at", cutoff);
-      }
+    // History model (planT212History in _shared/t212.ts). If this ACCOUNT has T212 trades
+    // from its broker statement (t212:act:*) or entered manually, that is the authoritative
+    // history and the API only APPENDS orders executed after its latest trade. Users with no
+    // such trades fall back to the full API import. API fills (t212:ord:*) and reconcile
+    // adjustments (t212:adj:*) never switch the mode and never move the deletion cutoff —
+    // they did, and a manual sync then deleted every order an earlier sync had pulled.
+    const stored = await loadAccountTrades(svc, userId, account);
+    const plan = planT212History(stored, { resuming: !!conn.last_sync_cursor });
+    const statementMode = plan.statementMode;
+    // Defensive: drop API orders the statement covers (left by an older full sync, or by a
+    // statement imported after them) — keeping them would double-count.
+    if (statementMode && isFirstBatch && plan.statementCutoff) {
+      const { error: delErr } = await svc.from("transactions").delete()
+        .eq("user_id", userId).eq("broker", "T212").eq("broker_account", account)
+        .like("ext_id", "t212:ord:%").lte("executed_at", plan.statementCutoff);
+      if (delErr) return json({ error: `Nepodařilo se uklidit obchody pokryté výpisem: ${delErr.message}` });
     }
 
     // Pull a batch of order pages within the time budget.
@@ -364,56 +379,79 @@ Deno.serve(async (req) => {
           base: stripT212(it.order.ticker), isin: it.order.instrument?.isin ?? null, name: it.order.instrument?.name ?? null,
           side: q < 0 || it.order.side === "SELL" ? "SELL" : "BUY",
           shares: Math.abs(q), price_usd: Number(it.fill.price), fee_usd: 0,
+          inst_ccy: it.order.instrument?.currency ?? it.order.currency ?? null,
+          wallet_ccy: it.fill.walletImpact?.currency ?? null,
+          wallet_net: it.fill.walletImpact?.netValue != null ? Number(it.fill.walletImpact.netValue) : null,
           executed_at: it.fill.filledAt ?? it.order.dateModified ?? it.order.createdAt,
           ext_id: `t212:ord:${it.fill.id}`,
         });
       }
       // Statement mode: the order history is newest-first, so once a page reaches an
-      // order at/older than what the statement already covers, everything beyond is a
-      // duplicate — stop paging instead of pulling the whole (rate-limited) history.
-      if (statementMode && cutoff) {
-        const reached = (j.items ?? []).some((it: any) => {
-          const t = it.fill?.filledAt ?? it.order?.dateModified ?? it.order?.createdAt;
-          return t && new Date(t).getTime() <= new Date(cutoff).getTime();
-        });
-        if (reached) { done = true; break; }
-      }
+      // order we already have, everything beyond is a duplicate — stop paging instead of
+      // pulling the whole (rate-limited) history.
+      const pageTimes = (j.items ?? []).map((it: any) => it.fill?.filledAt ?? it.order?.dateModified ?? it.order?.createdAt);
+      if (reachedPageStop(pageTimes, plan)) { done = true; break; }
       cursor = j.nextPagePath ? new URL(j.nextPagePath, base).searchParams.get("cursor") : null;
       if (!cursor) { done = true; break; }
     }
 
     // Resolve every instrument's current ticker via ISIN (cached globally), then build rows.
     const aliasMap = await resolveAliases(raw.map((x) => ({ base: x.base, isin: x.isin, name: x.name })), svc);
-    const rows = raw.map((x) => ({
-      ticker: aliasMap.get(x.base) ?? RENAME[x.base] ?? x.base,
-      side: x.side, shares: x.shares, price_usd: x.price_usd, fee_usd: x.fee_usd,
-      executed_at: x.executed_at, ext_id: x.ext_id, note: null,
-    }));
-
-    // In statement mode only append orders newer than what the statement covers — AND drop
-    // any order the statement (or a manual entry) already records under a different id. The
-    // statement (act rows) and the orders API can describe the SAME fill with different ids
-    // and slightly different timestamps (statement date vs API fill time), so a same-day
-    // trade slips past the `> cutoff` filter and double-imports (seen: a NU buy counted
-    // twice, +910 shares, masked by a reconcile adj).
-    let toInsert = statementMode && cutoff
-      ? rows.filter((r) => new Date(r.executed_at).getTime() > new Date(cutoff).getTime())
-      : rows;
-    if (statementMode && toInsert.length) {
-      const oldest = toInsert.reduce((m, r) => (r.executed_at < m ? r.executed_at : m), toInsert[0].executed_at).slice(0, 10);
-      const { data: existing } = await svc.from("transactions")
-        .select("ticker,side,shares,price_usd,executed_at,ext_id")
-        .eq("user_id", userId).eq("broker", "T212").eq("broker_account", account).neq("ticker", "CASH").gte("executed_at", oldest);
-      const key = (t: any) => `${t.ticker}|${String(t.executed_at).slice(0, 10)}|${t.side}|${Number(t.shares).toFixed(4)}|${Number(t.price_usd).toFixed(2)}`;
-      // Only NON-order rows block re-import (statement 'act' / NULL manual). Two genuine API
-      // fills keep distinct ids and are deduped by ext_id in the RPC, so don't drop those.
-      const seen = new Set((existing ?? []).filter((e: any) => !String(e.ext_id ?? "").startsWith("t212:ord:")).map(key));
-      toInsert = toInsert.filter((r) => !seen.has(key(r)));
+    // fill.price is in the INSTRUMENT currency; only USD instruments can take it as USD.
+    // Everything else is priced from walletImpact (account currency) — see t212FillPriceUsd.
+    const nonUsd = raw.filter((x) => String(x.inst_ccy ?? "USD").toUpperCase() !== "USD");
+    let usdCzkOn: (d: string) => number | null = () => null;
+    if (nonUsd.length) {
+      const from = nonUsd.map((x) => String(x.executed_at).slice(0, 10)).sort()[0];
+      const fromWithMargin = new Date(Date.parse(from) - 14 * 86400000).toISOString().slice(0, 10);
+      const fx: { date: string; close: number }[] = [];
+      for (let f = 0; ; f += 1000) {
+        const { data, error } = await svc.from("price_history").select("date,close").eq("symbol", "USDCZK")
+          .gte("date", fromWithMargin).order("date", { ascending: true }).range(f, f + 999);
+        if (error) throw new Error(`USDCZK read failed: ${error.message}`);
+        fx.push(...((data ?? []) as any[]).map((r) => ({ date: r.date, close: Number(r.close) })));
+        if ((data ?? []).length < 1000) break;
+      }
+      usdCzkOn = (d: string) => { let best: number | null = null; for (const r of fx) { if (r.date <= d) best = r.close; else break; } return best; };
     }
+    const rows: any[] = [];
+    const unpriced: { label: string; executed_at: string; ext_id: string }[] = [];
+    for (const x of raw) {
+      const ticker = aliasMap.get(x.base) ?? RENAME[x.base] ?? x.base;
+      const day = String(x.executed_at).slice(0, 10);
+      let close: number | null | undefined;
+      const closeUsdOn = () => close ?? null;
+      // Every non-USD fill gets the day's USD close as a fallback — also CZK/USD wallets,
+      // whose primary path can still miss (no netValue, no USD/CZK rate for that day).
+      if (String(x.inst_ccy ?? "USD").toUpperCase() !== "USD") {
+        const { data } = await svc.from("price_history").select("close").eq("symbol", ticker).lte("date", day).gt("close", 0).order("date", { ascending: false }).limit(1);
+        close = data?.[0]?.close != null ? Number(data[0].close) : null;
+      }
+      const priceUsd = t212FillPriceUsd(
+        { instrumentCurrency: x.inst_ccy, price: x.price_usd, quantity: x.shares, walletCurrency: x.wallet_ccy, walletNetValue: x.wallet_net },
+        usdCzkOn, closeUsdOn, day,
+      );
+      if (priceUsd == null) { unpriced.push({ label: `${ticker} ${day} (${x.inst_ccy})`, executed_at: x.executed_at, ext_id: x.ext_id }); continue; }
+      rows.push({ ticker, side: x.side, shares: x.shares, price_usd: priceUsd, fee_usd: x.fee_usd, executed_at: x.executed_at, ext_id: x.ext_id, note: null });
+    }
+    // A fill that cannot be priced in USD must STOP the sync rather than be skipped: once newer
+    // orders are stored, the next run pages only down to them and the skipped trade would be
+    // missing from FIFO and taxes for good. Nothing of this batch has been written yet.
+    // Only fills that would actually be stored block (see blockingUnpricedFills).
+    const blocking = blockingUnpricedFills(unpriced, stored, plan, isFirstBatch && !statementMode);
+    if (blocking.length) {
+      return json({ error: `Nelze určit cenu v USD u ${blocking.length} obchod(ů): ${blocking.slice(0, 5).map((u) => u.label).join(", ")}. Doplň ticker_alias.yahoo_symbol a zkus to znovu — synchronizace nic nezapsala.` });
+    }
+
+    // In statement mode only orders after the statement cutoff, minus any the statement
+    // already records under a different id (see selectT212OrdersToInsert). Orders already
+    // stored are passed on too: the RPC skips their ext_id (ON CONFLICT DO NOTHING).
+    const toInsert = selectT212OrdersToInsert(rows, stored, plan);
 
     // Append this batch (full-replace only for pure-API users on the first batch, and even
     // then only this account's rows). Recalc deferred to the end.
-    await svc.rpc("import_broker_transactions", { p_user_id: userId, p_broker: "T212", p_rows: toInsert, p_replace: isFirstBatch && !statementMode, p_recalc: false, p_account: account });
+    const { error: impErr } = await svc.rpc("import_broker_transactions", { p_user_id: userId, p_broker: "T212", p_rows: toInsert, p_replace: isFirstBatch && !statementMode, p_recalc: false, p_account: account });
+    if (impErr) return json({ error: `Uložení obchodů selhalo: ${impErr.message}` });
 
     if (!done) {
       await svc.from("broker_connections").update({ last_sync_cursor: cursor, status: "importuji…" }).eq("user_id", userId).eq("broker", "T212");
@@ -425,21 +463,33 @@ Deno.serve(async (req) => {
     if (statementMode) {
       await svc.rpc("import_broker_transactions", { p_user_id: userId, p_broker: "T212", p_rows: [], p_replace: false, p_recalc: true, p_account: account });
       // Reconcile THIS ACCOUNT's positions to the live broker portfolio (removes statement
-      // artifacts like pie phantoms the broker no longer holds). Best-effort.
+      // artifacts like pie phantoms the broker no longer holds). Best-effort: when T212 does
+      // not return the portfolio the previous adjustments stay as they are.
       let reconciled = false;
-      try { await reconcileT212Holdings(svc, userId, account, await fetchPortfolioHjson(svc, t212)); reconciled = true; } catch (_e) { /* keep going */ }
+      try { await reconcileT212Holdings(svc, userId, account, await fetchPortfolioHjson(svc, t212)); reconciled = true; } catch (e) { console.warn("sync-broker: reconcile skipped —", (e as Error).message); }
       // Cash + deposit sync are best-effort: a failure here must not break the core sync.
       let newDeps = 0, newDivs = 0;
       try { await syncCashFromApi(svc, userId, summary); } catch (_e) { /* keep going */ }
       try { newDeps = await syncDepositsFromApi(svc, userId, account, t212Once, summary); } catch (_e) { /* keep going */ }
       try { newDivs = await syncDividendsFromApi(svc, userId, account, t212Once, summary); } catch (_e) { /* keep going */ }
-      await svc.from("broker_connections").update({ last_sync_cursor: null, last_sync_at: new Date().toISOString(), status: "synchronizováno (výpis + API)" }).eq("user_id", userId).eq("broker", "T212");
+      const status = reconciled ? "synchronizováno (výpis + API)" : "synchronizováno (výpis + API), pozice nedorovnány";
+      await svc.from("broker_connections").update({ last_sync_cursor: null, last_sync_at: new Date().toISOString(), status }).eq("user_id", userId).eq("broker", "T212");
       return json({ ok: true, done: true, mode: "statement-append", appended: toInsert.length, deposits: newDeps, dividends: newDivs, reconciled });
     }
 
     // Pure-API user: reconcile this account to its live portfolio, clear cursor.
-    const hjson = await fetchPortfolioHjson(svc, t212);
-    await reconcileT212Holdings(svc, userId, account, hjson);
+    let hjson: Awaited<ReturnType<typeof fetchPortfolioHjson>>;
+    try {
+      hjson = await fetchPortfolioHjson(svc, t212);
+      await reconcileT212Holdings(svc, userId, account, hjson);
+    } catch (e) {
+      // The orders are stored; only the reconcile is missing. Recalc the positions from the
+      // orders (the reconcile would have done it) and say so, instead of reconciling
+      // against nothing and zeroing the account.
+      await svc.rpc("import_broker_transactions", { p_user_id: userId, p_broker: "T212", p_rows: [], p_replace: false, p_recalc: true, p_account: account });
+      await svc.from("broker_connections").update({ last_sync_cursor: null, status: "obchody staženy, pozice nedorovnány" }).eq("user_id", userId).eq("broker", "T212");
+      return json({ error: `Obchody jsou stažené, ale dorovnání pozic se nepovedlo (${(e as Error).message}). Zkus synchronizaci za pár minut znovu.` });
+    }
     try { await syncCashFromApi(svc, userId, summary); } catch (_e) { /* best-effort */ }
     await svc.from("broker_connections").update({ last_sync_cursor: null, last_sync_at: new Date().toISOString(), status: `${hjson.length} pozic` }).eq("user_id", userId).eq("broker", "T212");
     return json({ ok: true, done: true, positions: hjson.length });

@@ -1,7 +1,7 @@
 import { useMemo } from "react";
 import { Cell, Pie, PieChart, ResponsiveContainer, Tooltip } from "recharts";
 import { Layers } from "lucide-react";
-import { useComputedPortfolio, usePositions } from "@/hooks/usePortfolio";
+import { useComputedPortfolio, usePositions, isCashPosition } from "@/hooks/usePortfolio";
 import { useTickerProfiles, resolveSector } from "@/hooks/useTickerProfiles";
 import { useCurrency } from "@/contexts/CurrencyContext";
 
@@ -14,7 +14,7 @@ const SectorAllocation = () => {
   // outright — resolveSector falls through to the manual override and the static map, so
   // the chart renders immediately and re-slices once the API answer arrives.
   const { data: profiles } = useTickerProfiles();
-  const { positions, totalValue } = useComputedPortfolio();
+  const { positions } = useComputedPortfolio();
   const { format } = useCurrency();
 
   // Manual overrides only. The autofill trigger that used to stuff this column from the
@@ -25,23 +25,28 @@ const SectorAllocation = () => {
     [dbPositions],
   );
 
+  // Shares of the INVESTED money: cash is not a sector and is not drawn, so it must not sit
+  // in the denominator either — with it there the percentages added up to less than 100 %.
   const data = useMemo(() => {
     const groups = new Map<string, number>();
     for (const p of positions) {
-      if (p.ticker === "CASH") continue;
+      if (isCashPosition(p)) continue;
       const sector = resolveSector(p.ticker, manualSectors.get(p.ticker.toUpperCase()), profiles);
       groups.set(sector, (groups.get(sector) || 0) + p.value);
     }
+    const invested = [...groups.values()].reduce((a, b) => a + b, 0);
     return Array.from(groups.entries())
-      .map(([name, value]) => ({ name, value, pct: totalValue > 0 ? (value / totalValue) * 100 : 0 }))
+      .map(([name, value]) => ({ name, value, pct: invested > 0 ? (value / invested) * 100 : 0 }))
       .sort((a, b) => b.value - a.value);
-  }, [positions, manualSectors, profiles, totalValue]);
+  }, [positions, manualSectors, profiles]);
 
   return (
     <div className="rounded-2xl border border-border bg-card/60 backdrop-blur p-5 animate-fade-in-up">
       <h2 className="font-display text-lg font-bold flex items-center gap-2 mb-3">
         <Layers className="w-5 h-5 text-primary" /> Alokace dle sektorů
       </h2>
+      <p className="text-[10px] text-muted-foreground -mt-2 mb-3">Podíl na investovaných penězích, bez hotovosti</p>
+
       {data.length === 0 ? (
         <p className="text-xs text-muted-foreground text-center py-12">Pro pozice doplň sektor v databázi.</p>
       ) : (

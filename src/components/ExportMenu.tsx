@@ -1,3 +1,4 @@
+import { useTranslation } from "react-i18next";
 import { Download, Printer } from 'lucide-react';
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger } from '@/components/ui/dropdown-menu';
 import { Button } from '@/components/ui/button';
@@ -21,6 +22,7 @@ const downloadCsv = (name: string, header: string[], rows: (string | number)[][]
 };
 
 const ExportMenu = () => {
+  const { t } = useTranslation();
   const portfolio = useComputedPortfolio();
   const { data: txs = [] } = useTransactions();
   const { data: divs = [] } = useDividends();
@@ -28,7 +30,7 @@ const ExportMenu = () => {
   const exportPositions = () => {
     const rate = portfolio.usdCzk || 21;
     downloadCsv('pozice',
-      ['Ticker', 'Název', 'Kusy', 'Prům. cena USD', 'Aktuální cena USD', 'Hodnota USD', 'Hodnota CZK', 'Zisk USD', 'Zisk %', 'Alokace %'],
+      [t('legacy.exportMenu.ticker'), t('legacy.exportMenu.name'), t('legacy.exportMenu.shareQuantity'), t('legacy.exportMenu.avgPriceUsd'), t('legacy.exportMenu.currentPriceUsd'), t('legacy.exportMenu.valueUSD'), t('legacy.exportMenu.valueCZK'), t('legacy.exportMenu.profitUSD'), t('legacy.exportMenu.profit'), t('legacy.exportMenu.allocation')],
       portfolio.positions.map((p) => [
         p.ticker, p.name ?? '', p.shares.toFixed(4), p.avgPrice.toFixed(2), p.currentPrice.toFixed(2),
         p.value.toFixed(2), (p.value * rate).toFixed(0), p.profitUsd.toFixed(2), p.profitPct.toFixed(2), p.allocation.toFixed(1),
@@ -37,15 +39,15 @@ const ExportMenu = () => {
 
   const exportTransactions = () => {
     downloadCsv('transakce',
-      ['Datum', 'Ticker', 'Směr', 'Kusy', 'Cena USD', 'Poplatek USD', 'Broker'],
+      [t('legacy.exportMenu.date'), t('legacy.exportMenu.ticker'), t('legacy.exportMenu.side'), t('legacy.exportMenu.shareQuantity'), t('legacy.exportMenu.priceUSD'), t('legacy.exportMenu.feeUSD'), t('legacy.exportMenu.broker')],
       (txs as any[])
-        .filter((t) => { const e = String(t.ext_id ?? ''); return !e.includes(':adj:') && !e.includes(':pos:'); })
-        .map((t) => [t.executed_at.slice(0, 10), t.ticker, t.side, t.shares, t.price_usd, t.fee_usd ?? 0, t.broker ?? '']));
+        .filter((row) => { const e = String(row.ext_id ?? ''); return !e.includes(':adj:') && !e.includes(':pos:'); })
+        .map((row) => [row.executed_at.slice(0, 10), row.ticker, row.side, row.shares, row.price_usd, row.fee_usd ?? 0, row.broker ?? '']));
   };
 
   const exportDividends = () => {
     downloadCsv('dividendy',
-      ['Ex-date', 'Pay-date', 'Ticker', 'USD/akcii', 'Kusů', 'Celkem USD', 'Stav', 'Zdroj'],
+      [t('legacy.exportMenu.exDate'), t('legacy.exportMenu.payDate'), t('legacy.exportMenu.ticker'), t('legacy.exportMenu.uSDShare'), t('legacy.exportMenu.shares'), t('legacy.exportMenu.totalUSD'), t('legacy.exportMenu.status'), t('legacy.exportMenu.source')],
       (divs as any[]).map((d) => [
         d.ex_date, d.pay_date ?? '', d.ticker, d.amount_per_share, d.shares_held ?? '', d.total_amount_usd ?? '', d.status, d.broker ?? '',
       ]));
@@ -55,16 +57,14 @@ const ExportMenu = () => {
     <DropdownMenu>
       <DropdownMenuTrigger asChild>
         <Button variant="outline" size="sm" className="h-8 gap-1.5 text-xs">
-          <Download className="w-3.5 h-3.5" /> Export
-        </Button>
+          <Download className="w-3.5 h-3.5" /> {t('legacy.exportMenu.export')}</Button>
       </DropdownMenuTrigger>
       <DropdownMenuContent align="end" className="w-48">
-        <DropdownMenuItem onClick={exportPositions}>Pozice (CSV)</DropdownMenuItem>
-        <DropdownMenuItem onClick={exportTransactions}>Transakce (CSV)</DropdownMenuItem>
-        <DropdownMenuItem onClick={exportDividends}>Dividendy (CSV)</DropdownMenuItem>
+        <DropdownMenuItem onClick={exportPositions}>{t('legacy.exportMenu.holdingsCsv')}</DropdownMenuItem>
+        <DropdownMenuItem onClick={exportTransactions}>{t('legacy.exportMenu.transactionsCsv')}</DropdownMenuItem>
+        <DropdownMenuItem onClick={exportDividends}>{t('legacy.exportMenu.dividendsCsv')}</DropdownMenuItem>
         <DropdownMenuItem onClick={() => window.print()}>
-          <Printer className="w-3.5 h-3.5 mr-1.5" /> Tisk / PDF
-        </DropdownMenuItem>
+          <Printer className="w-3.5 h-3.5 mr-1.5" /> {t('legacy.exportMenu.printPdf')}</DropdownMenuItem>
       </DropdownMenuContent>
     </DropdownMenu>
   );

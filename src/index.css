@@ -1,4 +1,4 @@
-@import url('https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500;600;700;800&family=Inter:wght@300;400;500;600;700;800&display=swap');
+@import url('https://fonts.googleapis.com/css2?family=Geist:wght@300;400;500;600;700;800&family=Geist+Mono:wght@400;500;600;700&display=swap');
 
 @tailwind base;
 @tailwind components;
@@ -6,80 +6,83 @@
 
 @layer base {
   :root {
-    --background: 222 24% 5%;
-    --foreground: 210 25% 96%;
+    --background: 228 29% 3%;
+    --foreground: 220 33% 96%;
 
-    --card: 222 22% 8%;
-    --card-foreground: 210 25% 96%;
+    --card: 228 24% 7%;
+    --card-foreground: 220 33% 96%;
 
-    --popover: 222 22% 10%;
-    --popover-foreground: 210 25% 96%;
+    --popover: 228 24% 8%;
+    --popover-foreground: 220 33% 96%;
 
-    --primary: 152 76% 52%;
-    --primary-foreground: 222 24% 5%;
-    --primary-glow: 152 90% 65%;
+    --primary: 247 100% 74%;
+    --primary-foreground: 228 29% 3%;
+    --primary-glow: 262 100% 82%;
 
-    --secondary: 222 18% 14%;
-    --secondary-foreground: 210 20% 82%;
+    --secondary: 228 18% 12%;
+    --secondary-foreground: 220 20% 82%;
 
-    --muted: 222 16% 12%;
-    --muted-foreground: 215 14% 55%;
+    --muted: 228 16% 11%;
+    --muted-foreground: 225 12% 60%;
 
-    --accent: 222 18% 16%;
-    --accent-foreground: 210 25% 96%;
+    --accent: 228 18% 14%;
+    --accent-foreground: 220 33% 96%;
 
-    --destructive: 358 75% 58%;
+    --destructive: 349 100% 68%;
     --destructive-foreground: 210 40% 98%;
 
-    --border: 222 16% 14%;
-    --input: 222 16% 16%;
-    --ring: 152 76% 52%;
+    --border: 228 14% 15%;
+    --input: 228 14% 17%;
+    --ring: 247 100% 74%;
 
     --radius: 1rem;
 
-    --profit: 152 76% 52%;
-    --profit-glow: 152 90% 65%;
-    --loss: 358 75% 60%;
-    --loss-glow: 358 88% 70%;
-    --warning: 38 95% 58%;
-    --info: 212 95% 62%;
-    --info-glow: 212 100% 72%;
-    --violet: 268 80% 65%;
-    --cyan: 188 88% 55%;
+    --profit: 153 86% 59%;
+    --profit-glow: 153 100% 72%;
+    --loss: 349 100% 68%;
+    --loss-glow: 349 100% 78%;
+    --warning: 40 100% 67%;
+    --info: 216 100% 72%;
+    --info-glow: 216 100% 82%;
+    --violet: 247 100% 74%;
+    --cyan: 194 85% 62%;
 
-    --chart-1: 152 76% 52%;
-    --chart-2: 212 95% 62%;
-    --chart-3: 38 95% 58%;
-    --chart-4: 268 80% 65%;
-    --chart-5: 358 75% 60%;
-    --chart-6: 188 88% 55%;
-    --chart-7: 320 75% 60%;
-    --chart-8: 50 90% 58%;
-    --chart-9: 25 88% 60%;
+    --chart-1: 247 100% 74%;
+    --chart-2: 216 100% 72%;
+    --chart-3: 194 85% 62%;
+    --chart-4: 166 72% 56%;
+    --chart-5: 137 82% 71%;
+    --chart-6: 82 87% 69%;
+    --chart-7: 40 100% 67%;
+    --chart-8: 320 75% 68%;
+    --chart-9: 25 95% 64%;
 
-    --sidebar-background: 222 22% 8%;
+    --sidebar-background: 228 24% 7%;
     --sidebar-foreground: 210 25% 96%;
-    --sidebar-primary: 152 76% 52%;
-    --sidebar-primary-foreground: 222 24% 5%;
+    --sidebar-primary: 247 100% 74%;
+    --sidebar-primary-foreground: 228 29% 3%;
     --sidebar-accent: 222 18% 16%;
     --sidebar-accent-foreground: 210 25% 96%;
     --sidebar-border: 222 16% 14%;
-    --sidebar-ring: 152 76% 52%;
+    --sidebar-ring: 247 100% 74%;
 
-    --font-display: 'JetBrains Mono', monospace;
-    --font-body: 'Inter', sans-serif;
+    --font-display: 'Geist', system-ui, sans-serif;
+    --font-body: 'Geist', system-ui, sans-serif;
+    --font-mono: 'Geist Mono', ui-monospace, monospace;
 
     /* Reusable design tokens */
-    --gradient-card: linear-gradient(140deg, hsl(222 22% 9%) 0%, hsl(222 24% 6%) 100%);
-    --gradient-card-hover: linear-gradient(140deg, hsl(222 22% 11%) 0%, hsl(222 24% 7%) 100%);
+    --gradient-card: linear-gradient(180deg, hsl(0 0% 100% / 0.055), hsl(0 0% 100% / 0.02));
+    --gradient-card-hover: linear-gradient(180deg, hsl(0 0% 100% / 0.075), hsl(0 0% 100% / 0.03));
+    --glass-border: hsl(0 0% 100% / 0.08);
+    --glass-highlight: inset 0 1px 0 hsl(0 0% 100% / 0.07);
     --gradient-profit: linear-gradient(135deg, hsl(var(--profit)) 0%, hsl(var(--profit-glow)) 100%);
     --gradient-loss: linear-gradient(135deg, hsl(var(--loss)) 0%, hsl(var(--loss-glow)) 100%);
     --gradient-info: linear-gradient(135deg, hsl(var(--info)) 0%, hsl(var(--info-glow)) 100%);
-    --gradient-mesh: radial-gradient(at 20% 0%, hsl(152 76% 52% / 0.10) 0px, transparent 50%),
-                     radial-gradient(at 80% 0%, hsl(212 95% 62% / 0.08) 0px, transparent 50%),
-                     radial-gradient(at 50% 100%, hsl(268 80% 65% / 0.06) 0px, transparent 50%);
+    --gradient-mesh: radial-gradient(60rem 36rem at 0% -10%, hsl(256 100% 62% / 0.30), transparent 60%),
+                     radial-gradient(50rem 32rem at 100% -6%, hsl(174 86% 42% / 0.16), transparent 60%),
+                     radial-gradient(60rem 30rem at 45% 75%, hsl(246 100% 58% / 0.08), transparent 70%);
 
-    --shadow-elegant: 0 12px 40px -12px hsl(222 30% 0% / 0.6);
+    --shadow-elegant: var(--glass-highlight), 0 20px 60px -30px hsl(0 0% 0% / 0.8);
     --shadow-glow-profit: 0 0 40px -8px hsl(var(--profit) / 0.4);
     --shadow-glow-loss: 0 0 40px -8px hsl(var(--loss) / 0.4);
     --shadow-glow-info: 0 0 40px -8px hsl(var(--info) / 0.35);
@@ -100,6 +103,7 @@
   body {
     @apply bg-background text-foreground;
     font-family: var(--font-body);
+    font-feature-settings: 'tnum' 1;
     background-image: var(--gradient-mesh);
     background-attachment: fixed;
     -webkit-font-smoothing: antialiased;
@@ -108,7 +112,7 @@
 
   h1, h2, h3, h4, h5, h6 {
     font-family: var(--font-display);
-    letter-spacing: -0.02em;
+    letter-spacing: -0.025em;
   }
 
   /* Custom scrollbars */
@@ -130,10 +134,19 @@
   .glow-profit { text-shadow: 0 0 24px hsl(var(--profit) / 0.45); }
   .glow-loss { text-shadow: 0 0 24px hsl(var(--loss) / 0.45); }
 
+  /* Glass surface — every card in the app (ui/card uses it too). */
+  .surface-card,
   .gradient-card {
     background: var(--gradient-card);
+    border-color: var(--glass-border);
     box-shadow: var(--shadow-elegant);
+    backdrop-filter: blur(24px);
+    -webkit-backdrop-filter: blur(24px);
   }
+  @media (max-width: 640px) {
+    .surface-card, .gradient-card { backdrop-filter: none; -webkit-backdrop-filter: none; }
+  }
+  .num { font-family: var(--font-mono); font-variant-numeric: tabular-nums; }
   .gradient-card-hover:hover {
     background: var(--gradient-card-hover);
   }
@@ -203,4 +216,12 @@
     50% { transform: translateY(-6px); }
   }
   .float { animation: float 6s ease-in-out infinite; }
+}
+
+/* Focus list: hovering one item fades its siblings so the eye lands on it (pointer devices only;
+   touch screens keep everything at full strength). */
+@media (hover: hover) {
+  .focus-list > * { transition: opacity 0.2s ease, transform 0.2s ease; }
+  .focus-list:hover > * { opacity: 0.4; }
+  .focus-list:hover > *:hover { opacity: 1; }
 }

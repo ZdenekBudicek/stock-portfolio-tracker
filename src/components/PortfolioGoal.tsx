@@ -1,10 +1,11 @@
-import { useState } from "react";
+import { useMemo, useState } from "react";
 import { Target, Plus, Trash2 } from "lucide-react";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from "@/components/ui/dialog";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { useGoals, useUpsertGoal, useDeleteGoal } from "@/hooks/useExtras";
-import { useComputedPortfolio, useDailySnapshots } from "@/hooks/usePortfolio";
+import { useComputedPortfolio, useDailySnapshots, useTransactions, computeTradeFlows } from "@/hooks/usePortfolio";
+import { monthlyGrowthNetOfFlows } from "@/lib/dailyChanges";
 import { useCurrency } from "@/contexts/CurrencyContext";
 
 const PortfolioGoal = () => {
@@ -13,6 +14,7 @@ const PortfolioGoal = () => {
   const del = useDeleteGoal();
   const { totalValue } = useComputedPortfolio();
   const { data: snaps = [] } = useDailySnapshots();
+  const { data: txs = [] } = useTransactions();
   const { format } = useCurrency();
   const [open, setOpen] = useState(false);
   const [f, setF] = useState({ name: "", target_amount_usd: "", target_date: "" });
@@ -28,19 +30,14 @@ const PortfolioGoal = () => {
     setOpen(false);
   };
 
-  // Estimate growth rate from the last ~90 days of snapshots. Use the REAL calendar span
-  // between the first and last snapshot, not the row count — with gaps in the series the
-  // count understates the elapsed time and wildly overstates the monthly rate.
-  const monthlyGrowth = (() => {
+  // Estimate growth rate from the last ~90 days of snapshots: the market's own return, with
+  // the money bought in taken out (a month of purchases is not growth), over the REAL
+  // calendar span — with gaps in the series the row count understates the elapsed time.
+  const monthlyGrowth = useMemo(() => {
     if (snaps.length < 30) return 0;
-    const recent = snaps.slice(-90);
-    const first = recent[0].value_usd;
-    const last = recent[recent.length - 1].value_usd;
-    if (first <= 0) return 0;
-    const days = Math.max(1,
-      (new Date(recent[recent.length - 1].snapshot_date).getTime() - new Date(recent[0].snapshot_date).getTime()) / 86400000);
-    return ((last / first) ** (30 / days)) - 1; // monthly compounded rate
-  })();
+    return monthlyGrowthNetOfFlows(snaps.slice(-90), computeTradeFlows(txs));
+  }, [snaps, txs]);
+
 
   return (
     <div className="rounded-2xl border border-border bg-card/60 backdrop-blur p-5 animate-fade-in-up">

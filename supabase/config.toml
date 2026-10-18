@@ -22,3 +22,6 @@ verify_jwt = true
 # watches, and returns no user data, so the worst case is spent API quota.
 [functions.sync-sectors]
 verify_jwt = true
+
+[functions.request-fundamentals]
+verify_jwt = true

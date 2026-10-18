@@ -1,6 +1,11 @@
 import { useQuery } from "@tanstack/react-query";
 import { Activity } from "lucide-react";
 
+// This is the CRYPTO Fear & Greed index (alternative.me — Bitcoin volatility, volume, social
+// media…), not a stock-market gauge. It was labelled "Nálada na trhu" on a stock portfolio,
+// which read as CNN's stock index. The stock index has no browser-callable API (CNN's feed
+// blocks cross-origin requests), so the card says plainly what it shows.
+
 const fetchFG = async () => {
   const r = await fetch("https://api.alternative.me/fng/?limit=2");
   const j = await r.json();
@@ -45,9 +50,11 @@ const FearGreedIndex = () => {
       <div className="flex items-center justify-between gap-4">
         <div>
           <h3 className="font-display text-sm font-bold flex items-center gap-2 mb-1">
-            <Activity className="w-4 h-4 text-primary" /> Fear & Greed
+            <Activity className="w-4 h-4 text-primary" /> Krypto Fear & Greed
           </h3>
-          <p className="text-[10px] uppercase tracking-wider text-muted-foreground font-semibold">Nálada na trhu</p>
+          <p className="text-[10px] uppercase tracking-wider text-muted-foreground font-semibold">Nálada na kryptotrhu</p>
+          <p className="text-[10px] text-muted-foreground/70 mt-0.5">Zdroj: alternative.me · nejde o akciový index</p>
+
         </div>
         <div className="text-right">
           <p className={`font-display text-4xl font-bold tabular-nums ${colorFor(data.value)}`}>{data.value}</p>

@@ -64,6 +64,10 @@ export function computeYearlyGrowth({ snapshots, tradeFlowsUsd, live, goalPct, n
       cashUsd: s.cash_usd != null && Number.isFinite(Number(s.cash_usd)) ? Number(s.cash_usd) : null,
     }))
     .sort((a, b) => a.date.localeCompare(b.date));
+  // After cash tracking began, a day without a recorded balance keeps the last one (a missed
+  // nightly run is not a withdrawal and a re-deposit).
+  let lastCash: number | null = null;
+  for (const d of days) { if (d.cashUsd != null) lastCash = d.cashUsd; else if (lastCash != null) d.cashUsd = lastCash; }
 
   // Today = the header's own figure. Replaces a snapshot already stored for today (last close)
   // rather than sitting beside it.
@@ -92,13 +96,20 @@ export function computeYearlyGrowth({ snapshots, tradeFlowsUsd, live, goalPct, n
   // that stays in cash is then neither a loss nor a withdrawal. Before cash was recorded the
   // balance is 0 and this is the trade flow alone; the first recorded balance is money in,
   // exactly matching the step it adds to the value.
+  //
+  // The first year is anchored to the value of its first day, and that value already holds
+  // everything bought up to and including that day (plus that day's cash). Those flows are
+  // therefore NOT money in during the year — counting them as well took the same purchase
+  // twice: a $1 000 buy ending the year at $1 200 showed −40 % instead of +20 %.
+  const firstDate = days[0].date;
   const flowByMonthCzk = new Map<string, number>();
   const addFlow = (date: string, czk: number) => {
+    if (date <= firstDate) return;
     const key = date.slice(0, 7);
     flowByMonthCzk.set(key, (flowByMonthCzk.get(key) ?? 0) + czk);
   };
   for (const [date, usd] of tradeFlowsUsd) addFlow(date, usd * fxAt(date));
-  let prevCash = 0;
+  let prevCash = days[0].cashUsd ?? 0;
   for (const d of days) {
     const cash = d.cashUsd ?? 0;
     if (cash !== prevCash) addFlow(d.date, (cash - prevCash) * (d.fx ?? fxAt(d.date)));

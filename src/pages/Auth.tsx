@@ -1,3 +1,4 @@
+import { useTranslation } from "react-i18next";
 import { useEffect, useState } from "react";
 import { Navigate, useNavigate } from "react-router-dom";
 import { z } from "zod";
@@ -9,12 +10,15 @@ import { Label } from "@/components/ui/label";
 import { Card } from "@/components/ui/card";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { toast } from "sonner";
-import { Loader2, TrendingUp } from "lucide-react";
+import { Loader2 } from "lucide-react";
+import { BrandMark, BrandName } from "@/components/brand/BrandMark";
 
-const emailSchema = z.string().trim().email("Neplatný e-mail").max(255);
-const passwordSchema = z.string().min(8, "Heslo musí mít alespoň 8 znaků").max(72);
 
 export default function Auth() {
+  const { t } = useTranslation();
+  const emailSchema = z.string().trim().email(t('legacy.auth.invalidEmail')).max(255, t('legacy.auth.emailTooLong'));
+  const passwordSchema = z.string().min(8, t('legacy.auth.passwordMustHaveAtLeast8Characters')).max(72, t('legacy.auth.passwordTooLong'));
+
   const { user, loading } = useAuth();
   const navigate = useNavigate();
   const [email, setEmail] = useState("");
@@ -23,8 +27,8 @@ export default function Auth() {
   const [forgotMode, setForgotMode] = useState(false);
 
   useEffect(() => {
-    document.title = "Přihlášení – Portfolio Tracker";
-  }, []);
+    document.title = t('legacy.auth.signInPortfolioTracker');
+  }, [t]);
 
   if (loading) return null;
   if (user) return <Navigate to="/" replace />;
@@ -36,7 +40,7 @@ export default function Auth() {
       options: { redirectTo: window.location.origin },
     });
     if (error) {
-      toast.error("Přihlášení přes Google selhalo");
+      toast.error(t('legacy.auth.googleSignInFailed'));
       setBusy(false);
     }
     // on success the browser is redirected to Google by Supabase
@@ -51,7 +55,7 @@ export default function Auth() {
     setBusy(true);
     const { error } = await supabase.auth.signInWithPassword({ email: em.data, password: pw.data });
     setBusy(false);
-    if (error) return toast.error(error.message);
+    if (error) return toast.error(t('legacy.auth.errorDetail', { message: error.message }));
     navigate("/", { replace: true });
   };
 
@@ -68,8 +72,8 @@ export default function Auth() {
       options: { emailRedirectTo: `${window.location.origin}/` },
     });
     setBusy(false);
-    if (error) return toast.error(error.message);
-    toast.success("Účet vytvořen. Zkontroluj e-mail pro potvrzení.");
+    if (error) return toast.error(t('legacy.auth.errorDetail', { message: error.message }));
+    toast.success(t('legacy.auth.accountCreatedCheckYourEmailToConfirm'));
   };
 
   const handleForgot = async (e: React.FormEvent) => {
@@ -81,8 +85,8 @@ export default function Auth() {
       redirectTo: `${window.location.origin}/reset-password`,
     });
     setBusy(false);
-    if (error) return toast.error(error.message);
-    toast.success("Pokud účet existuje, poslali jsme ti e-mail.");
+    if (error) return toast.error(t('legacy.auth.errorDetail', { message: error.message }));
+    toast.success(t('legacy.auth.ifTheAccountExistsWeHaveSentYou'));
     setForgotMode(false);
   };
 
@@ -90,76 +94,68 @@ export default function Auth() {
     <div className="min-h-screen flex items-center justify-center bg-background p-4">
       <div className="w-full max-w-md space-y-6">
         <div className="text-center space-y-2">
-          <div className="inline-flex items-center justify-center w-12 h-12 rounded-xl bg-primary/10 text-primary">
-            <TrendingUp className="w-6 h-6" />
-          </div>
-          <h1 className="text-2xl font-bold tracking-tight">Portfolio Tracker</h1>
+          <BrandMark size={56} className="mx-auto" />
+          <h1 className="text-3xl"><BrandName /></h1>
           <p className="text-sm text-muted-foreground">
-            Sleduj své akcie, crypto a růst portfolia na jednom místě.
-          </p>
+            {t('legacy.auth.trackYourStocksCryptoAndPortfolioGrowthIn')}</p>
         </div>
 
         <Card className="p-6">
           {forgotMode ? (
             <form onSubmit={handleForgot} className="space-y-4">
-              <h2 className="font-semibold">Obnova hesla</h2>
+              <h2 className="font-semibold">{t('legacy.auth.resetPassword')}</h2>
               <div className="space-y-2">
-                <Label htmlFor="fmail">E-mail</Label>
+                <Label htmlFor="fmail">{t('legacy.auth.email')}</Label>
                 <Input id="fmail" type="email" value={email} onChange={(e) => setEmail(e.target.value)} required />
               </div>
               <Button type="submit" className="w-full" disabled={busy}>
                 {busy && <Loader2 className="w-4 h-4 mr-2 animate-spin" />}
-                Poslat odkaz
-              </Button>
+                {t('legacy.auth.sendLink')}</Button>
               <Button type="button" variant="ghost" className="w-full" onClick={() => setForgotMode(false)}>
-                Zpět
-              </Button>
+                {t('legacy.auth.back')}</Button>
             </form>
           ) : (
             <Tabs defaultValue="login">
               <TabsList className="grid w-full grid-cols-2">
-                <TabsTrigger value="login">Přihlášení</TabsTrigger>
-                <TabsTrigger value="signup">Registrace</TabsTrigger>
+                <TabsTrigger value="login">{t('legacy.auth.signIn')}</TabsTrigger>
+                <TabsTrigger value="signup">{t('legacy.auth.signUp')}</TabsTrigger>
               </TabsList>
 
               <TabsContent value="login">
                 <form onSubmit={handleLogin} className="space-y-4 mt-4">
                   <div className="space-y-2">
-                    <Label htmlFor="lmail">E-mail</Label>
+                    <Label htmlFor="lmail">{t('legacy.auth.email')}</Label>
                     <Input id="lmail" type="email" value={email} onChange={(e) => setEmail(e.target.value)} required />
                   </div>
                   <div className="space-y-2">
-                    <Label htmlFor="lpw">Heslo</Label>
+                    <Label htmlFor="lpw">{t('legacy.auth.password')}</Label>
                     <Input id="lpw" type="password" value={password} onChange={(e) => setPassword(e.target.value)} required />
                   </div>
                   <Button type="submit" className="w-full" disabled={busy}>
                     {busy && <Loader2 className="w-4 h-4 mr-2 animate-spin" />}
-                    Přihlásit se
-                  </Button>
+                    {t('legacy.auth.signIn2')}</Button>
                   <button
                     type="button"
                     className="text-xs text-muted-foreground hover:text-foreground w-full text-center"
                     onClick={() => setForgotMode(true)}
                   >
-                    Zapomenuté heslo?
-                  </button>
+                    {t('legacy.auth.forgotPassword')}</button>
                 </form>
               </TabsContent>
 
               <TabsContent value="signup">
                 <form onSubmit={handleSignup} className="space-y-4 mt-4">
                   <div className="space-y-2">
-                    <Label htmlFor="smail">E-mail</Label>
+                    <Label htmlFor="smail">{t('legacy.auth.email')}</Label>
                     <Input id="smail" type="email" value={email} onChange={(e) => setEmail(e.target.value)} required />
                   </div>
                   <div className="space-y-2">
-                    <Label htmlFor="spw">Heslo (min. 8 znaků)</Label>
+                    <Label htmlFor="spw">{t('legacy.auth.passwordMin8Characters')}</Label>
                     <Input id="spw" type="password" value={password} onChange={(e) => setPassword(e.target.value)} required minLength={8} />
                   </div>
                   <Button type="submit" className="w-full" disabled={busy}>
                     {busy && <Loader2 className="w-4 h-4 mr-2 animate-spin" />}
-                    Vytvořit účet
-                  </Button>
+                    {t('legacy.auth.createAccount')}</Button>
                 </form>
               </TabsContent>
             </Tabs>
@@ -172,13 +168,12 @@ export default function Auth() {
                   <span className="w-full border-t" />
                 </div>
                 <div className="relative flex justify-center text-xs uppercase">
-                  <span className="bg-card px-2 text-muted-foreground">nebo</span>
+                  <span className="bg-card px-2 text-muted-foreground">{t('legacy.auth.or')}</span>
                 </div>
               </div>
               <Button type="button" variant="outline" className="w-full" onClick={handleGoogle} disabled={busy}>
                 <svg className="w-4 h-4 mr-2" viewBox="0 0 24 24"><path fill="#4285F4" d="M22.56 12.25c0-.78-.07-1.53-.2-2.25H12v4.26h5.92c-.26 1.37-1.04 2.53-2.21 3.31v2.77h3.57c2.08-1.92 3.28-4.74 3.28-8.09z"/><path fill="#34A853" d="M12 23c2.97 0 5.46-.98 7.28-2.66l-3.57-2.77c-.99.66-2.23 1.06-3.71 1.06-2.86 0-5.29-1.93-6.16-4.53H2.18v2.84C3.99 20.53 7.7 23 12 23z"/><path fill="#FBBC05" d="M5.84 14.1c-.22-.66-.35-1.36-.35-2.1s.13-1.44.35-2.1V7.07H2.18C1.43 8.55 1 10.22 1 12s.43 3.45 1.18 4.93l3.66-2.83z"/><path fill="#EA4335" d="M12 5.38c1.62 0 3.06.56 4.21 1.64l3.15-3.15C17.45 2.09 14.97 1 12 1 7.7 1 3.99 3.47 2.18 7.07l3.66 2.84C6.71 7.31 9.14 5.38 12 5.38z"/></svg>
-                Pokračovat s Google
-              </Button>
+                {t('legacy.auth.continueWithGoogle')}</Button>
             </>
           )}
         </Card>

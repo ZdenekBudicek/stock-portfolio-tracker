@@ -19,9 +19,14 @@ Deno.serve(async (req) => {
       Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!,
     );
 
+    // The caller's OWN positions and watchlist: read with their JWT so RLS scopes the rows.
+    // Reading them with the service key handed every user's tickers to anyone signed in.
+    const asCaller = createClient(Deno.env.get("SUPABASE_URL")!, Deno.env.get("SUPABASE_ANON_KEY")!, {
+      global: { headers: { Authorization: req.headers.get("Authorization") ?? "" } },
+    });
     const [{ data: positions, error: posErr }, { data: watch }] = await Promise.all([
-      supabase.from("positions").select("ticker").neq("type", "Cash"),
-      supabase.from("watchlist").select("ticker"),
+      asCaller.from("positions").select("ticker").neq("type", "Cash"),
+      asCaller.from("watchlist").select("ticker"),
     ]);
     if (posErr) throw posErr;
 

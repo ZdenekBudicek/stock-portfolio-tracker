@@ -4,11 +4,20 @@ import {
   fetchCoinGecko, fetchBinance, fetchFxUsdCzk, type Quote,
 } from "../_shared/price-providers.ts";
 import { cryptoBase, CRYPTO_TO_GECKO } from "../_shared/crypto.js";
+import { isSchedulerToken } from "../_shared/auth.ts";
 
-Deno.serve(async () => {
+// Scheduler-only: pg_cron calls this every 10 minutes with the service-role key from Vault.
+// config.toml has verify_jwt=false for it, so this check is the ONLY gate — without it
+// anybody could call it in a loop and burn the Finnhub / Twelve Data / CoinGecko quotas the
+// whole app shares.
+Deno.serve(async (req) => {
+  const serviceKey = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!;
+  if (!isSchedulerToken(req.headers.get("Authorization"), [serviceKey, Deno.env.get("CRON_SECRET")])) {
+    return new Response(JSON.stringify({ error: "Unauthorized" }), { status: 401, headers: { "Content-Type": "application/json" } });
+  }
   const supabase = createClient(
     Deno.env.get("SUPABASE_URL")!,
-    Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!,
+    serviceKey,
   );
   const finnhubKey = Deno.env.get("FINNHUB_API_KEY") ?? "";
   const twelveKey = Deno.env.get("TWELVE_DATA_API_KEY") ?? "";

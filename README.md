@@ -1,30 +1,34 @@
-# Portfolio Tracker
+# Trackora — portfolio tracker
 
-A full-stack tracker for a stock & crypto portfolio spread across several brokers. I built it for myself and use it every day.
+A full-stack tracker for a stock & crypto portfolio spread across several brokers. I built it for myself and use it every day. Redesigned in October 2026; the UI is in English and Czech.
 
-**Live demo:** [zdenekbudicek.github.io/demo/portfolio-tracker](https://zdenekbudicek.github.io/demo/portfolio-tracker/) — runs entirely in the browser with generated sample data (the UI is in Czech).
+**Live demo:** [zdenekbudicek.github.io/demo/portfolio-tracker](https://zdenekbudicek.github.io/demo/portfolio-tracker/) — runs entirely in the browser with invented prices, trades and company financials.
 
 ## What it does
 
 - **Three brokers in one place** — live sync with the Trading 212 API, plus statement import for XTB (`.xlsx`) and Revolut (`.pdf`).
-- **Returns in USD and CZK**, dividend income, Sharpe ratio and maximum drawdown.
-- **Czech tax report** — FIFO cost basis per broker account with historical FX rates and the 3-year holding-period exemption tested per lot.
+- **Returns against the S&P 500** in USD or CZK (time-weighted), dividend income and forecasts, risk metrics.
+- **Company financials** — revenue, profit, cash flow, margins, valuation multiples and capital returned, per year or quarter.
+- **Fair-value calculator** — DCF with a sensitivity table, valuation multiples, reverse DCF, Graham number and a dividend model, with adjustable assumptions.
+- **Czech tax report** — per-lot FIFO with ČNB exchange rates, the 3-year holding test and a breakdown against the CZK 100,000 sales limit. Tax residence is set per user.
 
 ## How it is built
 
 | Layer | Tech |
 |---|---|
-| Frontend | TypeScript, React, Vite, TanStack Query, Tailwind CSS, shadcn/ui, Recharts |
+| Frontend | TypeScript, React, Vite, TanStack Query, Tailwind CSS, shadcn/ui, Recharts, i18next |
 | Database | PostgreSQL on Supabase — row-level security on every table, triggers that keep positions and cash consistent with the transaction ledger, RPC functions for imports and reconciliation |
-| Backend | Supabase Edge Functions (Deno) for price refresh, broker sync, snapshots, splits, news and sectors |
-| Scheduling | `pg_cron` inside the database + GitHub Actions workers (`scripts/*.mjs`) |
-| Tests | Vitest (229 unit tests) |
+| Backend | Supabase Edge Functions (Deno) for price refresh, broker sync, snapshots, splits, news, sectors and on-demand fundamentals |
+| Scheduling | `pg_cron` inside the database + GitHub Actions workers (`scripts/*.mjs`) for price history and company financials |
+| Tests | Vitest (620 tests) |
 
 Some design decisions worth a look:
 
 - **Shared price cache with a provider fallback chain** — each ticker is fetched once for all users, and each provider in the chain only fills in the prices the previous one couldn't return.
 - **Resumable broker sync** — a long order history is imported in batches with a cursor, so it stays within the edge-function time limit and the broker's API rate limits.
 - **Idempotent statement import** — rows are keyed by content, so uploading the same statement twice does not count trades twice.
+- **Company financials on demand** — a newly added company is fetched right away through a GitHub Actions run for just that symbol, with a per-user quota and an atomic reservation in the database; the nightly worker refreshes only after earnings or every 30 days.
+- **Tax rules as pure functions** — FIFO, exchange rates and Czech tax rules are plain, tested functions, separate from the UI.
 - **Encrypted broker API keys** — stored with `pgcrypto`, with the encryption key kept in Supabase Vault.
 
 ## Running it locally
@@ -35,7 +39,8 @@ Use Node.js 22 or newer. The SheetJS package is pinned to its official distribut
 npm ci
 cp .env.example .env.local   # fill in your Supabase project URL and publishable key
 npm run dev
-npm test                     # unit tests run without a .env file
+npm test                     # tests run without a .env file
+npm run dev:demo             # the browser-only demo with invented data
 ```
 
 The database schema lives in `supabase/migrations/`; with the Supabase CLI you can apply it to your own project (`supabase link`, `supabase db push`) and deploy the functions (`supabase functions deploy`).
@@ -51,6 +56,6 @@ The database schema lives in `supabase/migrations/`; with the Supabase CLI you c
 
 ## Public snapshot validation
 
-The publication review ran 229 unit tests, the TypeScript check and the production build. Dependencies were updated and `npm audit` reported no known advisories at that time. Live broker synchronization and a deployment against a new Supabase project were not exercised; those require your own configured backend and credentials. The browser demo uses a separate in-memory data adapter and does not prove the live integrations.
+This snapshot (October 2026) passed 620 tests, the TypeScript checks and both production builds (app and demo). `npm audit` currently reports advisories in Tailwind CSS 3 build tooling (`braces`, `postcss-selector-parser`); they affect the development/build toolchain, not the shipped bundle, and fixing them needs a Tailwind 4 migration. Live broker synchronization and a deployment against a new Supabase project were not exercised; those require your own configured backend and credentials. The browser demo uses a separate in-memory data adapter and does not prove the live integrations.
 
 Scheduled data workers are disabled unless the repository variable ENABLE_PORTFOLIO_WORKERS is set to true. Configure the required repository secrets for your own backend before opting in.

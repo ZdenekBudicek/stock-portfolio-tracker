@@ -9,17 +9,20 @@ lerna-debug.log*
 
 node_modules
 dist
+dist-demo
 dist-ssr
 *.local
 
 # Secrets & private data — never commit
+public/realdata-*.json
 .env
 .env.*
-!.env.example
 scripts/*
 !scripts/price-worker.mjs
 # Runs from .github/workflows/price-history.yml, so it has to be in the repo.
 !scripts/sector-worker.mjs
+# Refreshes the bundled ČNB rates (src/data/cnbUsdCzk.json) the tax report converts with.
+!scripts/update-cnb-rates.mjs
 audit/
 migration-data/
 
@@ -34,6 +37,3 @@ migration-data/
 *.sln
 *.sw?
 .claude/settings.local.json
-
-# Supabase CLI local state
-supabase/.temp/

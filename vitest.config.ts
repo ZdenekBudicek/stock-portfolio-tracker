@@ -9,11 +9,10 @@ export default defineConfig({
     globals: true,
     setupFiles: ["./src/test/setup.ts"],
     include: ["src/**/*.{test,spec}.{ts,tsx}"],
-    // Placeholder values so the Supabase client can be created in tests without a .env file.
-    env: {
-      VITE_SUPABASE_URL: "http://127.0.0.1:54321",
-      VITE_SUPABASE_PUBLISHABLE_KEY: "test-publishable-key",
-    },
+    // Pure-function tests import modules that also create the Supabase client, which throws at
+    // import time without a URL. Placeholder values let the suite run in a fresh checkout or CI
+    // (no .env), and keep tests from ever talking to the real project.
+    env: { VITE_SUPABASE_URL: "http://localhost:54321", VITE_SUPABASE_PUBLISHABLE_KEY: "test-publishable-key" },
   },
   resolve: {
     alias: { "@": path.resolve(__dirname, "./src") },

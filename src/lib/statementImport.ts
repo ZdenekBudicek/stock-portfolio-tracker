@@ -6,18 +6,18 @@ import * as pdfjsLib from "pdfjs-dist";
 import workerUrl from "pdfjs-dist/build/pdf.worker.min.mjs?url";
 import { supabase } from "@/integrations/supabase/client";
 import { fetchAllRows } from "@/hooks/usePortfolio";
+import { makeRateLookup } from "@/lib/fxLookup";
 import { parseXtbTrades, parseXtbHoldings, parseRevolutText, parseRevolutHoldings, parseT212Activity, parseT212Holdings, type NormalizedRow } from "@/lib/statements";
 
 // USD/CZK history (shared price_history) for converting T212's CZK amounts to USD per date.
+// The series holds ~5 000 days since 2007: read it ALL. A single select is capped at 1 000
+// rows, which stopped at August 2011 and converted every later CZK amount at 17.18 Kč/$ —
+// GBP/EUR trades came out ~30 % too expensive.
 async function usdCzkAt(): Promise<(date: string) => number> {
-  const { data } = await supabase.from("price_history").select("date,close").eq("symbol", "USDCZK").order("date", { ascending: true });
-  const rows = (data ?? []) as { date: string; close: number }[];
-  if (!rows.length) return () => 22;
-  return (date: string) => {
-    let best = Number(rows[rows.length - 1].close);
-    for (const r of rows) { if (r.date <= date) best = Number(r.close); else break; }
-    return best || 22;
-  };
+  const rows = await fetchAllRows<{ date: string; close: number }>((from, to) =>
+    supabase.from("price_history").select("date,close").eq("symbol", "USDCZK").order("date", { ascending: true }).range(from, to),
+  );
+  return makeRateLookup(rows);
 }
 
 // Convert T212 rows (CZK) to USD: trade price_usd and deposit/withdrawal amount_usd.
@@ -40,6 +40,7 @@ async function convertT212(rows: NormalizedRow[]): Promise<NormalizedRow[]> {
   });
 }
 import { matchManual, type MatchableTx } from "../../supabase/functions/_shared/t212";
+import { apiFillsReplacedBefore, createDuplicateGuard, replacedByStatement } from "@/lib/statementDedup";
 
 pdfjsLib.GlobalWorkerOptions.workerSrc = workerUrl;
 
@@ -144,12 +145,15 @@ export interface ImportPlan {
   adoptLegacy: boolean;
   /** Reconciliation skipped because unclaimed rows make the account scope incomplete. */
   blockedReconcile: boolean;
+  /** T212: this account's API fills dated before this instant are replaced by the statement. */
+  replaceApiFillsBefore: string | null;
 }
 
 const emptyPlan = (broker: string, mode: ImportMode, account?: string): ImportPlan => ({
   broker, account, mode, holdings: [], holdingsRemove: [], toInsertTrades: [], toCorrectTrades: [],
   deposits: [], withdrawals: [], dividends: [], fees: [], splits: [], alreadyImported: 0,
   reconcileTo: [], otherAccounts: [], legacyUnassigned: 0, adoptLegacy: false, blockedReconcile: false,
+  replaceApiFillsBefore: null,
 });
 
 export async function planImport(parsed: ParsedStatement): Promise<ImportPlan> {
@@ -186,13 +190,21 @@ export async function planImport(parsed: ParsedStatement): Promise<ImportPlan> {
   plan.legacyUnassigned = mine.filter((t) => !t.broker_account).length;
   plan.adoptLegacy = !!parsed.account && plan.legacyUnassigned > 0 && plan.otherAccounts.length === 0;
 
+  // The T212 statement is the full history of the days it lists, so executeImport deletes
+  // this account's API fills of those days first. Everything below reasons about the rows
+  // that will REMAIN — never about the ones about to be deleted.
+  plan.replaceApiFillsBefore = parsed.broker === "T212" ? apiFillsReplacedBefore(parsed.rows) : null;
+  const scope = { broker: parsed.broker, account: parsed.account, adoptLegacy: plan.adoptLegacy, replaceApiFillsBefore: plan.replaceApiFillsBefore };
+  const remaining = existing.filter((t) => !replacedByStatement(t, scope));
+
   // The end-of-period snapshot is only the truth if this statement is the NEWEST data we
   // have for the account — importing an old statement afterwards must not roll positions
   // back. Compared as timestamps, not strings: the DB returns "…+00:00" while the parsers
   // emit "…Z", and those two formats do not sort correctly against each other as text.
   const ms = (s: string) => new Date(s).getTime() || 0;
   const statementEnd = parsed.rows.reduce((m, r) => Math.max(m, ms(r.executed_at)), 0);
-  const newestHere = mine
+  const newestHere = remaining
+    .filter((t) => t.broker === parsed.broker)
     .filter((t) => (t.broker_account === parsed.account || (plan.adoptLegacy && !t.broker_account)) && !String(t.ext_id ?? "").includes(":adj:"))
     .reduce((m, t) => Math.max(m, ms(t.executed_at)), 0);
   // Never reconcile while unclaimed rows remain: the scope would not cover the shares the
@@ -202,36 +214,10 @@ export async function planImport(parsed: ParsedStatement): Promise<ImportPlan> {
   else if (parsed.holdings.length && !scopeIsComplete) plan.blockedReconcile = true;
   const { data: divData } = await supabase.from("dividends").select("ext_id,broker");
   const { data: depData } = await supabase.from("deposits").select("ext_id");
-  const txExt = new Set(existing.filter((t) => t.ext_id).map((t) => `${t.broker}:${t.ext_id}`));
 
-  // Content-based duplicate guard, independent of ext_id — the safety net that makes a
-  // re-import idempotent even when the id scheme changes or the broker re-exports the same
-  // fill under a different id. Revolut's PDF text extraction varies between exports, so an
-  // id derived from that text let the SAME statement import twice: phantom buys and sells in
-  // the ledger, hidden in `positions` by broker reconciliation, but drawn in full in the
-  // history chart.
-  //
-  // Matched by MULTIPLICITY, not presence: if the file lists a trade twice and the database
-  // holds it once, the second copy still lands. Only copies already stored are skipped.
-  const contentKey = (ticker: string, side: string, shares: number, isoDate: string, account: string | null) =>
-    `${account ?? ""}|${ticker}|${side}|${Number(shares).toFixed(6)}|${isoDate.slice(0, 10)}`;
-  const stored = new Map<string, number>();
-  for (const t of existing) {
-    if (t.broker !== parsed.broker) continue;
-    const ext = String(t.ext_id ?? "");
-    if (ext.includes(":adj:") || ext.includes(":pos:")) continue; // corrections, not trades
-    const acc = t.broker_account ?? (plan.adoptLegacy ? parsed.account ?? null : null);
-    const k = contentKey(t.ticker, t.side, t.shares, t.executed_at, acc);
-    stored.set(k, (stored.get(k) ?? 0) + 1);
-  }
-  /** Consume one stored copy of this trade; true when one was already there. */
-  const consumeStored = (r: NormalizedRow) => {
-    const k = contentKey(r.ticker!, r.side!, r.shares!, r.executed_at, r.account ?? parsed.account ?? null);
-    const n = stored.get(k) ?? 0;
-    if (n <= 0) return false;
-    stored.set(k, n - 1);
-    return true;
-  };
+  // Duplicate guard over the rows that remain after the import's own deletion (see
+  // statementDedup.ts for why it is content-based and counted by multiplicity).
+  const guard = createDuplicateGuard(existing, scope);
   const divExt = new Set((divData ?? []).filter((d: any) => d.ext_id).map((d: any) => `${d.broker}:${d.ext_id}`));
   const depExt = new Set((depData ?? []).filter((d: any) => d.ext_id).map((d: any) => d.ext_id));
   const adoptable: MatchableTx[] = existing.filter((t) => t.broker === "manual" && !t.t212_id && !t.ext_id);
@@ -239,15 +225,14 @@ export async function planImport(parsed: ParsedStatement): Promise<ImportPlan> {
   for (const r of parsed.rows) {
     const extKey = `${r.broker}:${r.external_id}`;
     if (r.kind === "TRADE") {
-      if (txExt.has(extKey)) { consumeStored(r); plan.alreadyImported++; continue; }
-      if (consumeStored(r)) { plan.alreadyImported++; continue; }
+      if (guard.tradeAlreadyStored(r)) { plan.alreadyImported++; continue; }
       const match = matchManual({ ticker: r.ticker!, side: r.side!, shares: r.shares!, executed_at: r.executed_at }, adoptable);
       if (match) { plan.toCorrectTrades.push({ row: r, matchId: match.id }); adoptable.splice(adoptable.indexOf(match), 1); }
       else plan.toInsertTrades.push(r);
     } else if (r.kind === "DEPOSIT") depExt.has(r.external_id) ? plan.alreadyImported++ : plan.deposits.push(r);
     else if (r.kind === "WITHDRAWAL") depExt.has(r.external_id) ? plan.alreadyImported++ : plan.withdrawals.push(r);
     else if (r.kind === "DIVIDEND") divExt.has(extKey) ? plan.alreadyImported++ : plan.dividends.push(r);
-    else if (r.kind === "FEE") txExt.has(extKey) ? plan.alreadyImported++ : plan.fees.push(r);
+    else if (r.kind === "FEE") guard.hasExtId(r) ? plan.alreadyImported++ : plan.fees.push(r);
     else if (r.kind === "SPLIT") plan.splits.push(r);
   }
   return plan;
@@ -304,9 +289,11 @@ export async function executeImport(plan: ImportPlan): Promise<ImportSummary> {
   }
 
   // Scoped to the statement's own account — a second account at the same broker keeps its
-  // API-imported fills.
-  if (plan.broker === "T212") {
-    let q = supabase.from("transactions").delete().eq("user_id", uid0).eq("broker", "T212").like("ext_id", "t212:ord:%");
+  // API-imported fills — and to the statement's own days: fills after its last day are not
+  // in it and stay. planImport's duplicate guard (replacedByStatement) mirrors this delete.
+  if (plan.broker === "T212" && plan.replaceApiFillsBefore) {
+    let q = supabase.from("transactions").delete().eq("user_id", uid0).eq("broker", "T212").like("ext_id", "t212:ord:%")
+      .lt("executed_at", plan.replaceApiFillsBefore);
     q = plan.account ? q.eq("broker_account", plan.account) : q.is("broker_account", null);
     await q;
   }
@@ -328,6 +315,13 @@ export async function executeImport(plan: ImportPlan): Promise<ImportSummary> {
     // A silently swallowed batch used to look like "0 přidáno" with no explanation.
     if (error) { s.failed += chunk.length; s.error = error.message; }
     else { s.inserted += data?.length ?? 0; s.alreadyStored += chunk.length - (data?.length ?? 0); }
+  }
+  // Merger cash was once imported as a DEPOSIT; it is sale proceeds now — a 0-share SELL
+  // under the same ext_id. Once that row is in, drop the old deposit so "Vloženo" stops
+  // counting the payout as money paid in. Only when every batch landed: never lose the cash.
+  const mergerCash = plan.toInsertTrades.filter((r) => r.external_id.includes(":mergercash:")).map((r) => r.external_id);
+  if (mergerCash.length && !s.failed) {
+    await supabase.from("deposits").delete().eq("user_id", uid0).eq("broker", plan.broker).in("ext_id", mergerCash);
   }
   // Record each ticker's ISIN (shared ticker_alias) so the price worker can resolve foreign
   // listings via OpenFIGI (e.g. BARC -> BARC.L, GBp -> USD) instead of leaving them unpriced.
@@ -373,6 +367,10 @@ export async function executeImport(plan: ImportPlan): Promise<ImportSummary> {
   const seenDiv = new Set((existDiv ?? []).map((d: any) => d.ext_id));
   for (const r of plan.dividends) {
     if (r.external_id && seenDiv.has(r.external_id)) continue;
+    // A statement knows only the PAYMENT date; it goes into both columns (ex_date is NOT
+    // NULL). The tax year is decided by the payment date, and the auto estimates of the same
+    // dividend (which carry the real ex-date) are matched against it by a date window — see
+    // dedupeDividends in src/lib/dividendTax.ts and sync-earnings.
     const { error } = await supabase.from("dividends").insert({ ticker: r.ticker, ex_date: r.executed_at.slice(0, 10), pay_date: r.executed_at.slice(0, 10), amount_per_share: r.amount_usd, shares_held: 1, total_amount_usd: r.amount_usd, status: "paid", broker: r.broker, broker_account: r.account ?? plan.account ?? null, ext_id: r.external_id });
     if (!error) { s.dividends++; if (r.external_id) seenDiv.add(r.external_id); }
   }

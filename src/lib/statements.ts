@@ -176,19 +176,33 @@ export function parseRevolutText(text: string): NormalizedRow[] {
       continue;
     }
     if ((m = /^(\S+) Merger - stock (-?[\d.]+)/.exec(rest))) {
-      // negative qty: shares removed (old ticker); positive: shares received (new ticker), cost 0
+      // negative qty: shares removed (old ticker); positive: shares received (new ticker).
+      // Both at $0 with a ':merger:' id: the shared FIFO (src/lib/fifo.ts) moves the old
+      // lots' cost and acquisition dates onto the new ticker instead of booking a $0 sale
+      // and a $0 purchase — which would fake a loss now and restart the 3-year time test.
       const qty = parseFloat(m[2]);
       out.push({ external_id: key("merger", m[1].toUpperCase(), qty), broker: "Revolut", kind: "TRADE", ticker: m[1].toUpperCase(),
         side: qty < 0 ? "SELL" : "BUY", shares: Math.abs(qty), price_usd: 0, fee_usd: 0,
         executed_at, label: `Merger ${qty < 0 ? "odebráno" : "přidáno"} ${Math.abs(qty)} × ${m[1]}` });
     } else if ((m = /^(\S+)? ?Merger - cash -?US\$([\d.,]+)/.exec(rest))) {
-      out.push({ external_id: key("mergercash", parseUsd(m[2])), broker: "Revolut", kind: "DEPOSIT", amount_usd: parseUsd(m[2]),
-        executed_at, label: `Merger výplata $${parseUsd(m[2])}` });
+      // Cash paid for shares in a merger is SALE PROCEEDS of the old ticker, not a deposit.
+      // Stored as a 0-share SELL carrying the amount in price_usd (so positions don't move);
+      // the FIFO pairs it with that ticker's merger-out and taxes it per lot. Same id as the
+      // deposit older imports created, so a re-import replaces that deposit.
+      const amount = parseUsd(m[2]);
+      const ticker = m[1] && /^[A-Z][A-Z.]{0,5}$/i.test(m[1]) ? m[1].toUpperCase() : null;
+      out.push(ticker
+        ? { external_id: key("mergercash", amount), broker: "Revolut", kind: "TRADE", ticker, side: "SELL", shares: 0,
+            price_usd: amount, fee_usd: 0, executed_at, label: `Merger výplata ${ticker} $${amount} (příjem z prodeje)` }
+        : { external_id: key("mergercash", amount), broker: "Revolut", kind: "SKIP", amount_usd: amount,
+            executed_at, label: `Merger výplata $${amount} bez tickeru — přeskočeno, doplň ručně jako prodej` });
     } else if ((m = /^([A-Z][A-Z.]*?)\s*Stock split\s+([\d.]+)/.exec(rest))) {
       // Revolut lists a split as explicit added shares (at $0): e.g. a 3:1 split of a 2.08
-      // holding shows "+4.16". Count them so the current position is correct AND the cost
-      // basis stays right (more shares, same total cost). The ':split:' ext_id lets the
-      // snapshot worker skip its own Yahoo split-adjust for this ticker (no double-count).
+      // holding shows "+4.16". Count them so the current position is correct. The ':split:'
+      // ext_id marks the row as a split, not a purchase: the shared FIFO rescales the
+      // existing lots (shares × r, price ÷ r) and keeps their purchase dates, so neither the
+      // cost basis nor the 3-year time test changes. It also lets the snapshot worker skip
+      // its own Yahoo split-adjust for this ticker (no double-count).
       out.push({ external_id: `revolut:split:${m[1].toUpperCase()}:${dm[1]}`, broker: "Revolut", kind: "TRADE",
         ticker: m[1].toUpperCase(), side: "BUY", shares: parseFloat(m[2]), price_usd: 0, fee_usd: 0,
         executed_at, label: `Split +${m[2]} × ${m[1]}` });

@@ -554,6 +554,33 @@ export type Database = {
         }
         Relationships: []
       }
+      user_settings: {
+        Row: {
+          base_currency: string
+          confirmed_at: string | null
+          created_at: string
+          tax_residence: string
+          updated_at: string
+          user_id: string
+        }
+        Insert: {
+          base_currency?: string
+          confirmed_at?: string | null
+          created_at?: string
+          tax_residence?: string
+          updated_at?: string
+          user_id: string
+        }
+        Update: {
+          base_currency?: string
+          confirmed_at?: string | null
+          created_at?: string
+          tax_residence?: string
+          updated_at?: string
+          user_id?: string
+        }
+        Relationships: []
+      }
       watchlist: {
         Row: {
           created_at: string

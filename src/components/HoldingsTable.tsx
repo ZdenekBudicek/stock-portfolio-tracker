@@ -1,8 +1,10 @@
+import { useTranslation } from "react-i18next";
+import { currentLocale } from "@/i18n";
 import { useEffect, useMemo, useState } from 'react';
 import { ArrowUpDown, Loader2, Check, X, Pencil, Search, TrendingUp, TrendingDown, Wallet, Briefcase, DollarSign } from 'lucide-react';
 import { Link } from 'react-router-dom';
 import { useCurrency } from '@/contexts/CurrencyContext';
-import { useComputedPortfolio, type LivePosition } from '@/hooks/usePortfolio';
+import { useComputedPortfolio, summarizeHoldings, isCashPosition, type LivePosition } from '@/hooks/usePortfolio';
 import { formatPct } from '@/data/portfolio';
 import { supabase } from '@/integrations/supabase/client';
 import { useQueryClient } from '@tanstack/react-query';
@@ -12,26 +14,32 @@ import { TickerLogo } from '@/components/TickerLogo';
 type SortKey = keyof LivePosition;
 
 const HoldingsTable = () => {
+  const { t } = useTranslation();
   const [sortKey, setSortKey] = useState<SortKey>('value');
   const [sortAsc, setSortAsc] = useState(false);
   const [query, setQuery] = useState('');
-  const { format, currency } = useCurrency();
+  const { formatAt, pick, currency, rate } = useCurrency();
   const { positions, loading } = useComputedPortfolio();
-  // return in the displayed currency: CZK includes the USD/CZK move (matches T212),
-  // USD is the pure stock return (matches Revolut).
-  const pctOf = (p: { profitPct: number; profitPctCzk: number }) => (currency === 'CZK' ? p.profitPctCzk : p.profitPct);
+  // Everything in the displayed currency. CZK: cost at the purchase-day rate, value at today's,
+  // so amount, % and colour all include the USD/CZK move (matches T212); USD is the pure stock
+  // return (matches Revolut). Mixing them showed "−156 Kč (+3,89 %)".
+  const pctOf = (p: LivePosition) => pick(p.profitPct, p.profitPctCzk);
+  const pnlOf = (p: LivePosition) => pick(p.profitUsd, p.profitCzk);
   const qc = useQueryClient();
 
-  const cash = positions.find((p) => p.type === 'Cash' || p.ticker === 'CASH');
+  const cash = positions.find(isCashPosition);
   const stocks = positions.filter((p) => p !== cash);
 
   const filtered = stocks.filter((p) =>
     !query.trim() || p.ticker.toLowerCase().includes(query.trim().toLowerCase())
   );
 
+  // In CZK the cost columns sort by their koruna figures, which don't follow the USD order.
+  const czkKey: Partial<Record<SortKey, SortKey>> = { avgPrice: 'avgPriceCzk', invested: 'investedCzk', profitUsd: 'profitCzk', profitPct: 'profitPctCzk' };
+  const sortField = (currency === 'CZK' && czkKey[sortKey]) || sortKey;
   const sorted = [...filtered].sort((a, b) => {
-    const av = a[sortKey] as number;
-    const bv = b[sortKey] as number;
+    const av = a[sortField] as number;
+    const bv = b[sortField] as number;
     return sortAsc ? av - bv : bv - av;
   });
 
@@ -62,33 +70,42 @@ const HoldingsTable = () => {
   const [draft, setDraft] = useState('');
   const [saving, setSaving] = useState(false);
 
+  // The field is edited in the displayed currency; the balance is stored in USD. Saving the
+  // typed koruny as dollars turned 25 000 Kč into $25 000.
   useEffect(() => {
-    if (!editing && cash) setDraft(String(cash.value));
-  }, [cash?.value, editing]);
+    if (!editing && cash) setDraft(currency === 'CZK' ? (cash.value * rate).toFixed(0) : cash.value.toFixed(2));
+  }, [cash?.value, editing, currency, rate]);
 
   const saveCash = async () => {
     const amount = parseFloat(draft.replace(',', '.'));
-    if (isNaN(amount) || amount < 0) { toast.error('Neplatná částka'); return; }
+    if (isNaN(amount) || amount < 0) { toast.error(t('legacy.holdingsTable.invalidAmount')); return; }
+    if (currency === 'CZK' && !(rate > 0)) { toast.error(t('legacy.holdingsTable.usdCzkExchangeRateMissing')); return; }
+    const amountUsd = currency === 'CZK' ? amount / rate : amount;
     setSaving(true);
-    const { error } = await supabase.from('positions').update({ shares: amount, avg_cost_usd: 1 }).eq('ticker', 'CASH');
+    const { error } = await supabase.from('positions').update({ shares: amountUsd, avg_cost_usd: 1 }).eq('ticker', 'CASH');
     setSaving(false);
-    if (error) { toast.error('Uložení selhalo'); return; }
+    if (error) { toast.error(t('legacy.holdingsTable.saveFailed')); return; }
     setEditing(false);
     qc.invalidateQueries({ queryKey: ['positions'] });
-    toast.success('Cash aktualizován');
+    toast.success(t('legacy.holdingsTable.cashUpdated'));
   };
 
-  const totalInvested = positions.reduce((s, p) => s + p.invested, 0);
-  const totalValue = positions.reduce((s, p) => s + p.value, 0);
-  const totalProfit = stocks.reduce((s, p) => s + p.profitUsd, 0);
-  const totalProfitPct = totalInvested > 0 ? (totalProfit / totalInvested) * 100 : 0;
+  // Totals of the positions. Cash has no cost and no return, so it stays out of Investováno
+  // and the P/L % — it only adds to Hodnota.
+  const h = summarizeHoldings(positions);
+  const totalInvested = pick(h.invested, h.investedCzk);
+  const totalValue = positions.reduce((s, p) => s + pick(p.value, p.valueCzk), 0);
+  const totalProfit = pick(h.profit, h.profitCzk);
+  const totalProfitPct = pick(h.profitPct, h.profitPctCzk);
+  const money = (v: number) => formatAt(v, v); // v is already in the displayed currency
 
-  const { winners, losers, bestPct, worstPct } = useMemo(() => {
-    const w = stocks.filter((p) => p.profitUsd > 0).length;
-    const l = stocks.filter((p) => p.profitUsd < 0).length;
-    const sortedPct = [...stocks].sort((a, b) => b.profitPct - a.profitPct);
-    return { winners: w, losers: l, bestPct: sortedPct[0], worstPct: sortedPct[sortedPct.length - 1] };
-  }, [stocks]);
+  const { winners, losers, bestPct } = useMemo(() => {
+    const w = stocks.filter((p) => pnlOf(p) > 0).length;
+    const l = stocks.filter((p) => pnlOf(p) < 0).length;
+    const sortedPct = [...stocks].sort((a, b) => pctOf(b) - pctOf(a));
+    return { winners: w, losers: l, bestPct: sortedPct[0] };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [stocks, currency]);
 
   const maxAllocation = Math.max(...stocks.map((p) => p.allocation), 1);
   const dash = <span className="text-muted-foreground/50">—</span>;
@@ -107,9 +124,9 @@ const HoldingsTable = () => {
               <Briefcase className="w-5 h-5 text-primary" />
             </div>
             <div>
-              <h2 className="font-display font-bold text-2xl tracking-tight text-foreground">Pozice</h2>
+              <h2 className="font-display font-bold text-2xl tracking-tight text-foreground">{t('legacy.holdingsTable.holdings')}</h2>
               <p className="text-xs text-muted-foreground mt-0.5">
-                {stocks.length} aktivních pozic{cash ? ' + cash' : ''} {loading && <Loader2 className="inline w-3 h-3 animate-spin ml-1" />}
+                {t('legacy.holdingsTable.activeCount', { count: stocks.length })}{cash ? t('legacy.holdingsTable.cashSuffix') : ''} {loading && <Loader2 className="inline w-3 h-3 animate-spin ml-1" />}
               </p>
             </div>
           </div>
@@ -119,7 +136,7 @@ const HoldingsTable = () => {
             <input
               value={query}
               onChange={(e) => setQuery(e.target.value)}
-              placeholder="Hledat ticker..."
+              placeholder={t('legacy.holdingsTable.searchTicker')}
               className="h-10 w-56 rounded-xl border border-border bg-background/60 pl-9 pr-3 text-sm placeholder:text-muted-foreground/60 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/40 focus-visible:border-primary/40 transition-all"
             />
           </div>
@@ -127,20 +144,20 @@ const HoldingsTable = () => {
 
         {/* Stat strip */}
         <div className="grid grid-cols-2 lg:grid-cols-4 gap-3 mt-5">
-          <StatPill icon={<Wallet className="w-3.5 h-3.5" />} label="Hodnota" value={format(totalValue)} />
-          <StatPill icon={<DollarSign className="w-3.5 h-3.5" />} label="Investováno" value={format(totalInvested)} />
+          <StatPill icon={<Wallet className="w-3.5 h-3.5" />} label={t('legacy.holdingsTable.value')} value={money(totalValue)} />
+          <StatPill icon={<DollarSign className="w-3.5 h-3.5" />} label={t('legacy.holdingsTable.invested')} value={money(totalInvested)} />
           <StatPill
             icon={totalProfit >= 0 ? <TrendingUp className="w-3.5 h-3.5" /> : <TrendingDown className="w-3.5 h-3.5" />}
-            label="Celkový P/L"
-            value={format(totalProfit)}
+            label={t('legacy.holdingsTable.totalPL')}
+            value={money(totalProfit)}
             sub={formatPct(totalProfitPct)}
             tone={totalProfit >= 0 ? 'profit' : 'loss'}
           />
           <StatPill
             icon={<TrendingUp className="w-3.5 h-3.5" />}
-            label="Vítězů / Ztrát"
+            label={t('legacy.holdingsTable.winnersLosers')}
             value={`${winners} / ${losers}`}
-            sub={bestPct ? `Top: ${bestPct.ticker} ${formatPct(pctOf(bestPct))}` : ''}
+            sub={bestPct ? t('legacy.holdingsTable.topHolding', { ticker: bestPct.ticker, percent: formatPct(pctOf(bestPct)) }) : ''}
           />
         </div>
       </div>
@@ -150,21 +167,21 @@ const HoldingsTable = () => {
         <table className="w-full">
           <thead className="bg-background/30 border-b border-border/50">
             <tr>
-              <SortHeader label="Pozice" field="ticker" />
-              <SortHeader label="Akcie" field="shares" className="text-right" />
-              <SortHeader label="Nákupka" field="avgPrice" className="text-right" />
-              <SortHeader label="Cena" field="currentPrice" className="text-right" />
-              <SortHeader label="Denní" field="dailyChangePct" className="text-right" />
-              <SortHeader label="Investováno" field="invested" className="text-right" />
-              <SortHeader label="Hodnota" field="value" className="text-right" />
-              <SortHeader label="Zisk" field="profitUsd" className="text-right" />
-              <SortHeader label="Alokace" field="allocation" className="text-right pr-6" />
+              <SortHeader label={t('legacy.holdingsTable.holdings')} field="ticker" />
+              <SortHeader label={t('legacy.holdingsTable.shares')} field="shares" className="text-right" />
+              <SortHeader label={t('legacy.holdingsTable.costBasis')} field="avgPrice" className="text-right" />
+              <SortHeader label={t('legacy.holdingsTable.price')} field="currentPrice" className="text-right" />
+              <SortHeader label={t('legacy.holdingsTable.daily')} field="dailyChangePct" className="text-right" />
+              <SortHeader label={t('legacy.holdingsTable.invested')} field="invested" className="text-right" />
+              <SortHeader label={t('legacy.holdingsTable.value')} field="value" className="text-right" />
+              <SortHeader label={t('legacy.holdingsTable.profit')} field="profitUsd" className="text-right" />
+              <SortHeader label={t('legacy.holdingsTable.allocation')} field="allocation" className="text-right pr-6" />
             </tr>
           </thead>
           <tbody>
             {sorted.map((p, idx) => {
               const allocBar = (p.allocation / maxAllocation) * 100;
-              const isProfit = p.profitUsd >= 0;
+              const isProfit = pnlOf(p) >= 0;
               const dailyProfit = p.dailyChangePct >= 0;
               return (
                 <tr
@@ -182,7 +199,7 @@ const HoldingsTable = () => {
                         </div>
                         {p.type && (
                           <div className="text-[10px] uppercase tracking-wider text-muted-foreground/70 mt-0.5">
-                            {p.type}
+                            {t(`common.assetType.${p.type}`, { defaultValue: p.type })}
                           </div>
                         )}
                       </div>
@@ -190,10 +207,10 @@ const HoldingsTable = () => {
                   </td>
 
                   <td className="px-4 py-4 text-right text-sm tabular-nums text-secondary-foreground">
-                    {p.shares.toLocaleString('en-US', { maximumFractionDigits: 4 })}
+                    {p.shares.toLocaleString(currentLocale(), { maximumFractionDigits: 4 })}
                   </td>
-                  <td className="px-4 py-4 text-right text-sm tabular-nums text-muted-foreground">{format(p.avgPrice)}</td>
-                  <td className="px-4 py-4 text-right text-sm font-semibold tabular-nums text-foreground">{format(p.currentPrice)}</td>
+                  <td className="px-4 py-4 text-right text-sm tabular-nums text-muted-foreground">{formatAt(p.avgPrice, p.avgPriceCzk)}</td>
+                  <td className="px-4 py-4 text-right text-sm font-semibold tabular-nums text-foreground">{formatAt(p.currentPrice, p.currentPrice * rate)}</td>
 
                   {/* Daily % chip */}
                   <td className="px-4 py-4 text-right">
@@ -205,13 +222,13 @@ const HoldingsTable = () => {
                     </span>
                   </td>
 
-                  <td className="px-4 py-4 text-right text-sm tabular-nums text-muted-foreground">{format(p.invested)}</td>
-                  <td className="px-4 py-4 text-right text-sm font-semibold tabular-nums text-foreground">{format(p.value)}</td>
+                  <td className="px-4 py-4 text-right text-sm tabular-nums text-muted-foreground">{formatAt(p.invested, p.investedCzk)}</td>
+                  <td className="px-4 py-4 text-right text-sm font-semibold tabular-nums text-foreground">{formatAt(p.value, p.valueCzk)}</td>
 
                   {/* Profit (combined $ + %) */}
                   <td className="px-4 py-4 text-right">
                     <div className={`font-display font-bold text-sm tabular-nums ${isProfit ? 'text-profit' : 'text-loss'}`}>
-                      {format(p.profitUsd)}
+                      {formatAt(p.profitUsd, p.profitCzk)}
                     </div>
                     <div className={`text-[11px] tabular-nums ${isProfit ? 'text-profit/80' : 'text-loss/80'}`}>
                       {formatPct(pctOf(p))}
@@ -228,7 +245,7 @@ const HoldingsTable = () => {
                         />
                       </div>
                       <span className="text-xs font-semibold tabular-nums text-foreground w-10 text-right">
-                        {p.allocation.toFixed(1)}%
+                        {p.allocation.toLocaleString(currentLocale(), { minimumFractionDigits: 1, maximumFractionDigits: 1 })}%
                       </span>
                     </div>
                   </td>
@@ -246,7 +263,7 @@ const HoldingsTable = () => {
                     </div>
                     <div>
                       <div className="font-display font-bold text-sm text-foreground">CASH</div>
-                      <div className="text-[10px] uppercase tracking-wider text-muted-foreground/70 mt-0.5">Hotovost</div>
+                      <div className="text-[10px] uppercase tracking-wider text-muted-foreground/70 mt-0.5">{t('legacy.holdingsTable.cash')}</div>
                     </div>
                   </div>
                 </td>
@@ -270,16 +287,16 @@ const HoldingsTable = () => {
                         autoFocus
                         className="w-28 h-8 rounded-lg border border-border bg-background px-2 text-right text-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/40"
                       />
-                      <button onClick={saveCash} disabled={saving} className="p-1.5 rounded-lg hover:bg-profit/10 text-profit" aria-label="Uložit">
+                      <button onClick={saveCash} disabled={saving} className="p-1.5 rounded-lg hover:bg-profit/10 text-profit" aria-label={t('legacy.holdingsTable.save')}>
                         <Check className="w-3.5 h-3.5" />
                       </button>
-                      <button onClick={() => setEditing(false)} className="p-1.5 rounded-lg hover:bg-muted text-muted-foreground" aria-label="Zrušit">
+                      <button onClick={() => setEditing(false)} className="p-1.5 rounded-lg hover:bg-muted text-muted-foreground" aria-label={t('legacy.holdingsTable.cancel')}>
                         <X className="w-3.5 h-3.5" />
                       </button>
                     </div>
                   ) : (
                     <button onClick={() => setEditing(true)} className="inline-flex items-center gap-1.5 hover:text-primary transition-colors group">
-                      <span className="tabular-nums">{format(cash.value)}</span>
+                      <span className="tabular-nums">{formatAt(cash.value, cash.valueCzk)}</span>
                       <Pencil className="w-3 h-3 opacity-0 group-hover:opacity-100 transition-opacity" />
                     </button>
                   )}
@@ -291,7 +308,7 @@ const HoldingsTable = () => {
                       <div className="h-full rounded-full bg-info/60" style={{ width: `${(cash.allocation / maxAllocation) * 100}%` }} />
                     </div>
                     <span className="text-xs font-semibold tabular-nums text-foreground w-10 text-right">
-                      {cash.allocation.toFixed(1)}%
+                      {cash.allocation.toLocaleString(currentLocale(), { minimumFractionDigits: 1, maximumFractionDigits: 1 })}%
                     </span>
                   </div>
                 </td>
@@ -299,21 +316,22 @@ const HoldingsTable = () => {
             )}
 
             {sorted.length === 0 && !cash && !loading && (
-              <tr><td colSpan={9} className="text-center py-12 text-sm text-muted-foreground">Žádné pozice</td></tr>
+              <tr><td colSpan={9} className="text-center py-12 text-sm text-muted-foreground">{t('legacy.holdingsTable.noHoldings')}</td></tr>
             )}
           </tbody>
 
           {(sorted.length > 0 || cash) && (
             <tfoot>
               <tr className="bg-background/40 border-t-2 border-border/60">
-                <td className="px-4 py-4 font-display font-bold text-sm text-foreground uppercase tracking-wider">Celkem</td>
+                <td className="px-4 py-4 font-display font-bold text-sm text-foreground uppercase tracking-wider">{t('legacy.holdingsTable.total')}</td>
                 <td colSpan={4}></td>
-                <td className="px-4 py-4 text-right text-sm font-bold tabular-nums text-foreground">{format(totalInvested)}</td>
-                <td className="px-4 py-4 text-right text-sm font-bold tabular-nums text-foreground">{format(totalValue)}</td>
+                <td className="px-4 py-4 text-right text-sm font-bold tabular-nums text-foreground">{money(totalInvested)}</td>
+                <td className="px-4 py-4 text-right text-sm font-bold tabular-nums text-foreground">{money(totalValue)}</td>
                 <td className="px-4 py-4 text-right">
                   <div className={`font-display font-bold text-sm tabular-nums ${totalProfit >= 0 ? 'text-profit' : 'text-loss'}`}>
-                    {format(totalProfit)}
+                    {money(totalProfit)}
                   </div>
+
                   <div className={`text-[11px] tabular-nums ${totalProfit >= 0 ? 'text-profit/80' : 'text-loss/80'}`}>
                     {formatPct(totalProfitPct)}
                   </div>

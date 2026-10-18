@@ -1,3 +1,5 @@
+import { useTranslation } from "react-i18next";
+import { currentLocale } from "@/i18n";
 import { useMemo, useState } from "react";
 import { Plus, Minus, X, ArrowRightLeft } from "lucide-react";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from "@/components/ui/dialog";
@@ -9,6 +11,7 @@ import { useAddTransaction } from "@/hooks/useExtras";
 import { useToast } from "@/hooks/use-toast";
 
 const QuickTradeDialog = () => {
+  const { t } = useTranslation();
   const [open, setOpen] = useState(false);
   const [side, setSide] = useState<"BUY" | "SELL">("BUY");
   const [ticker, setTicker] = useState("");
@@ -51,7 +54,7 @@ const QuickTradeDialog = () => {
 
   const submit = async () => {
     if (!upper || !sharesN || !priceN) {
-      toast({ title: "Vyplň ticker, počet a cenu", variant: "destructive" });
+      toast({ title: t('legacy.quickTradeDialog.enterTickerQuantityAndPrice'), variant: "destructive" });
       return;
     }
     try {
@@ -66,13 +69,13 @@ const QuickTradeDialog = () => {
         name: name || matched?.name || upper,
       });
       toast({
-        title: `${side === "BUY" ? "Nákup" : "Prodej"} zaznamenán`,
-        description: `${sharesN} × ${upper} @ $${priceN}`,
+        title: side === "BUY" ? t('legacy.quickTradeDialog.recordedBuy') : t('legacy.quickTradeDialog.recordedSell'),
+        description: t('legacy.quickTradeDialog.tradeDetail', { shares: sharesN.toLocaleString(currentLocale(), { maximumFractionDigits: 8 }), ticker: upper, price: priceN.toLocaleString(currentLocale(), { maximumFractionDigits: 8 }) }),
       });
       reset();
       setOpen(false);
     } catch (e: any) {
-      toast({ title: "Chyba", description: e.message, variant: "destructive" });
+      toast({ title: t('legacy.quickTradeDialog.error'), description: t('legacy.quickTradeDialog.errorDetail', { message: e.message }), variant: "destructive" });
     }
   };
 
@@ -80,12 +83,11 @@ const QuickTradeDialog = () => {
     <Dialog open={open} onOpenChange={setOpen}>
       <DialogTrigger asChild>
         <Button size="sm" className="gap-1.5 bg-primary hover:bg-primary/90 shadow-md shadow-primary/30">
-          <ArrowRightLeft className="w-3.5 h-3.5" /> Buy / Sell
-        </Button>
+          <ArrowRightLeft className="w-3.5 h-3.5" /> {t('legacy.quickTradeDialog.buySell')}</Button>
       </DialogTrigger>
       <DialogContent className="max-w-md">
         <DialogHeader>
-          <DialogTitle>Rychlá transakce</DialogTitle>
+          <DialogTitle>{t('legacy.quickTradeDialog.quickTrade')}</DialogTitle>
         </DialogHeader>
 
         {/* Side toggle */}
@@ -96,22 +98,20 @@ const QuickTradeDialog = () => {
               side === "BUY" ? "bg-profit text-background" : "text-muted-foreground hover:bg-accent"
             }`}
           >
-            <Plus className="w-4 h-4" /> BUY
-          </button>
+            <Plus className="w-4 h-4" /> {t('legacy.quickTradeDialog.buy')}</button>
           <button
             onClick={() => setSide("SELL")}
             className={`flex-1 py-2 text-sm font-bold transition-all flex items-center justify-center gap-1.5 ${
               side === "SELL" ? "bg-loss text-background" : "text-muted-foreground hover:bg-accent"
             }`}
           >
-            <Minus className="w-4 h-4" /> SELL
-          </button>
+            <Minus className="w-4 h-4" /> {t('legacy.quickTradeDialog.sell')}</button>
         </div>
 
         <div className="grid gap-3">
           <div className="grid grid-cols-2 gap-3">
             <div>
-              <label className="text-xs text-muted-foreground font-semibold uppercase tracking-wide">Ticker</label>
+              <label className="text-xs text-muted-foreground font-semibold uppercase tracking-wide">{t('legacy.quickTradeDialog.ticker')}</label>
               <Input
                 value={ticker}
                 onChange={(e) => setTicker(e.target.value.toUpperCase())}
@@ -126,7 +126,7 @@ const QuickTradeDialog = () => {
               </datalist>
             </div>
             <div>
-              <label className="text-xs text-muted-foreground font-semibold uppercase tracking-wide">Název (nová)</label>
+              <label className="text-xs text-muted-foreground font-semibold uppercase tracking-wide">{t('legacy.quickTradeDialog.newName')}</label>
               <Input
                 value={matched?.name ?? name}
                 onChange={(e) => setName(e.target.value)}
@@ -138,11 +138,11 @@ const QuickTradeDialog = () => {
 
           <div className="grid grid-cols-3 gap-3">
             <div>
-              <label className="text-xs text-muted-foreground font-semibold uppercase tracking-wide">Počet</label>
+              <label className="text-xs text-muted-foreground font-semibold uppercase tracking-wide">{t('legacy.quickTradeDialog.quantity')}</label>
               <Input type="number" step="0.0001" value={shares} onChange={(e) => setShares(e.target.value)} placeholder="10" />
             </div>
             <div>
-              <label className="text-xs text-muted-foreground font-semibold uppercase tracking-wide">Cena (USD)</label>
+              <label className="text-xs text-muted-foreground font-semibold uppercase tracking-wide">{t('legacy.quickTradeDialog.priceUsd')}</label>
               <div className="relative">
                 <Input type="number" step="0.01" value={price} onChange={(e) => setPrice(e.target.value)} placeholder="150.00" />
                 {livePrice && (
@@ -151,57 +151,56 @@ const QuickTradeDialog = () => {
                     onClick={fillLive}
                     className="absolute right-1 top-1/2 -translate-y-1/2 text-[10px] px-1.5 py-0.5 rounded bg-primary/15 text-primary font-bold hover:bg-primary/25"
                   >
-                    LIVE ${livePrice.toFixed(2)}
+                    {t('legacy.quickTradeDialog.live')}{livePrice.toLocaleString(currentLocale(), { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
                   </button>
                 )}
               </div>
             </div>
             <div>
-              <label className="text-xs text-muted-foreground font-semibold uppercase tracking-wide">Poplatek</label>
+              <label className="text-xs text-muted-foreground font-semibold uppercase tracking-wide">{t('legacy.quickTradeDialog.fee')}</label>
               <Input type="number" step="0.01" value={fee} onChange={(e) => setFee(e.target.value)} />
             </div>
           </div>
 
           <div>
-            <label className="text-xs text-muted-foreground font-semibold uppercase tracking-wide">Datum</label>
+            <label className="text-xs text-muted-foreground font-semibold uppercase tracking-wide">{t('legacy.quickTradeDialog.date')}</label>
             <Input type="datetime-local" value={date} onChange={(e) => setDate(e.target.value)} />
           </div>
 
           <div>
-            <label className="text-xs text-muted-foreground font-semibold uppercase tracking-wide">Poznámka</label>
-            <Input value={note} onChange={(e) => setNote(e.target.value)} placeholder="(volitelné)" />
+            <label className="text-xs text-muted-foreground font-semibold uppercase tracking-wide">{t('legacy.quickTradeDialog.note')}</label>
+            <Input value={note} onChange={(e) => setNote(e.target.value)} placeholder={t('legacy.quickTradeDialog.optional')} />
           </div>
 
           {/* Live preview of impact */}
           <div className="rounded-lg border border-border bg-card/50 p-3 text-xs space-y-1.5">
             <div className="flex justify-between">
-              <span className="text-muted-foreground">Hodnota transakce</span>
+              <span className="text-muted-foreground">{t('legacy.quickTradeDialog.tradeValue')}</span>
               <span className="font-mono font-bold">{format(sharesN * priceN)}</span>
             </div>
             <div className="flex justify-between">
-              <span className="text-muted-foreground">{side === "BUY" ? "Cena celkem (s poplatky)" : "Výnos (po poplatcích)"}</span>
+              <span className="text-muted-foreground">{side === "BUY" ? t('legacy.quickTradeDialog.totalCostIncludingFees') : t('legacy.quickTradeDialog.proceedsAfterFees')}</span>
               <span className="font-mono font-bold">{format(side === "BUY" ? total : sharesN * priceN - feeN)}</span>
             </div>
             <div className="flex justify-between border-t border-border/60 pt-1.5">
-              <span className="text-muted-foreground">CASH před / po</span>
+              <span className="text-muted-foreground">{t('legacy.quickTradeDialog.cashBeforeAfter')}</span>
               <span className={`font-mono font-bold ${cashAfter < 0 ? "text-loss" : ""}`}>
                 {format(cash)} → {format(cashAfter)}
               </span>
             </div>
             {matched && (
               <div className="flex justify-between">
-                <span className="text-muted-foreground">Pozice {upper}</span>
+                <span className="text-muted-foreground">{t('legacy.quickTradeDialog.holding')}{" "}{upper}</span>
                 <span className="font-mono">
-                  {Number(matched.shares).toFixed(2)} → {(Number(matched.shares) + (side === "BUY" ? sharesN : -sharesN)).toFixed(2)} ks
-                </span>
+                  {Number(matched.shares).toLocaleString(currentLocale(), { minimumFractionDigits: 2, maximumFractionDigits: 2 })} → {(Number(matched.shares) + (side === "BUY" ? sharesN : -sharesN)).toLocaleString(currentLocale(), { minimumFractionDigits: 2, maximumFractionDigits: 2 })} {t('legacy.quickTradeDialog.shares')}</span>
               </div>
             )}
-            {!enoughCash && <p className="text-loss text-[11px] flex items-center gap-1"><X className="w-3 h-3" /> Nedostatek CASH</p>}
-            {!enoughShares && <p className="text-loss text-[11px] flex items-center gap-1"><X className="w-3 h-3" /> Nemáš tolik akcií</p>}
+            {!enoughCash && <p className="text-loss text-[11px] flex items-center gap-1"><X className="w-3 h-3" /> {t('legacy.quickTradeDialog.insufficientCash')}</p>}
+            {!enoughShares && <p className="text-loss text-[11px] flex items-center gap-1"><X className="w-3 h-3" /> {t('legacy.quickTradeDialog.notEnoughShares')}</p>}
           </div>
 
           <Button onClick={submit} disabled={add.isPending || !sharesN || !priceN || !upper} className="w-full">
-            {add.isPending ? "Ukládám..." : `Potvrdit ${side === "BUY" ? "nákup" : "prodej"}`}
+            {add.isPending ? t('legacy.quickTradeDialog.saving') : side === "BUY" ? t('legacy.quickTradeDialog.confirmBuy') : t('legacy.quickTradeDialog.confirmSell')}
           </Button>
         </div>
       </DialogContent>

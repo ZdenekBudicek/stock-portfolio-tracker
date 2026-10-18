@@ -22,8 +22,8 @@ describe("computeHoldingCostFifo", () => {
     // A sell on account A must consume account A's lot, not the cheaper lot of account B.
     const f = computeHoldingCostFifo([
       tx({ ticker: "NU", broker: "T212", broker_account: "1234567", shares: 10, price_usd: 5, executed_at: "2025-01-01T00:00:00Z" }),
-      tx({ ticker: "NU", broker: "T212", broker_account: "5088414", shares: 10, price_usd: 15, executed_at: "2025-02-01T00:00:00Z" }),
-      tx({ ticker: "NU", broker: "T212", broker_account: "5088414", side: "SELL", shares: 10, price_usd: 20, executed_at: "2025-03-01T00:00:00Z" }),
+      tx({ ticker: "NU", broker: "T212", broker_account: "1234568", shares: 10, price_usd: 15, executed_at: "2025-02-01T00:00:00Z" }),
+      tx({ ticker: "NU", broker: "T212", broker_account: "1234568", side: "SELL", shares: 10, price_usd: 20, executed_at: "2025-03-01T00:00:00Z" }),
     ]);
     const r = f.get("NU")!;
     expect(r.shares).toBeCloseTo(10, 9);

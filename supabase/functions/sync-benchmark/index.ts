@@ -1,6 +1,7 @@
 // Sync S&P 500 historical close values from Twelve Data into benchmark_history
-// Tries SPX first (index), falls back to SPY (ETF) which is on free plan
+// Yahoo ^GSPC first, then Twelve Data SPX. Never the SPY ETF (a different price scale).
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2.45.0";
+import { isSchedulerToken } from "../_shared/auth.ts";
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
@@ -35,6 +36,11 @@ async function fetchYahooGspc() {
 
 Deno.serve(async (req) => {
   if (req.method === "OPTIONS") return new Response("ok", { headers: corsHeaders });
+  // Scheduler-only: it works on every user's data and the shared provider quotas, so
+  // "has a JWT" (which the public anon key and any signed-up user satisfy) is not enough.
+  if (!isSchedulerToken(req.headers.get("Authorization"), [Deno.env.get("SUPABASE_SERVICE_ROLE_KEY"), Deno.env.get("CRON_SECRET")])) {
+    return new Response(JSON.stringify({ error: "Unauthorized" }), { status: 401, headers: { ...corsHeaders, "Content-Type": "application/json" } });
+  }
 
   const supabase = createClient(
     Deno.env.get("SUPABASE_URL")!,
@@ -53,8 +59,10 @@ Deno.serve(async (req) => {
     let lastError: any = null;
 
     if (values.length === 0) {
-      // Try SPX (paid on some plans), then SPY ETF as a close proxy.
-      const candidates = ["SPX", "^GSPC", "SPY"];
+      // Twelve Data index symbols (SPX is on paid plans only).
+      // NOT SPY: the ETF trades at ~1/10 of the index, and writing it under "SPX" made the
+      // benchmark line jump by 10x wherever it was used.
+      const candidates = ["SPX", "^GSPC"];
       for (const sym of candidates) {
         const j = await fetchSeries(sym, apiKey);
         if (Array.isArray(j.values) && j.values.length > 0) {

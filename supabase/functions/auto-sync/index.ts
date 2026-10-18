@@ -8,8 +8,13 @@
 // net over ALL T212 rows. Running side by side with the account-aware manual sync, the two
 // produced two adjustments for the same shares and every reconciled position DOUBLED
 // (RKLB showed 509 instead of 285). Never reintroduce a private reconcile here.
+//
+// Scheduler-only (pg_cron, see _shared/auth.ts). It decrypts EVERY user's T212 key and
+// rewrites every account's adjustments, so a valid JWT is not enough: the anon key is public
+// and anyone can sign up. The response carries counts only — never user ids or accounts.
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2.45.0";
 import { syncCashFromApi } from "../_shared/t212.ts";
+import { isSchedulerToken } from "../_shared/auth.ts";
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
@@ -64,9 +69,22 @@ async function reconcileAccount(
   });
 }
 
+// Per-user outcomes go to the function log (visible to the project owner only); the HTTP
+// response says how many, nothing about whom.
+const tally = (results: any[]) => ({
+  users: results.length,
+  synced: results.filter((r) => r.ok).length,
+  skipped: results.filter((r) => r.skip).length,
+  failed: results.filter((r) => r.error).length,
+});
+
 Deno.serve(async (req) => {
   if (req.method === "OPTIONS") return new Response("ok", { headers: corsHeaders });
-  const svc = createClient(Deno.env.get("SUPABASE_URL")!, Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!);
+  const serviceKey = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!;
+  if (!isSchedulerToken(req.headers.get("Authorization"), [serviceKey, Deno.env.get("CRON_SECRET")])) {
+    return new Response(JSON.stringify({ error: "Unauthorized" }), { status: 401, headers: { ...corsHeaders, "Content-Type": "application/json" } });
+  }
+  const svc = createClient(Deno.env.get("SUPABASE_URL")!, serviceKey);
   const results: any[] = [];
   try {
     const { data: conns } = await svc.from("broker_connections").select("user_id, environment").eq("broker", "T212");
@@ -183,8 +201,10 @@ Deno.serve(async (req) => {
       console.log(`sync-sectors: not invoked — ${(e as Error).message}`);
     }
 
-    return new Response(JSON.stringify({ ok: true, results }), { headers: { ...corsHeaders, "Content-Type": "application/json" } });
+    console.log("auto-sync results", JSON.stringify(results));
+    return new Response(JSON.stringify({ ok: true, ...tally(results) }), { headers: { ...corsHeaders, "Content-Type": "application/json" } });
   } catch (e) {
-    return new Response(JSON.stringify({ error: (e as Error).message, results }), { status: 500, headers: { ...corsHeaders, "Content-Type": "application/json" } });
+    console.error("auto-sync failed", (e as Error).message, JSON.stringify(results));
+    return new Response(JSON.stringify({ error: (e as Error).message, ...tally(results) }), { status: 500, headers: { ...corsHeaders, "Content-Type": "application/json" } });
   }
 });

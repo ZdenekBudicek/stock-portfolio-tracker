@@ -7,11 +7,18 @@
 //
 // Env: SUPABASE_URL, SUPABASE_SERVICE_KEY, TWELVE_DATA_KEY (optional)
 
-import { applySplitAdjustment, createHoldingsTimeline, isSyntheticRow } from "../supabase/functions/_shared/history.js";
+import { applySplitAdjustment, createHoldingsTimeline, isSyntheticRow, sanitizeSeries } from "../supabase/functions/_shared/history.js";
+import { parseOnlySymbols } from './only-symbols.mjs';
+import { isCryptoHolding, yahooCryptoSymbol, twelveCryptoSymbol } from "../supabase/functions/_shared/crypto.js";
 
 const U = process.env.SUPABASE_URL;
 const K = process.env.SUPABASE_SERVICE_KEY;
 const TD = process.env.TWELVE_DATA_KEY || "";
+// On-demand run for newly added companies: price only these symbols (comma separated), even a
+// watchlist-only one, and stop after storing their history — snapshots stay with the nightly run.
+// Present but invalid stops the run (never a silent full run over every user).
+let ONLY = [];
+try { ONLY = parseOnlySymbols(process.env.ONLY_SYMBOLS) ?? []; } catch (e) { console.error(e.message); process.exit(1); }
 if (!U || !K) { console.error("Missing SUPABASE_URL / SUPABASE_SERVICE_KEY"); process.exit(1); }
 
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
@@ -22,8 +29,11 @@ async function rest(path) {
   const rows = [];
   for (let f = 0; ; f += 1000) {
     const r = await fetch(`${U}/rest/v1/${path}`, { headers: { ...H, Range: `${f}-${f + 999}` } });
+    // A failed read must STOP the job, not look like "no rows": the snapshot rebuild below
+    // trusted an empty answer and rewrote every day without its recorded cash balance.
+    if (!r.ok) throw new Error(`read ${path.split("?")[0]} failed: HTTP ${r.status} ${(await r.text()).slice(0, 200)}`);
     const p = await r.json();
-    if (!Array.isArray(p)) break;
+    if (!Array.isArray(p)) throw new Error(`read ${path.split("?")[0]} returned a non-list answer`);
     rows.push(...p);
     if (p.length < 1000) break;
   }
@@ -41,8 +51,11 @@ async function upsert(table, rows, onConflict) {
 }
 
 // ---- sources ---------------------------------------------------------------
-const cryptoYahoo = { BTC: "BTC-USD", ETH: "ETH-USD", SOL: "SOL-USD", BNB: "BNB-USD", DOT: "DOT-USD", EGLD: "EGLD-USD", ADA: "ADA-USD", XRP: "XRP-USD", DOGE: "DOGE-USD", AVAX: "AVAX-USD", LINK: "LINK-USD" };
-const heuristicYahoo = (t) => cryptoYahoo[t.toUpperCase().replace(/USD$/, "")] ?? t.replace(/_US_EQ$/, "").replace(/_EQ$/, "").replace(/\./g, "-");
+// Crypto symbols come from _shared/crypto.js, which is the single key set. A crypto
+// ticker that has no provider symbol resolves to null and the ticker is SKIPPED — never
+// to the bare ticker, which is a real security for LTC/TRX/ATOM/APT/NEAR/LINK.
+const equityYahoo = (t) => t.replace(/_US_EQ$/, "").replace(/_EQ$/, "").replace(/\./g, "-"); // BRK.B -> BRK-B
+const equityTwelve = (t) => t.replace(/_US_EQ$/, "").replace(/_EQ$/, "");
 
 async function yahoo(sym, fromUnix) {
   const url = `https://query1.finance.yahoo.com/v8/finance/chart/${encodeURIComponent(sym)}?period1=${fromUnix}&period2=${Math.floor(Date.now() / 1000) + 86400}&interval=1d&events=split`;
@@ -101,38 +114,36 @@ async function resolveYahooCandidatesViaIsin(isin) {
   } catch { return []; }
 }
 
-// Drop single-day spikes (data glitches): a close >5x or <1/5 of the previous kept value.
-function sanitize(map) {
-  const dates = [...map.keys()].sort();
-  const out = new Map();
-  let prev = null;
-  for (const d of dates) {
-    const c = map.get(d);
-    if (prev != null && (c > prev * 5 || c < prev / 5)) continue;
-    out.set(d, c); prev = c;
-  }
-  return out;
-}
+// Spike filter lives in _shared/history.js (sanitizeSeries) so it is tested.
+const sanitize = sanitizeSeries;
 
 async function main() {
   // 1) the ledger + the broker-reconciled positions.
   // The reconstruction is ANCHORED to `positions` (see _shared/history.js), so both are
   // needed: the ledger supplies the dated moves, `positions` supplies today's truth.
-  const allRows = await rest(`transactions?select=user_id,ticker,side,shares,price_usd,executed_at,ext_id&order=executed_at.asc`);
+  const allRows = await rest(`transactions?select=user_id,ticker,side,shares,price_usd,executed_at,ext_id&order=executed_at.asc,id.asc`);
   const txs = allRows.filter((t) => t.ticker !== "CASH" && !isSyntheticRow(t.ext_id));
-  const allPos = await rest(`positions?select=user_id,ticker,shares,type,holding_start_date`);
+  const allPos = await rest(`positions?select=user_id,ticker,shares,type,holding_start_date&order=id.asc`);
   const isCash = (p) => p.ticker === "CASH" || String(p.type ?? "") === "Cash";
   const posRows = allPos.filter((p) => !isCash(p));
+  // Declared instrument type per ticker (price_history is shared, so one answer per symbol):
+  // any holder typing it Crypto wins, otherwise the first non-empty type.
+  const typeByTicker = new Map();
+  for (const p of posRows) {
+    if (!p.type) continue;
+    const cur = typeByTicker.get(p.ticker);
+    if (!cur || /crypto/i.test(p.type)) typeByTicker.set(p.ticker, p.type);
+  }
   // Today's cash balance per user. This job stamps it on today's snapshot so the balance
   // accumulates a day at a time — daily-snapshot-cron was supposed to do it, but it depends
   // on an external scheduler that is not running (the S&P benchmark it also refreshes had
   // been frozen since June). The reliable job owns it instead.
   const cashByUser = new Map();
   for (const p of allPos) if (isCash(p)) cashByUser.set(p.user_id, (cashByUser.get(p.user_id) ?? 0) + Number(p.shares));
-  if (!txs.length && !posRows.length) { console.log("no trades"); return; }
+  if (!ONLY.length && !txs.length && !posRows.length) { console.log("no trades"); return; }
   // Price every ticker that appears anywhere — a holding imported as a portfolio snapshot
   // (Revolut "Portfolio breakdown") has no trades but still has to be valued.
-  const tickers = [...new Set([...txs.map((t) => t.ticker), ...posRows.map((p) => p.ticker)])];
+  const tickers = ONLY.length ? ONLY : [...new Set([...txs.map((t) => t.ticker), ...posRows.map((p) => p.ticker)])];
   const firstByTicker = new Map();
   for (const t of allRows) {
     if (t.ticker === "CASH") continue;
@@ -144,7 +155,7 @@ async function main() {
   const fromUnix = Math.floor(new Date(globalFirst).getTime() / 1000);
 
   // 2) alias map (canonical + yahoo_symbol)
-  const aliasRows = await rest(`ticker_alias?select=alias,canonical,yahoo_symbol,isin`);
+  const aliasRows = await rest(`ticker_alias?select=alias,canonical,yahoo_symbol,isin&order=alias.asc`);
   const alias = new Map(aliasRows.map((a) => [a.alias, a]));
 
   // 3) FX series for currency conversion -> USD, and USD->CZK for value_czk
@@ -173,17 +184,37 @@ async function main() {
   let okY = 0, okT = 0, fail = [];
   for (const t of tickers) {
     const a = alias.get(t);
-    const ysym = a?.yahoo_symbol || heuristicYahoo(t);
-    const tdsym = a?.canonical && a.canonical !== t ? a.canonical : t.replace(/_US_EQ$/, "").replace(/_EQ$/, "");
+    // A curated equity alias (yahoo_symbol that is not a coin pair) pins a coin-named ticker to
+    // the security, e.g. ATOM held as Atomera stock.
+    const pinnedEquity = !!(a?.yahoo_symbol && !/-USD$/i.test(a.yahoo_symbol));
+    const crypto = !pinnedEquity && isCryptoHolding(t, typeByTicker.get(t));
+    // A curated yahoo_symbol always wins — it is the escape hatch for anything the
+    // heuristics get wrong. Otherwise crypto resolves through the shared maps (also for an
+    // alias's canonical: LTCUSD -> LTC must become LTC/USD, never the bare REIT ticker),
+    // and everything else through the broker-suffix heuristics.
+    const base = a?.canonical || t;
+    const ysym = a?.yahoo_symbol || (crypto ? yahooCryptoSymbol(base) ?? yahooCryptoSymbol(t) : equityYahoo(t));
+    const tdsym = crypto ? twelveCryptoSymbol(base) ?? twelveCryptoSymbol(t)
+      : (a?.canonical && a.canonical !== t ? a.canonical : equityTwelve(t));
+
+    // Known crypto with no symbol on either provider. Skipping is the actual fix: the old
+    // code fell through to the BARE ticker, Yahoo answered with an unrelated equity's
+    // closes, and because that answer was VALID neither the ISIN self-heal below nor the
+    // cross-source divergence check ever fired. Loud and empty beats quiet and wrong.
+    if (!ysym && !tdsym) {
+      fail.push(t);
+      console.log(`${t.padEnd(12)} SKIPPED — crypto with no provider symbol (add it to _shared/crypto.js)`);
+      continue;
+    }
 
     let picked = null, src = "";
-    const y = await yahoo(ysym, fromUnix).catch(() => null);
+    const y = ysym ? await yahoo(ysym, fromUnix).catch(() => null) : null;
     if (y) {
       const usd = new Map();
       for (const [d, c] of sanitize(y.map)) usd.set(d, toUsd(c, y.currency, d));
       picked = usd; src = `yahoo(${ysym}${y.currency !== "USD" ? "," + y.currency : ""})`; okY++;
     } else {
-      const tw = await twelve(tdsym, globalFirst).catch(() => null);
+      const tw = tdsym ? await twelve(tdsym, globalFirst).catch(() => null) : null;
       if (tw) { picked = sanitize(tw.map); src = `twelve(${tdsym})`; okT++; }
     }
 
@@ -207,7 +238,7 @@ async function main() {
     }
 
     // cross-check: if both sources exist, warn on >8% divergence at latest common date
-    if (picked && src.startsWith("yahoo")) {
+    if (picked && src.startsWith("yahoo") && tdsym) {
       const tw = await twelve(tdsym, globalFirst).catch(() => null);
       if (tw) {
         const common = [...picked.keys()].filter((d) => tw.map.has(d)).sort();
@@ -227,6 +258,7 @@ async function main() {
   }
   if (fxCzk.size) await upsert("price_history", [...fxCzk.entries()].map(([date, close]) => ({ symbol: "USDCZK", date, close })), "symbol,date");
   console.log(`\nsources: yahoo ${okY}, twelve ${okT}, failed ${fail.length}${fail.length ? " -> " + fail.join(", ") : ""}`);
+  if (ONLY.length) return; // on-demand: history stored; benchmark and snapshots stay with the nightly run
 
   // S&P 500 for the comparison line. It used to be refreshed only by the Supabase cron, which
   // stopped running — the benchmark froze on 25 June 2026 and every "vs. S&P" figure silently
@@ -255,7 +287,7 @@ async function main() {
     let filled = 0;
     for (let i = 0; i < have.length; i += 40) {
       const chunk = have.slice(i, i + 40);
-      const rows = await rest(`price_history?select=symbol,date,close&date=gte.${from}&symbol=in.(${chunk.join(",")})`);
+      const rows = await rest(`price_history?select=symbol,date,close&date=gte.${from}&symbol=in.(${chunk.join(",")})&order=symbol.asc,date.asc`);
       for (const r of rows) {
         const c = Number(r.close);
         const s = series[r.symbol];
@@ -265,6 +297,9 @@ async function main() {
       }
     }
     if (filled) console.log(`doplněno z price_history: ${filled} chybějících denních cen`);
+    // The stored rows can still hold a spike an earlier run kept (it was the last point then,
+    // with nothing after it to show it reverted). Filter again now that the series is longer.
+    for (const t of have) series[t] = sanitizeSeries(series[t]);
   }
 
   // 5) recompute daily_snapshots per user
@@ -301,9 +336,11 @@ async function main() {
     // which could not tell an unadjusted ledger from one where the broker had already booked
     // the split as extra shares — and double-counted in the second case.
     const closeAt = (tk, day) => {
+      // SAME-DAY close only: the split factor is tradePrice / close, so a close from days
+      // earlier turns an ordinary price move (-50 %) into a fake 1-for-2 split.
       const s = series[tk];
       if (!s) return null;
-      for (let i = 0, ms = Date.parse(day); i < 6; i++, ms -= 86400000) {
+      for (let i = 0, ms = Date.parse(day); i < 1; i++, ms -= 86400000) {
         const c = s.get(dstr(new Date(ms)));
         if (c) return c;
       }
@@ -351,7 +388,7 @@ async function main() {
     // value from prices and would otherwise wipe it, since it deletes the user's rows first.
     // Carry every already-recorded balance across the rebuild.
     const prevCash = new Map();
-    for (const r of await rest(`daily_snapshots?select=snapshot_date,cash_usd&user_id=eq.${uid}&cash_usd=not.is.null`)) {
+    for (const r of await rest(`daily_snapshots?select=snapshot_date,cash_usd&user_id=eq.${uid}&cash_usd=not.is.null&order=snapshot_date.asc`)) {
       prevCash.set(r.snapshot_date, Number(r.cash_usd));
     }
     let carried = 0;
@@ -368,20 +405,42 @@ async function main() {
     }
     if (carried) console.log(`  hotovost: ${carried} dní (dnes $${Math.round(todayCash ?? 0)})`);
     if (!snaps.length) { console.log(`user ${uid.slice(0, 8)}: 0 snapshots computed — SKIP delete (keeping existing)`); continue; }
-    await fetch(`${U}/rest/v1/daily_snapshots?user_id=eq.${uid}`, { method: "DELETE", headers: { ...H, Prefer: "return=minimal" } });
-    let inserted = 0;
+    // Overwrite day by day (upsert on user_id+snapshot_date) instead of delete-then-insert:
+    // a failed batch now leaves the previous history in place rather than a truncated one,
+    // and every carried cash balance stays in the database until its row is rewritten.
+    let written = 0, failed = false;
     for (let i = 0; i < snaps.length; i += 500) {
-      const r = await fetch(`${U}/rest/v1/daily_snapshots`, { method: "POST", headers: { ...H, "Content-Type": "application/json", Prefer: "return=minimal" }, body: JSON.stringify(snaps.slice(i, i + 500)) });
+      const r = await fetch(`${U}/rest/v1/daily_snapshots?on_conflict=user_id,snapshot_date`, {
+        method: "POST",
+        headers: { ...H, "Content-Type": "application/json", Prefer: "resolution=merge-duplicates,return=minimal" },
+        body: JSON.stringify(snaps.slice(i, i + 500)),
+      });
       if (!r.ok) {
-        // Never leave a user with half a history: this job DELETED their rows first, so a
-        // failed batch means the chart is truncated until someone notices.
-        console.log(`  !! snapshot insert FAILED (${uid.slice(0, 8)} batch ${i}) — history is now INCOMPLETE:`, await r.text());
+        console.log(`  !! snapshot upsert FAILED (${uid.slice(0, 8)} batch ${i}) — older rows kept:`, await r.text());
         process.exitCode = 1;
+        failed = true;
         break;
       }
-      inserted += snaps.slice(i, i + 500).length;
+      written += snaps.slice(i, i + 500).length;
     }
-    console.log(`user ${uid.slice(0, 8)}: ${inserted}/${snaps.length} snapshots, last ${snaps[snaps.length - 1] ? "$" + Math.round(snaps[snaps.length - 1].value_usd) : "-"}`);
+    // Only after a complete write: drop days that are no longer part of the history (before
+    // the first day the ledger can place a holding).
+    if (!failed) {
+      const first = snaps[0].snapshot_date;
+      const d = await fetch(`${U}/rest/v1/daily_snapshots?user_id=eq.${uid}&snapshot_date=lt.${first}`, { method: "DELETE", headers: { ...H, Prefer: "return=minimal" } });
+      if (!d.ok) { console.log(`  ! stale-day cleanup failed (${uid.slice(0, 8)}):`, await d.text()); process.exitCode = 1; }
+      // Days inside the range that the rebuild no longer produces (value 0) — the old
+      // delete-everything wiped them implicitly; with upsert they have to go explicitly.
+      const keep = new Set(snaps.map((s) => s.snapshot_date));
+      const existing = await rest(`daily_snapshots?select=snapshot_date&user_id=eq.${uid}&snapshot_date=gte.${first}&order=snapshot_date.asc`);
+      const gone = existing.map((r) => r.snapshot_date).filter((dt) => !keep.has(dt));
+      for (let i = 0; i < gone.length; i += 100) {
+        const g = await fetch(`${U}/rest/v1/daily_snapshots?user_id=eq.${uid}&snapshot_date=in.(${gone.slice(i, i + 100).join(",")})`, { method: "DELETE", headers: { ...H, Prefer: "return=minimal" } });
+        if (!g.ok) { console.log(`  ! gap cleanup failed (${uid.slice(0, 8)}):`, await g.text()); process.exitCode = 1; break; }
+      }
+      if (gone.length) console.log(`  odstraněno ${gone.length} dní, které už v historii nejsou`);
+    }
+    console.log(`user ${uid.slice(0, 8)}: ${written}/${snaps.length} snapshots, last ${snaps[snaps.length - 1] ? "$" + Math.round(snaps[snaps.length - 1].value_usd) : "-"}`);
   }
   console.log("DONE");
 }

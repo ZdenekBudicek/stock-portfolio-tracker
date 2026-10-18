@@ -7,6 +7,7 @@
 // cheap because price_history is already populated (shared) + only new days are added.
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2.45.0";
 import { applySplitAdjustment, createHoldingsTimeline, isSyntheticRow } from "../_shared/history.js";
+import { isCryptoHolding, twelveCryptoSymbol } from "../_shared/crypto.js";
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
@@ -17,9 +18,12 @@ const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
 const dstr = (d: Date) => d.toISOString().slice(0, 10);
 const TIME_BUDGET = 90_000;
 
-const CRYPTO: Record<string, string> = { BTC: "BTC/USD", ETH: "ETH/USD", SOL: "SOL/USD", BNB: "BNB/USD", DOT: "DOT/USD", LTC: "LTC/USD", XRP: "XRP/USD", ADA: "ADA/USD", DOGE: "DOGE/USD", AVAX: "AVAX/USD" };
-const cryptoBase = (t: string) => t.toUpperCase().replace(/USD$/, "");
-const tdSymbol = (ticker: string) => CRYPTO[cryptoBase(ticker)] ?? ticker;
+// Twelve Data symbol, or null for crypto that has no entry in the shared map. Never the
+// bare ticker: Twelve Data covers US equities, so "LINK" is Interlink Electronics and
+// "ATOM" is Atomera — a bare-ticker fallback writes a company's closes into the shared
+// price_history table as that coin's history.
+const tdSymbol = (ticker: string, type?: string | null): string | null =>
+  isCryptoHolding(ticker, type) ? twelveCryptoSymbol(ticker) : ticker;
 
 Deno.serve(async (req) => {
   if (req.method === "OPTIONS") return new Response("ok", { headers: corsHeaders });
@@ -73,10 +77,22 @@ Deno.serve(async (req) => {
     for (const tk of tickers) if (needsFetch(tk, firstByTicker.get(tk) ?? globalFirst)) toFetch.push(tk);
     if (needsFetch("USDCZK", globalFirst)) toFetch.push("USDCZK");
 
+    // A curated equity alias (ticker_alias.yahoo_symbol that is not a coin pair) pins a
+    // coin-named ticker to the security — the same escape hatch the nightly worker honours,
+    // e.g. ATOM held as Atomera stock.
+    const { data: aliasRows } = toFetch.length
+      ? await svc.from("ticker_alias").select("alias,yahoo_symbol").in("alias", toFetch)
+      : { data: [] as any[] };
+    const pinnedEquity = new Set(((aliasRows ?? []) as any[]).filter((a) => a.yahoo_symbol && !/-USD$/i.test(String(a.yahoo_symbol))).map((a) => a.alias));
     let fetched = 0; let remaining = 0;
+    const skipped: string[] = [];
     for (const sym of toFetch) {
       if (Date.now() - started > TIME_BUDGET) { remaining++; continue; }
-      const tdSym = sym === "USDCZK" ? "USD/CZK" : tdSymbol(sym);
+      const tdSym = sym === "USDCZK" ? "USD/CZK" : pinnedEquity.has(sym) ? sym : tdSymbol(sym, positions.find((p: any) => p.ticker === sym)?.type);
+      // Known crypto with no Twelve Data symbol: skip, and deliberately do NOT write the
+      // tombstone below. A tombstone makes needsFetch() permanently false, so the holding
+      // would contribute 0 to every future snapshot and undercount the portfolio for good.
+      if (!tdSym) { skipped.push(sym); continue; }
       try {
         const r = await fetch(`https://api.twelvedata.com/time_series?symbol=${encodeURIComponent(tdSym)}&interval=1day&outputsize=5000&apikey=${tdKey}`);
         const j = await r.json();
@@ -85,18 +101,23 @@ Deno.serve(async (req) => {
           const rows = vals.map((v) => ({ symbol: sym, date: v.datetime, close: Number(v.close) })).filter((x) => Number.isFinite(x.close));
           for (let i = 0; i < rows.length; i += 1000) await svc.from("price_history").upsert(rows.slice(i, i + 1000), { onConflict: "symbol,date" });
           fetched++;
-        } else {
-          // No data (delisted/SPAC ticker Twelve Data lacks) -> mark attempted so we don't retry forever.
+        } else if (j?.status === "error" && /symbol|not found|invalid/i.test(String(j?.message ?? ""))) {
+          // Twelve Data says it does not know this symbol (delisted/SPAC) -> mark attempted so
+          // we don't retry forever. ONLY then: a tombstone makes needsFetch() false for good,
+          // so writing it on a rate limit, a missing key or an empty answer would leave the
+          // holding at 0 in every future snapshot.
           await svc.from("price_history").upsert([{ symbol: sym, date: "1900-01-01", close: 0 }], { onConflict: "symbol,date" });
+        } else {
+          skipped.push(sym); // transient (429 / outage / empty) — retry on the next run
         }
       } catch (_e) {
-        await svc.from("price_history").upsert([{ symbol: sym, date: "1900-01-01", close: 0 }], { onConflict: "symbol,date" });
+        skipped.push(sym); // network error — retry on the next run, never tombstone
       }
       await sleep(8000); // Twelve Data free tier: 8 credits/min
     }
 
     if (remaining > 0) {
-      return json({ ok: true, done: false, fetched, remaining });
+      return json({ ok: true, done: false, fetched, remaining, skipped });
     }
 
     // all covered -> reconstruct daily_snapshots from price_history (no external calls)
@@ -117,9 +138,11 @@ Deno.serve(async (req) => {
     // Never a per-ticker scale factor — that turned a tiny correction on a mostly-sold
     // position into a huge phantom holding in the past.
     const closeAt = (tk: string, day: string) => {
+      // SAME-DAY close only: the split factor is tradePrice / close, so a close from days
+      // earlier turns an ordinary price move (-50 %) into a fake 1-for-2 split.
       const s = series.get(tk);
       if (!s) return null;
-      for (let i = 0, ms = Date.parse(day); i < 6; i++, ms -= 86400000) {
+      for (let i = 0, ms = Date.parse(day); i < 1; i++, ms -= 86400000) {
         const c = s.get(dstr(new Date(ms)));
         if (c) return c;
       }
@@ -183,6 +206,9 @@ Deno.serve(async (req) => {
     return json({
       ok: true, done: true, snapshots: snaps.length,
       splitsApplied: adjusted,
+      // Crypto with no Twelve Data symbol — priced at 0 in this reconstruction rather
+      // than silently tombstoned. Fix the map in _shared/crypto.js and re-run.
+      skipped,
       // Tickers whose ledger cannot be reconciled with the broker's share count — the chart
       // is anchored so TODAY is still right, but their past is only as good as the ledger.
       unverified,

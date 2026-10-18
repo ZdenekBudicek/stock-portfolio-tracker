@@ -4,14 +4,17 @@ import { useComputedPortfolio } from '@/hooks/usePortfolio';
 import { formatPct } from '@/data/portfolio';
 
 const ProfitByStock = () => {
-  const { format, convert, currency } = useCurrency();
+  const { formatAt, pick, currency, hidden } = useCurrency();
   const { positions } = useComputedPortfolio();
+  // `profit` is in the displayed currency: in CZK the koruna profit against the purchase-day
+  // cost, so the bar, its colour and the % all say the same thing.
   const data = positions
     .filter(p => p.type !== 'Cash' && p.ticker !== 'CASH')
-    .sort((a, b) => b.profitUsd - a.profitUsd)
-    .map(p => ({ name: p.ticker, profit: p.profitUsd, pct: currency === 'CZK' ? p.profitPctCzk : p.profitPct, displayProfit: convert(p.profitUsd) }));
+    .map(p => ({ name: p.ticker, profit: pick(p.profitUsd, p.profitCzk), pct: pick(p.profitPct, p.profitPctCzk) }))
+    .sort((a, b) => b.profit - a.profit);
 
   const totalProfit = data.reduce((s, d) => s + d.profit, 0);
+  const money = (v: number) => formatAt(v, v);
 
   const CustomTooltip = ({ active, payload }: any) => {
     if (!active || !payload?.length) return null;
@@ -20,13 +23,13 @@ const ProfitByStock = () => {
       <div className="glass-strong border border-border rounded-xl px-3.5 py-2.5 shadow-2xl">
         <p className="font-display font-bold text-sm text-foreground">{d.name}</p>
         <p className={`text-xs font-medium tabular-nums ${d.profit >= 0 ? 'text-profit' : 'text-loss'}`}>
-          {format(d.profit)} ({formatPct(d.pct)})
+          {money(d.profit)} ({formatPct(d.pct)})
         </p>
       </div>
     );
   };
 
-  const tickFormatter = (v: number) => currency === 'CZK' ? `${(v / 1000).toFixed(0)}k` : `$${(v / 1000).toFixed(0)}k`;
+  const tickFormatter = (v: number) => hidden ? '••' : currency === 'CZK' ? `${(v / 1000).toFixed(0)}k` : `$${(v / 1000).toFixed(0)}k`;
 
   return (
     <div className="gradient-card rounded-2xl border border-border p-5 sm:p-6 animate-fade-in-up hover-lift">
@@ -36,7 +39,7 @@ const ProfitByStock = () => {
           <p className="text-xs text-muted-foreground mt-0.5">Podle jednotlivých pozic</p>
         </div>
         <span className={`font-display font-bold text-base tabular-nums ${totalProfit >= 0 ? 'text-profit' : 'text-loss'}`}>
-          {totalProfit >= 0 ? '+' : ''}{format(totalProfit)}
+          {totalProfit >= 0 ? '+' : ''}{money(totalProfit)}
         </span>
       </div>
       <div className="h-[300px] min-w-0">
@@ -64,7 +67,8 @@ const ProfitByStock = () => {
             />
             <Tooltip content={<CustomTooltip />} cursor={{ fill: 'hsl(var(--accent) / 0.3)' }} />
             <ReferenceLine x={0} stroke="hsl(var(--border))" />
-            <Bar dataKey="displayProfit" radius={[6, 6, 6, 6]}>
+            <Bar dataKey="profit" radius={[6, 6, 6, 6]}>
+
               {data.map((d, i) => (
                 <Cell key={i} fill={d.profit >= 0 ? 'url(#pbProfit)' : 'url(#pbLoss)'} />
               ))}
