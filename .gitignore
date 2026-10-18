@@ -23,6 +23,10 @@ scripts/*
 !scripts/sector-worker.mjs
 # Refreshes the bundled ČNB rates (src/data/cnbUsdCzk.json) the tax report converts with.
 !scripts/update-cnb-rates.mjs
+# Company financials: nightly + on-demand workers (.github/workflows/price-history.yml).
+!scripts/fundamentals-worker.mjs
+!scripts/finish-fundamentals-requests.mjs
+!scripts/only-symbols.mjs
 audit/
 migration-data/
 
