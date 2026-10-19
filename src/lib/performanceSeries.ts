@@ -1,10 +1,12 @@
 // The "Vývoj portfolia" series: the whole portfolio per day (positions + recorded cash), the
 // money put in up to that day, and the same money held in the S&P 500 instead.
 //
-// In CZK every day is valued at ITS OWN USD/CZK (the snapshot's fx_rate; value_czk is the
-// positions at that rate) and every flow at the rate of the day it went in. Multiplying the
-// whole USD history by today's rate — as the chart did — just relabels the USD curve: the
-// percentages came out identical to USD and a koruna investor never saw the currency move.
+// In the local currency (koruny or the chosen one) every day is valued at ITS OWN USD→local
+// rate (the snapshot's fx_rate; value_czk is the positions at that rate) and every flow at the
+// rate of the day it went in. Multiplying the whole USD history by today's rate — as the chart
+// did — just relabels the USD curve: the percentages came out identical to USD and a koruna
+// investor never saw the currency move.
+import type { DisplayCurrency } from '@/lib/displayCurrency';
 
 export interface SeriesSnapshot {
   snapshot_date: string;
@@ -34,13 +36,14 @@ export function buildPerformanceSeries({ snapshots, tradeFlowsUsd, incomeUsd, be
   incomeUsd?: Map<string, number>;
   /** S&P 500 close on/before a date. */
   benchAt: (date: string) => number | null;
-  currency: 'USD' | 'CZK';
+  /** Any non-USD currency is the local branch (the snapshots' value_czk / fx_rate). */
+  currency: DisplayCurrency;
   /** Rate for a day that carries none and has no positions to derive it from. */
   fallbackFx: number;
-  /** Known USD/CZK for a trade day; otherwise use the current snapshot's rate. */
+  /** Known USD→local rate for a trade day; otherwise use the current snapshot's rate. */
   fxAt?: (date: string) => number | null | undefined;
 }): SeriesPoint[] {
-  const czk = currency === 'CZK';
+  const czk = currency !== 'USD';
   let lastFx = fallbackFx;
   let cum = 0, units = 0, prevCash = 0;
   const flows = [...tradeFlowsUsd].sort(([a], [b]) => a.localeCompare(b));

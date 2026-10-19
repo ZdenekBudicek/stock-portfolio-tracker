@@ -25,9 +25,10 @@ const Dividends = () => {
   const { positions } = useComputedPortfolio();
   const hold = new Map(holdingsOf(positions).map((p) => [p.ticker.split('.')[0], p]));
   const max = Math.max(1e-9, ...d.forecast.map((m) => m.amountUsd));
-  // In CZK the cost is what the shares cost in koruna on the purchase days (not today's rate),
-  // so the koruna yield on cost also reflects the currency move since buying.
-  const czk = currency === 'CZK';
+  // In the local currency (koruny or the chosen one) the cost is what the shares cost in it on
+  // the purchase days (not today's rate), so the local yield on cost also reflects the currency
+  // move since buying. Dividends themselves are converted at today's rate (usdLocal).
+  const czk = currency !== 'USD';
   const yoc = [...d.annual.entries()]
     .map(([ticker, annual]) => {
       const p = hold.get(ticker);

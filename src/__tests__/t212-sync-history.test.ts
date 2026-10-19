@@ -66,14 +66,20 @@ describe("t212RowKind", () => {
 describe("planT212History", () => {
   it("keeps a pure-API account in API mode after its first reconcile", () => {
     const stored = [ord("1", "2026-03-02T15:00:00Z"), ord("2", "2026-05-10T15:00:00Z"), adj("2026-10-01T08:00:00Z")];
-    expect(planT212History(stored, { resuming: false })).toEqual({ statementMode: false, statementCutoff: null, pageStop: null });
+    expect(planT212History(stored, { resuming: false })).toEqual({ statementMode: false, statementCutoff: null, statementStart: null, pageStop: null });
   });
 
   it("takes the deletion cutoff from statement rows only, and the page stop from every non-adjustment row", () => {
     const stored = [act("2026-06-10"), act("2026-06-30"), ord("9", "2026-07-05T15:30:00Z"), adj("2026-10-17T08:00:00Z")];
     expect(planT212History(stored, { resuming: false })).toEqual({
-      statementMode: true, statementCutoff: "2026-06-30T12:00:00.000Z", pageStop: "2026-07-05T15:30:00Z",
+      statementMode: true, statementCutoff: "2026-06-30T12:00:00.000Z", statementStart: "2026-06-10T00:00:00.000Z", pageStop: "2026-07-05T15:30:00Z",
     });
+  });
+
+  it("starts the covered period at the first statement trade (earlier API fills are not covered)", () => {
+    const plan = planT212History([ord("1", "2026-01-15T15:00:00Z"), act("2026-06-10"), act("2026-06-30")], { resuming: false });
+    expect(plan.statementStart).toBe("2026-06-10T00:00:00.000Z");
+    expect(new Date("2026-01-15T15:00:00Z") < new Date(plan.statementStart!)).toBe(true);
   });
 
   it("treats manual rows as history the API must not overwrite", () => {

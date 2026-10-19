@@ -1,13 +1,17 @@
+import { useCallback } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { supabase } from "@/integrations/supabase/client";
 import { useBrokerSummary, useDividends } from "@/hooks/useExtras";
 import { useAuth } from "@/contexts/AuthContext";
 import { computeNetDeposits } from "@/lib/netDeposits";
 import { runFifo, realizedUsd, isRealTradeTx } from "@/lib/fifo";
+import { useLocalFxOptional } from "@/contexts/CurrencyContext";
 
 export interface LivePrices {
   prices: Record<string, { price: number; changePct: number; prevClose: number | null }>;
   usdCzk: number;
+  /** Today's CZK per 1 EUR / GBP / PLN (display currencies), when the price job has them. */
+  fxCzk?: Partial<Record<"EUR" | "GBP" | "PLN", number>>;
   fetchedAt: string;
   stale: boolean;
   error: string | null;
@@ -136,8 +140,22 @@ export function useTransactions() {
   });
 }
 
+/**
+ * Daily snapshots with their koruna fields (value_czk, profit_czk, fx_rate) expressed in the
+ * LOCAL display currency — each day converted at the ČNB rate of that same day, so every
+ * history, chart and month comparison follows the chosen currency (CZK: unchanged).
+ */
 export function useDailySnapshots() {
+  const fx = useLocalFxOptional();
+  const select = useCallback((rows: DbSnapshot[]): DbSnapshot[] => {
+    if (fx.code === "CZK") return rows;
+    return rows.map((s) => {
+      const k = fx.perCzkAt(s.snapshot_date);
+      return { ...s, value_czk: s.value_czk * k, profit_czk: s.profit_czk * k, fx_rate: s.fx_rate != null ? s.fx_rate * k : null };
+    });
+  }, [fx]);
   return useQuery({
+    select,
     queryKey: ["daily-snapshots"],
     queryFn: async (): Promise<DbSnapshot[]> => {
       const data = await fetchAllRows<DbSnapshotRow>((from, to) =>
@@ -289,16 +307,22 @@ export function useComputedPortfolio() {
   // "ready" on positions + prices alone let the header show a number and then jump.
   const loading = positionsQ.isLoading || pricesQ.isLoading || txsQ.isLoading || snapsQ.isLoading || summaryQ.isLoading || divsQ.isLoading;
 
-  const rate = pricesQ.data?.usdCzk ?? 23;
-  // USD->CZK by date from snapshot fx_rate, for purchase-time CZK cost basis.
+  // The …Czk figures below are in the LOCAL display currency (koruny unless another one is
+  // chosen): `rate` is today's USD→local, and the snapshots already carry each day's USD→local.
+  const fx = useLocalFxOptional();
+  const usdCzk = pricesQ.data?.usdCzk ?? 23;
+  const rate = usdCzk * fx.perCzkToday;
+  // USD->local by date from snapshot fx_rate, for the purchase-time local cost basis.
   const fxByDate = new Map<string, number>();
   for (const s of snapsQ.data ?? []) if (s.fx_rate) fxByDate.set(s.snapshot_date, Number(s.fx_rate));
   const fxDates = [...fxByDate.keys()].sort();
   const fxAt = (date: string): number => {
     if (fxByDate.has(date)) return fxByDate.get(date)!;
-    let best = rate; // nearest on/before, else current rate
-    for (const d of fxDates) { if (d <= date) best = fxByDate.get(d)!; else break; }
-    return best;
+    // No snapshot that day: the nearest earlier day's USD/CZK (else today's), but the koruna →
+    // local leg at the rate of the purchase day itself — as the koruna figure would be.
+    let czk = usdCzk;
+    for (const d of fxDates) { if (d <= date) czk = fxByDate.get(d)! / fx.perCzkAt(d); else break; }
+    return czk * fx.perCzkAt(date);
   };
 
   // A position worth less than this (USD) is treated as closed: hidden and not counted.
@@ -360,7 +384,7 @@ export function useComputedPortfolio() {
   // honest base for total return, profit = current value − net deposits, which inherently
   // includes gains already locked in from sold positions.
   const summary = summaryQ.data;
-  const deposits = computeNetDeposits({ txs: txsQ.data || [], t212: summary, usdCzk: rate, fxAt, dividends: (divsQ.data || []) as any });
+  const deposits = computeNetDeposits({ txs: txsQ.data || [], t212: summary, usdCzk, localPerCzk: fx.perCzkToday, fxAt, dividends: (divsQ.data || []) as any });
   const hasDeposits = deposits.usd > 0;
   const totalProfit = hasDeposits ? totalValue - deposits.usd : unrealizedProfit + realizedProfit;
   const totalReturnPct = hasDeposits
@@ -390,7 +414,10 @@ export function useComputedPortfolio() {
     totalReturnPctCzk,
     totalProfitPct: holdings.profitPct,
     totalProfitPctCzk: holdings.profitPctCzk,
-    usdCzk: pricesQ.data?.usdCzk ?? 23,
+    /** Today's real USD/CZK (taxes, ČNB notes) — not the display currency. */
+    usdCzk,
+    /** Today's USD → local display currency (the rate of every …Czk figure). */
+    usdLocal: rate,
     stale: pricesQ.data?.stale ?? false,
     fetchedAt: pricesQ.data?.fetchedAt,
     error: pricesQ.error || pricesQ.data?.error || null,

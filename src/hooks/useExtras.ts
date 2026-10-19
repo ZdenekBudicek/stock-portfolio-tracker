@@ -317,6 +317,29 @@ export interface BrokerSummary {
   netDepositsUsd: number | null; // combined net deposits across all brokers, in USD (if known)
   /** Last finished sync of the connection (null when never synced). */
   lastSyncAt: string | null;
+  /**
+   * T212 account number the summary belongs to (null on summaries stored before scoping).
+   * computeNetDeposits needs it to tell the connected account's rows from another T212
+   * account imported from statements — without it every T212 row counted as connected.
+   */
+  account: string | null;
+}
+
+/** Maps one get_broker_connection_status row to a BrokerSummary (null without a summary). */
+export function toBrokerSummary(row: { account_summary?: any; last_sync_at?: string | null } | null | undefined): BrokerSummary | null {
+  const s = row?.account_summary;
+  if (!s) return null;
+  return {
+    currency: s.currency ?? null,
+    total: Number(s.total) || 0,
+    free: Number(s.free) || 0,
+    invested: Number(s.invested) || 0,
+    ppl: Number(s.ppl) || 0,
+    result: Number(s.result) || 0,
+    netDepositsUsd: s.total_net_deposits_usd != null ? Number(s.total_net_deposits_usd) : null,
+    lastSyncAt: row?.last_sync_at ?? null,
+    account: s.account != null && s.account !== "" ? String(s.account) : null,
+  };
 }
 
 export function useBrokerSummary(broker = "T212") {
@@ -332,18 +355,7 @@ export function useBrokerSummary(broker = "T212") {
       // broker's net-invested capital in for a proxy that was never counted, double-counting
       // it in the net-deposits total.
       const row = (data as any[])?.find((r) => r.broker === broker);
-      const s = row?.account_summary;
-      if (!s) return null;
-      return {
-        currency: s.currency ?? null,
-        total: Number(s.total) || 0,
-        free: Number(s.free) || 0,
-        invested: Number(s.invested) || 0,
-        ppl: Number(s.ppl) || 0,
-        result: Number(s.result) || 0,
-        netDepositsUsd: s.total_net_deposits_usd != null ? Number(s.total_net_deposits_usd) : null,
-        lastSyncAt: row?.last_sync_at ?? null,
-      };
+      return toBrokerSummary(row);
     },
   });
 }

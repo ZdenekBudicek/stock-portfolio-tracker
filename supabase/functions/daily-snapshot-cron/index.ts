@@ -2,6 +2,7 @@
 // Computes portfolio value from positions + latest cached prices and inserts a daily_snapshots row PER USER
 
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2.45.0";
+import { fetchAllRows, fetchRowsBySymbols } from "../_shared/price-providers.ts";
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
@@ -39,15 +40,17 @@ Deno.serve(async (req) => {
     // PostgREST caps a plain select at 1000 rows. Positions must be paged: silently losing
     // rows past the cap would write a snapshot that undercounts somebody's portfolio, and a
     // stored snapshot is never recomputed by this cron.
-    const positions: any[] = [];
-    for (let f = 0; ; f += 1000) {
-      const { data, error } = await supabase.from("positions").select("*").range(f, f + 999);
-      if (error) throw error;
-      const page = data ?? []; positions.push(...page); if (page.length < 1000) break;
-    }
-    const { data: cache } = await supabase.from("price_cache").select("*");
+    // Deterministic order: paging an unordered select can skip or repeat rows.
+    const positions = await fetchAllRows("positions", (f, t) => supabase.from("positions").select("*").order("id", { ascending: true }).range(f, t));
+    // Only the symbols held (+ the USD/CZK rate), chunked and fully paged — the whole
+    // price_cache is capped at 1000 rows, and a dropped symbol fell back to cost basis.
+    const cache = await fetchRowsBySymbols(
+      [...positions.filter((p: any) => p.type !== "Cash" && p.ticker !== "CASH").map((p: any) => p.ticker), "USDCZK"],
+      (chunk, f, t) => supabase.from("price_cache").select("*").in("symbol", chunk).order("symbol", { ascending: true }).range(f, t),
+      "price_cache",
+    );
 
-    if (!positions.length || !cache) throw new Error("Missing data");
+    if (!positions.length) throw new Error("Missing data");
 
     const priceMap = new Map(cache.map((r: any) => [r.symbol, r]));
     const fx = priceMap.get("USDCZK")?.price ?? 23.0;

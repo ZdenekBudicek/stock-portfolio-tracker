@@ -7,16 +7,23 @@
 // exemptions, no limit and no tax estimate — the app shows realized gains/losses and
 // dividends per year (src/lib/tax/realized.ts) and says that the user's country's rules are
 // not supported. A new country is one more entry here plus its own engine.
+import { normalizeDisplayCurrency, type DisplayCurrency } from "@/lib/displayCurrency";
 import { buildSalesReport, isTimeTestExempt, SALE_INCOME_LIMIT_CZK, TAX_RATE, timeTestExemptFrom } from "@/lib/czTax";
 import { simulateSale } from "@/lib/saleSimulation";
 import { ASSUMED_WHT_RATE, buildDividendReport, CREDIT_CAP_RATE } from "@/lib/dividendTax";
+import { TAX_ENGINES } from "./engines";
+import type { TaxEngine } from "./types";
+import type { Country } from "./profile";
 
 /** Supported jurisdictions by ISO 3166-1 alpha-2, or 'OTHER' for everyone else. */
-export type TaxResidence = "CZ" | "OTHER";
+export type TaxResidence = "CZ" | Country | "OTHER";
+/** Legacy UI choices; international profiles are enabled by the future UI/DB migration. */
 export const TAX_RESIDENCES: readonly TaxResidence[] = ["CZ", "OTHER"];
+export const SUPPORTED_TAX_RESIDENCES: readonly TaxResidence[] = ["CZ", "US", "SK", "DE", "GB", "PL", "OTHER"];
 
-export type BaseCurrency = "USD" | "CZK";
-export const BASE_CURRENCIES: readonly BaseCurrency[] = ["CZK", "USD"];
+/** The default display currency (also the reporting currency of the neutral realized report). */
+export type BaseCurrency = DisplayCurrency;
+export const BASE_CURRENCIES: readonly BaseCurrency[] = ["CZK", "EUR", "USD", "GBP", "PLN"];
 
 export interface JurisdictionCaps {
   /** A tax estimate (Taxes page, Overview tax card, simulator tax delta, tax-limit alert). */
@@ -51,13 +58,15 @@ export interface Jurisdiction {
   /** Where exchange rates for tax amounts come from; null = no official source applied. */
   fxSource: "cnb" | null;
   /** How sold shares are matched to purchases. */
-  lotMethod: "fifo-per-account";
+  lotMethod: "fifo-per-account" | "fifo-or-specific-id" | "uk-share-pooling" | "fifo-and-annual-crypto-costs";
   rulesFor(year: number): YearRules;
   /** First day a lot bought on `acquired` (YYYY-MM-DD) is exempt; null without a holding exemption. */
   exemptFrom(acquired: string): string | null;
   isHoldingExempt(acquired: string, sold: string): boolean;
   /** The jurisdiction's own engine; null for the neutral view. */
   engine: CzEngine | null;
+  /** Uniform international report/simulation API. Legacy engine stays unchanged for CZ. */
+  annualEngine?: TaxEngine;
 }
 
 /** The existing Czech calculations, referenced as they are. */
@@ -101,16 +110,21 @@ export const OTHER: Jurisdiction = {
   engine: null,
 };
 
-const BY_CODE: Record<TaxResidence, Jurisdiction> = { CZ, OTHER };
+// Existing caps gate hard-coded Czech UI. Keep these disabled until that UI consumes annualEngine.
+const international = (code: Country): Jurisdiction => ({ ...OTHER, code, annualEngine: TAX_ENGINES[code],
+  fxSource: code === "US" ? null : "cnb",
+  lotMethod: code === "GB" ? "uk-share-pooling" : code === "US" ? "fifo-or-specific-id" : code === "PL" ? "fifo-and-annual-crypto-costs" : "fifo-per-account",
+});
+export const US = international("US"), SK = international("SK"), DE = international("DE"), GB = international("GB"), PL = international("PL");
+const BY_CODE: Record<TaxResidence, Jurisdiction> = { CZ, US, SK, DE, GB, PL, OTHER };
 
 /** Normalises a stored value: a supported code, anything else (another country, junk) → 'OTHER'. */
 export function normalizeResidence(raw: string | null | undefined): TaxResidence {
   const v = String(raw ?? "").trim().toUpperCase();
-  return (TAX_RESIDENCES as readonly string[]).includes(v) ? (v as TaxResidence) : "OTHER";
+  return (SUPPORTED_TAX_RESIDENCES as readonly string[]).includes(v) ? (v as TaxResidence) : "OTHER";
 }
 
-export const normalizeBaseCurrency = (raw: string | null | undefined): BaseCurrency =>
-  String(raw ?? "").toUpperCase() === "USD" ? "USD" : "CZK";
+export const normalizeBaseCurrency = (raw: string | null | undefined): BaseCurrency => normalizeDisplayCurrency(raw, "CZK");
 
 export function jurisdictionFor(residence: string | null | undefined): Jurisdiction {
   return BY_CODE[normalizeResidence(residence)];

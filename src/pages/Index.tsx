@@ -19,6 +19,7 @@ import { formatPct } from '@/data/portfolio';
 import { cn } from '@/lib/utils';
 import { currentLang, currentLocale } from '@/i18n';
 import { fmtCzk, fmtNum, fmtPercent } from '@/i18n/format';
+import { formatMoney, wrapSymbol } from '@/lib/displayCurrency';
 import { useTaxResidence } from '@/hooks/useTaxResidence';
 import { RealizedMini } from '@/components/RealizedGains';
 
@@ -67,11 +68,13 @@ function Onboarding() {
 function Hero() {
   const { t } = useTranslation();
   const p = useComputedPortfolio();
-  const { format, currency, convert, hidden } = useCurrency();
+  const { format, currency, local, hidden } = useCurrency();
+  const lang = currentLang() === 'en' ? 'en' : 'cs';
   const prev = p.totalValue - p.dailyReturn;
   const dayPct = prev > 0 ? (p.dailyReturn / prev) * 100 : 0;
   const up = p.dailyReturn >= 0;
-  const other = currency === 'USD' ? convert(p.totalValue) * p.usdCzk : p.totalValue;
+  // The other currency beside the big number: the local one (koruny or the chosen one) in USD mode.
+  const other = currency === 'USD' ? p.totalValue * p.usdLocal : p.totalValue;
   return (
     <Panel className="lg:col-span-2 !pb-3">
       <div className="flex items-start justify-between gap-3 flex-wrap">
@@ -81,8 +84,8 @@ function Hero() {
           <div className="mt-3 flex items-center gap-2.5 flex-wrap">
             <Pill tone={up ? 'profit' : 'loss'} className="num">{up ? '▲' : '▼'} {up ? '+' : ''}{format(p.dailyReturn)} · {formatPct(dayPct)}</Pill>
             <span className="text-xs text-muted-foreground">{t('common.today')}</span>
-            <span className="text-xs text-muted-foreground num">· {hidden ? (currency === 'USD' ? (currentLang() === 'en' ? 'CZK ••••' : '•••• Kč') : '$••••') : currency === 'USD'
-              ? fmtCzk(other)
+            <span className="text-xs text-muted-foreground num">· {hidden ? (currency === 'USD' ? wrapSymbol('••••', local, lang) : '$••••') : currency === 'USD'
+              ? formatMoney(other, local, lang)
               : `$${Math.round(p.totalValue).toLocaleString(currentLocale())}`}</span>
           </div>
         </div>
@@ -98,7 +101,7 @@ function ProfitCard() {
   const p = useComputedPortfolio();
   const { formatAt, format, pick, currency } = useCurrency();
   const total = pick(p.totalProfit, p.totalProfitCzk);
-  const realized = currency === 'USD' ? p.realizedProfit : p.realizedProfit * p.usdCzk;
+  const realized = currency === 'USD' ? p.realizedProfit : p.realizedProfit * p.usdLocal;
   const unrealized = pick(p.unrealizedProfit, p.unrealizedProfitCzk);
   const rest = total - realized - unrealized;
   const parts = [
@@ -106,7 +109,7 @@ function ProfitCard() {
     { v: unrealized, c: 'hsl(var(--cyan))', label: t('overview.profit.unrealized'), text: formatAt(p.unrealizedProfit, p.unrealizedProfitCzk) },
   ];
   const denom = parts.reduce((s, x) => s + Math.abs(x.v), 0) + Math.abs(rest);
-  const deposits = p.netDepositsUsd != null ? formatAt(p.netDepositsUsd, p.netDepositsCzk ?? p.netDepositsUsd * p.usdCzk) : null;
+  const deposits = p.netDepositsUsd != null ? formatAt(p.netDepositsUsd, p.netDepositsCzk ?? p.netDepositsUsd * p.usdLocal) : null;
   const pos = total >= 0;
   return (
     <Panel to="/vynosy" glow={pos ? 'profit' : 'loss'}>
@@ -129,7 +132,7 @@ function ProfitCard() {
         ))}
         {Math.abs(rest) / Math.max(1, denom) > 0.005 && (
           <div className="flex justify-between" title={t('overview.profit.restTip')}>
-            <span><span className="text-muted-foreground">●</span> {t('overview.profit.rest')}</span><span className="num">{format(currency === 'USD' ? rest : rest / p.usdCzk)}</span>
+            <span><span className="text-muted-foreground">●</span> {t('overview.profit.rest')}</span><span className="num">{format(currency === 'USD' ? rest : rest / p.usdLocal)}</span>
           </div>
         )}
       </div>

@@ -1,5 +1,6 @@
-import { createContext, useContext, useEffect, useState, ReactNode } from "react";
+import { createContext, useContext, useEffect, useRef, useState, ReactNode } from "react";
 import { Session, User } from "@supabase/supabase-js";
+import { useQueryClient } from "@tanstack/react-query";
 import { supabase } from "@/integrations/supabase/client";
 
 interface AuthContextValue {
@@ -21,28 +22,38 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   const [user, setUser] = useState<User | null>(null);
   const [loading, setLoading] = useState(true);
 
+  const queryClient = useQueryClient();
+  // The id the cache was last filled for (undefined = not known yet). Most query keys carry
+  // no user id (["positions"], ["transactions"], …), so when the identity changes in the same
+  // tab — sign-out of A, sign-in of B — the cache would hand A's portfolio to B until each
+  // query happened to refetch. Drop the whole cache on every identity change instead.
+  const cacheOwner = useRef<string | null | undefined>(undefined);
+
   useEffect(() => {
-    // Listener FIRST
-    const { data: { subscription } } = supabase.auth.onAuthStateChange((_event, s) => {
+    const adopt = (s: Session | null) => {
+      const id = s?.user?.id ?? null;
+      if (cacheOwner.current !== undefined && cacheOwner.current !== id) {
+        void queryClient.cancelQueries();
+        queryClient.clear();
+      }
+      cacheOwner.current = id;
       setSession(s);
       setUser(s?.user ?? null);
+    };
 
-      // After first sign-in, try to claim any orphan data (only matters for the original owner)
-      if (s?.user?.email) {
-        // fire-and-forget
-        supabase.rpc("claim_orphan_data", { p_email: s.user.email }).then(() => {});
-      }
+    // Listener FIRST
+    const { data: { subscription } } = supabase.auth.onAuthStateChange((_event, s) => {
+      adopt(s);
     });
 
     // Then hydrate existing session
     supabase.auth.getSession().then(({ data }) => {
-      setSession(data.session);
-      setUser(data.session?.user ?? null);
+      adopt(data.session);
       setLoading(false);
     });
 
     return () => subscription.unsubscribe();
-  }, []);
+  }, [queryClient]);
 
   const signOut = async () => {
     await supabase.auth.signOut();

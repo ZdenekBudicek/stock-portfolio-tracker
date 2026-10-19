@@ -6,6 +6,7 @@ import { Link } from 'react-router-dom';
 import { useCurrency } from '@/contexts/CurrencyContext';
 import { useComputedPortfolio, summarizeHoldings, isCashPosition, type LivePosition } from '@/hooks/usePortfolio';
 import { formatPct } from '@/data/portfolio';
+import { decimalsOf } from '@/lib/displayCurrency';
 import { supabase } from '@/integrations/supabase/client';
 import { useQueryClient } from '@tanstack/react-query';
 import { toast } from 'sonner';
@@ -20,8 +21,9 @@ const HoldingsTable = () => {
   const [query, setQuery] = useState('');
   const { formatAt, pick, currency, rate } = useCurrency();
   const { positions, loading } = useComputedPortfolio();
-  // Everything in the displayed currency. CZK: cost at the purchase-day rate, value at today's,
-  // so amount, % and colour all include the USD/CZK move (matches T212); USD is the pure stock
+  // Everything in the displayed currency. Local (koruny or the chosen one): cost at the
+  // purchase-day rate, value at today's, so amount, % and colour all include the currency move
+  // (matches T212); USD is the pure stock
   // return (matches Revolut). Mixing them showed "−156 Kč (+3,89 %)".
   const pctOf = (p: LivePosition) => pick(p.profitPct, p.profitPctCzk);
   const pnlOf = (p: LivePosition) => pick(p.profitUsd, p.profitCzk);
@@ -34,9 +36,9 @@ const HoldingsTable = () => {
     !query.trim() || p.ticker.toLowerCase().includes(query.trim().toLowerCase())
   );
 
-  // In CZK the cost columns sort by their koruna figures, which don't follow the USD order.
+  // In the local currency the cost columns sort by their local figures, which don't follow the USD order.
   const czkKey: Partial<Record<SortKey, SortKey>> = { avgPrice: 'avgPriceCzk', invested: 'investedCzk', profitUsd: 'profitCzk', profitPct: 'profitPctCzk' };
-  const sortField = (currency === 'CZK' && czkKey[sortKey]) || sortKey;
+  const sortField = (currency !== 'USD' && czkKey[sortKey]) || sortKey;
   const sorted = [...filtered].sort((a, b) => {
     const av = a[sortField] as number;
     const bv = b[sortField] as number;
@@ -73,14 +75,14 @@ const HoldingsTable = () => {
   // The field is edited in the displayed currency; the balance is stored in USD. Saving the
   // typed koruny as dollars turned 25 000 Kč into $25 000.
   useEffect(() => {
-    if (!editing && cash) setDraft(currency === 'CZK' ? (cash.value * rate).toFixed(0) : cash.value.toFixed(2));
+    if (!editing && cash) setDraft(currency !== 'USD' ? (cash.value * rate).toFixed(decimalsOf(currency)) : cash.value.toFixed(2));
   }, [cash?.value, editing, currency, rate]);
 
   const saveCash = async () => {
     const amount = parseFloat(draft.replace(',', '.'));
     if (isNaN(amount) || amount < 0) { toast.error(t('legacy.holdingsTable.invalidAmount')); return; }
-    if (currency === 'CZK' && !(rate > 0)) { toast.error(t('legacy.holdingsTable.usdCzkExchangeRateMissing')); return; }
-    const amountUsd = currency === 'CZK' ? amount / rate : amount;
+    if (currency !== 'USD' && !(rate > 0)) { toast.error(t('legacy.holdingsTable.usdCzkExchangeRateMissing', { currency })); return; }
+    const amountUsd = currency !== 'USD' ? amount / rate : amount;
     setSaving(true);
     const { error } = await supabase.from('positions').update({ shares: amountUsd, avg_cost_usd: 1 }).eq('ticker', 'CASH');
     setSaving(false);

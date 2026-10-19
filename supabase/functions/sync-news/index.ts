@@ -4,6 +4,7 @@
 // out to the source. Yahoo's RSS feed carries a real summary paragraph per item.
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2.45.0";
 import { isSchedulerToken } from "../_shared/auth.ts";
+import { fetchAllRows } from "../_shared/price-providers.ts";
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
@@ -61,10 +62,11 @@ Deno.serve(async (req) => {
   const started = Date.now();
   try {
     const svc = createClient(Deno.env.get("SUPABASE_URL")!, Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!);
-    const [{ data: pos }, { data: watch }, { data: aliases }] = await Promise.all([
-      svc.from("positions").select("ticker").neq("type", "Cash"),
-      svc.from("watchlist").select("ticker"),
-      svc.from("ticker_alias").select("alias,yahoo_symbol").not("yahoo_symbol", "is", null),
+    // Fully paged (PostgREST caps a select at 1000 rows); a failed read throws (500).
+    const [pos, watch, aliases] = await Promise.all([
+      fetchAllRows("positions", (f, t) => svc.from("positions").select("ticker").neq("type", "Cash").order("id", { ascending: true }).range(f, t)),
+      fetchAllRows("watchlist", (f, t) => svc.from("watchlist").select("ticker").order("id", { ascending: true }).range(f, t)),
+      fetchAllRows("ticker_alias", (f, t) => svc.from("ticker_alias").select("alias,yahoo_symbol").not("yahoo_symbol", "is", null).order("alias", { ascending: true }).range(f, t)),
     ]);
     const aliasMap = new Map<string, string>((aliases ?? []).map((a: any) => [a.alias, a.yahoo_symbol]));
     const tickers = Array.from(new Set([
@@ -73,7 +75,7 @@ Deno.serve(async (req) => {
     ])).filter((t: string) => t && t.toUpperCase() !== "CASH");
     // Process the stalest (and never-fetched) tickers first, so if a run hits the time budget
     // the next run continues with the ones it missed instead of always the same tail.
-    const { data: existing } = await svc.from("stock_news").select("symbol,fetched_at");
+    const existing = await fetchAllRows("stock_news", (f, t) => svc.from("stock_news").select("symbol,fetched_at").order("symbol", { ascending: true }).range(f, t));
     const fetchedAt = new Map<string, number>((existing ?? []).map((r: any) => [r.symbol, new Date(r.fetched_at).getTime()]));
     tickers.sort((a, b) => (fetchedAt.get(a) ?? 0) - (fetchedAt.get(b) ?? 0));
 

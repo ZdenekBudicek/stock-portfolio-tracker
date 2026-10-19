@@ -1,10 +1,11 @@
 import { useTranslation } from "react-i18next";
-import { currentLocale } from "@/i18n";
+import { currentLang, currentLocale } from "@/i18n";
 import { useState, useMemo } from 'react';
 import { useDailySnapshots, useTransactions, computeTradeFlows } from '@/hooks/usePortfolio';
 import { useCurrency } from '@/contexts/CurrencyContext';
 import { computeDailyChanges } from '@/lib/dailyChanges';
-import { formatCzk, formatPct } from '@/data/portfolio';
+import { formatPct } from '@/data/portfolio';
+import { formatMoney, symbolOf, wrapSymbol } from '@/lib/displayCurrency';
 import { Database, ChevronDown, ChevronUp, Search } from 'lucide-react';
 import { Input } from '@/components/ui/input';
 
@@ -14,8 +15,10 @@ const DailyPortfolioLog = () => {
   const { t } = useTranslation();
   const { data: snapshots = [] } = useDailySnapshots();
   const { data: txs = [] } = useTransactions();
-  const { hidden } = useCurrency();
-  const czk = (n: number) => (hidden ? t('legacy.dailyPortfolioLog.czk') : formatCzk(n));
+  const { hidden, local } = useCurrency();
+  const lang = currentLang() === 'en' ? 'en' : 'cs';
+  // The snapshots' value_czk is in the local currency (koruny or the chosen one).
+  const czk = (n: number) => (hidden ? wrapSymbol('••••', local, lang) : formatMoney(n, local, lang));
   const usd = (n: number) => (hidden ? '$••••' : `${n < 0 ? '-' : ''}${Math.abs(n).toLocaleString(currentLocale(), { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`);
   const tradeFlows = useMemo(() => computeTradeFlows(txs), [txs]);
   const [showAll, setShowAll] = useState(false);
@@ -88,7 +91,7 @@ const DailyPortfolioLog = () => {
               <th className="text-right py-2 px-3 text-muted-foreground font-medium">{t('legacy.dailyPortfolioLog.portfolioValue')}</th>
               <th className="text-right py-2 px-3 text-muted-foreground font-medium">{t('legacy.dailyPortfolioLog.dailyChangeUsd')}</th>
               <th className="text-right py-2 px-3 text-muted-foreground font-medium">{t('legacy.dailyPortfolioLog.dailyChange')}</th>
-              <th className="text-right py-2 px-3 text-muted-foreground font-medium">{t('legacy.dailyPortfolioLog.dailyChangeCzk')}</th>
+              <th className="text-right py-2 px-3 text-muted-foreground font-medium">{t('legacy.dailyPortfolioLog.dailyChangeCzk', { currency: symbolOf(local, lang) })}</th>
             </tr>
           </thead>
           <tbody>

@@ -9,6 +9,17 @@ export type Side = "BUY" | "SELL";
 // treated a CZK balance as USD, multiplying cash ~21x (7 CZK read as $7) on that run and
 // snapping back on the next good run. If the currency can't be resolved we leave cash exactly
 // as it is rather than guess. Lives here (shared) so sync-broker and auto-sync can never drift.
+//
+// CONCURRENCY — the read-base / apply-delta / write-base step must be atomic. The cron
+// (auto-sync) and a manual sync (sync-broker) can run at the same moment for the same user;
+// done as three separate PostgREST calls both read the same base and both applied the same
+// delta, double-counting the change in cash. The step therefore runs in ONE locked SQL call,
+// public.sync_t212_cash (migration 20261024100010). Until that migration is deployed the old
+// unlocked path is used as a fallback, now with every error checked.
+//
+// THROWS on any failed read/write: a silently ignored error used to leave cash and the stored
+// base out of step (e.g. a missing cash_base_free_usd column read as "no base" and re-adopted
+// the API value on every run). Callers log the error and keep going.
 export async function syncCashFromApi(svc: any, userId: string, summary: any): Promise<void> {
   const free = Number(summary?.free);
   if (!isFinite(free)) return;
@@ -17,24 +28,189 @@ export async function syncCashFromApi(svc: any, userId: string, summary: any): P
   if (ccy === "USD") {
     freeUsd = free;
   } else if (ccy === "CZK") {
-    const { data: fx } = await svc.from("price_history").select("close").eq("symbol", "USDCZK").order("date", { ascending: false }).limit(1);
+    const { data: fx, error: fxErr } = await svc.from("price_history").select("close").eq("symbol", "USDCZK").order("date", { ascending: false }).limit(1);
+    if (fxErr) throw new Error(`syncCashFromApi: USDCZK read failed: ${fxErr.message}`);
     const rate = Number(fx?.[0]?.close);
     if (!isFinite(rate) || rate <= 0) return;
     freeUsd = free / rate;
   } else {
     return; // unknown/unsupported currency — never assume USD, never touch cash
   }
-  const { data: bc } = await svc.from("broker_connections").select("cash_base_free_usd").eq("user_id", userId).eq("broker", "T212").maybeSingle();
+
+  const { error: rpcErr } = await svc.rpc("sync_t212_cash", { p_user_id: userId, p_free_usd: freeUsd });
+  if (!rpcErr) return;
+  if (!isMissingRpc(rpcErr)) throw new Error(`sync_t212_cash: ${rpcErr.message}`);
+  console.warn("syncCashFromApi: sync_t212_cash is not deployed — using the unlocked fallback (a concurrent sync can double-count)");
+
+  const { data: bc, error: bcErr } = await svc.from("broker_connections").select("cash_base_free_usd").eq("user_id", userId).eq("broker", "T212").maybeSingle();
+  if (bcErr) throw new Error(`syncCashFromApi: cash base read failed: ${bcErr.message}`);
   const base = bc?.cash_base_free_usd != null ? Number(bc.cash_base_free_usd) : null;
   let delta: number;
   if (base == null) {
-    const { data: c } = await svc.from("positions").select("shares").eq("user_id", userId).eq("ticker", "CASH").maybeSingle();
+    const { data: c, error: cErr } = await svc.from("positions").select("shares").eq("user_id", userId).eq("ticker", "CASH").maybeSingle();
+    if (cErr) throw new Error(`syncCashFromApi: CASH read failed: ${cErr.message}`);
     delta = freeUsd - (c ? Number(c.shares) : 0); // first sync: adopt the API value
   } else {
     delta = freeUsd - base; // later syncs: accrue only the change since last sync
   }
-  if (Math.abs(delta) > 0.005) await svc.rpc("apply_cash_delta", { p_user_id: userId, p_delta: delta });
-  await svc.from("broker_connections").update({ cash_base_free_usd: freeUsd }).eq("user_id", userId).eq("broker", "T212");
+  if (Math.abs(delta) > 0.005) {
+    const { error: dErr } = await svc.rpc("apply_cash_delta", { p_user_id: userId, p_delta: delta });
+    // Not applied → do NOT move the base either, so the next run applies this change.
+    if (dErr) throw new Error(`syncCashFromApi: apply_cash_delta failed: ${dErr.message}`);
+  }
+  const { error: uErr } = await svc.from("broker_connections").update({ cash_base_free_usd: freeUsd }).eq("user_id", userId).eq("broker", "T212");
+  if (uErr) throw new Error(`syncCashFromApi: cash applied (${delta.toFixed(2)} USD) but base not stored — next run may re-apply it: ${uErr.message}`);
+}
+
+/** PostgREST error for an RPC that does not exist (yet) in the database. */
+export function isMissingRpc(err: { code?: string | null; message?: string | null } | null | undefined): boolean {
+  if (!err) return false;
+  return err.code === "PGRST202" || err.code === "42883" || /could not find the function/i.test(String(err.message ?? ""));
+}
+
+// ── Paging of the T212 history endpoints ────────────────────────────────────────────────
+//
+// nextPagePath is a path WITH the /api/v0 prefix and its own query string, e.g.
+// "/api/v0/equity/history/dividends?limit=50&cursor=1760346100000" (docs.trading212.com,
+// Pagination). Our fetch helpers already prepend ".../api/v0", so the next request is the
+// path minus that prefix. Appending it to "<endpoint>?" (as before) only worked by accident:
+// the cursor survived as a stray query parameter, the limit fell back to the default 20.
+export function t212NextPage(nextPagePath: string | null | undefined, endpoint: string): string | null {
+  if (!nextPagePath) return null;
+  const s = String(nextPagePath).trim();
+  if (!s) return null;
+  if (s.startsWith("/api/v0/")) return s.slice("/api/v0".length);
+  if (s.startsWith("/")) return s;
+  return `${endpoint}?${s.replace(/^\?/, "")}`; // a bare query string
+}
+
+// ── Historical FX ─────────────────────────────────────────────────────────────────────────
+/**
+ * Rate for `date` from an ascending {date, close} series: the latest on or before it, else
+ * the earliest after it (history that starts later than the oldest flow). Null when the series
+ * has no usable rate — the caller must skip, never guess.
+ */
+export function rateNear(series: { date: string; close: number }[], date: string): number | null {
+  let best: number | null = null;
+  for (const r of series) {
+    if (!(r.close > 0)) continue;
+    if (r.date <= date) best = r.close;
+    else return best ?? r.close;
+  }
+  return best;
+}
+
+// ── Reconcile input (shared by sync-broker and auto-sync) ─────────────────────────────────
+export interface T212PortfolioHolding { ticker: string; qty: number; avg: number; cur?: number; usdQuoted?: boolean }
+
+/**
+ * USD average cost for a reconcile adjustment. T212's averagePrice is in the instrument's
+ * native currency (GBX/EUR/…), so it is scaled by avg/current onto our USD price. Without a
+ * USD price the native number is only usable for US instruments (_US_EQ, quoted in USD);
+ * otherwise null — 400 GBX is not $400.
+ */
+export function reconcileAvgUsd(h: T212PortfolioHolding, usdPrice: number | null | undefined): number | null {
+  if (h.cur && h.cur > 0 && usdPrice && usdPrice > 0 && isFinite(h.avg)) return Math.round(usdPrice * (h.avg / h.cur) * 1e6) / 1e6;
+  if (h.usdQuoted && isFinite(h.avg) && h.avg > 0) return h.avg;
+  return null;
+}
+
+export interface AliasLinkRow { alias: string; canonical: string; isin?: string | null }
+
+/**
+ * Do two tickers name the same instrument? Either the same ticker, the T212 LSE form of it
+ * ("BARCl_EQ" → BARCL vs BARC), a ticker_alias row linking them, or a shared ISIN.
+ */
+export function tickersLinked(a: string, b: string, rows: AliasLinkRow[]): boolean {
+  if (a === b) return true;
+  if (a === `${b}L` || b === `${a}L`) return true;
+  if (rows.some((r) => (r.alias === a && r.canonical === b) || (r.alias === b && r.canonical === a))) return true;
+  const isins = (t: string) => new Set(rows.filter((r) => r.alias === t || r.canonical === t).map((r) => String(r.isin ?? "").toUpperCase()).filter(Boolean));
+  const ia = isins(a);
+  for (const i of isins(b)) if (ia.has(i)) return true;
+  return false;
+}
+
+/**
+ * Ticker-rename guard. The portfolio can label an instrument differently from the order
+ * history (Barclays "BARCL" vs "BARC", Grab "AGC" vs "GRAB"); reconciling as-is would zero
+ * the real position and create a phantom one. A broker-only ticker is relabelled to a
+ * trades-only ticker ONLY when both carry the same quantity AND are linked (tickersLinked).
+ * Equal quantity alone is not enough: sell 10 AAPL + buy 10 MSFT before the orders are
+ * stored made MSFT show up as AAPL (auto-sync never imports orders, so it stayed that way).
+ */
+export function applyRenameGuard<H extends { ticker: string; qty: number }>(
+  holdings: H[], net: Map<string, number>, linked: (holdingTicker: string, tradeTicker: string) => boolean,
+): H[] {
+  const reported = new Set(holdings.map((h) => h.ticker));
+  const orphanTrades = [...net].filter(([tk, q]) => q > 1e-4 && !reported.has(tk));
+  const taken = new Set<string>();
+  return holdings.map((h) => {
+    if (net.has(h.ticker)) return h;
+    const m = orphanTrades.find(([tk, q]) => !taken.has(tk) && Math.abs(q - h.qty) < 1e-4 && linked(h.ticker, tk));
+    if (!m) return h;
+    taken.add(m[0]);
+    return { ...h, ticker: m[0] };
+  });
+}
+
+/**
+ * Holdings for public.reconcile_broker_account of ONE T212 account: USD average cost +
+ * rename guard. Shared so the manual sync and the background sync stay interchangeable.
+ * THROWS on a failed read (the callers then skip the reconcile instead of guessing).
+ */
+export async function prepareReconcileHoldings(
+  svc: any, userId: string, account: string, hjson: T212PortfolioHolding[],
+): Promise<{ ticker: string; qty: number; avg: number | null }[]> {
+  const { data: pcRows, error: pcErr } = await svc.from("price_cache").select("symbol,price");
+  if (pcErr) throw new Error(`price_cache read failed: ${pcErr.message}`);
+  const pxMap = new Map<string, number>((pcRows ?? []).map((r: any) => [r.symbol, Number(r.price)]));
+  const live = hjson.filter((h) => h.qty > 0).map((h) => ({ ...h, brokerTicker: h.ticker }));
+
+  const net = new Map<string, number>();
+  for (let from = 0; ; from += 1000) {
+    const { data: txs, error } = await svc.from("transactions")
+      .select("ticker,side,shares").eq("user_id", userId).eq("broker", "T212")
+      .eq("broker_account", account).neq("ticker", "CASH")
+      .not("ext_id", "like", "t212:adj:%") // last run's corrections aren't part of the net
+      .order("id", { ascending: true })
+      .range(from, from + 999);
+    if (error) throw new Error(`transactions read failed: ${error.message}`);
+    if (!txs || txs.length === 0) break;
+    for (const t of txs) net.set(t.ticker, (net.get(t.ticker) ?? 0) + (t.side === "BUY" ? 1 : -1) * Number(t.shares));
+    if (txs.length < 1000) break;
+  }
+  const reported = new Set(live.map((h) => h.ticker));
+  const involved = [...new Set([
+    ...live.filter((h) => !net.has(h.ticker)).map((h) => h.ticker),
+    ...[...net].filter(([tk, q]) => q > 1e-4 && !reported.has(tk)).map(([tk]) => tk),
+  ])];
+  let aliasRows: AliasLinkRow[] = [];
+  if (involved.length) {
+    const [a, c] = await Promise.all([
+      svc.from("ticker_alias").select("alias,canonical,isin").in("alias", involved),
+      svc.from("ticker_alias").select("alias,canonical,isin").in("canonical", involved),
+    ]);
+    if (a.error || c.error) throw new Error(`ticker_alias read failed: ${(a.error ?? c.error).message}`);
+    aliasRows = [...(a.data ?? []), ...(c.data ?? [])];
+  }
+  // Guard first, then price: a relabelled holding is quoted under the ticker it now carries.
+  let holdings = applyRenameGuard(live, net, (h, t) => tickersLinked(h, t, aliasRows)).map((h) => ({
+    ticker: h.ticker, qty: h.qty, avg: reconcileAvgUsd(h, pxMap.get(h.ticker) ?? pxMap.get(h.brokerTicker)),
+  }));
+
+  // No USD cost for a non-US instrument without a USD quote: keep the cost the position
+  // already carries rather than store a native-currency number as USD.
+  const missing = holdings.filter((h) => h.avg == null).map((h) => h.ticker);
+  if (missing.length) {
+    const { data: pos, error } = await svc.from("positions").select("ticker,avg_cost_usd").eq("user_id", userId).in("ticker", missing);
+    if (error) throw new Error(`positions read failed: ${error.message}`);
+    const cost = new Map<string, number>((pos ?? []).map((p: any) => [p.ticker, Number(p.avg_cost_usd)]));
+    holdings = holdings.map((h) => (h.avg == null && (cost.get(h.ticker) ?? 0) > 0 ? { ...h, avg: cost.get(h.ticker)! } : h));
+    const still = holdings.filter((h) => h.avg == null).map((h) => h.ticker);
+    if (still.length) console.warn(`reconcile: no USD cost for ${still.join(", ")} — an adjustment for them is stored at 0`);
+  }
+  return holdings;
 }
 
 export interface NormalizedOrder {
@@ -132,6 +308,12 @@ export interface T212HistoryPlan {
    */
   statementCutoff: string | null;
   /**
+   * Earliest statement/manual trade. A statement covers only its own period: API fills
+   * before it (e.g. January fills when only a June statement was imported) are NOT covered
+   * and must never be deleted.
+   */
+  statementStart: string | null;
+  /**
    * Where paging the newest-first order history may stop: the newest stored non-adjustment
    * row, API fills included, because those are already stored. Only a paging bound — it
    * never decides what is deleted or inserted. While an earlier run is unfinished it falls
@@ -147,10 +329,14 @@ const latest = (rows: T212StoredTrade[]) =>
 
 export function planT212History(stored: T212StoredTrade[], opts: { resuming: boolean }): T212HistoryPlan {
   const statement = stored.filter((r) => t212RowKind(r.ext_id) === "statement");
-  if (!statement.length) return { statementMode: false, statementCutoff: null, pageStop: null };
+  if (!statement.length) return { statementMode: false, statementCutoff: null, statementStart: null, pageStop: null };
   const statementCutoff = latest(statement);
+  const first = statement.reduce<string | null>((m, r) => (m === null || at(r.executed_at) < at(m) ? r.executed_at : m), null);
+  // From the start of that UTC day: statement rows are stamped at noon, the API fill of the
+  // same trade may be earlier that morning and is covered too.
+  const statementStart = first ? `${new Date(first).toISOString().slice(0, 10)}T00:00:00.000Z` : null;
   const pageStop = opts.resuming ? statementCutoff : latest(stored.filter((r) => t212RowKind(r.ext_id) !== "adjustment"));
-  return { statementMode: true, statementCutoff, pageStop };
+  return { statementMode: true, statementCutoff, statementStart, pageStop };
 }
 
 /** Statement mode: true once a newest-first page of orders reaches what is already stored. */

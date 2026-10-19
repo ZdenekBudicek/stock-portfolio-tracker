@@ -7,8 +7,9 @@ import { useBenchmark, useDividends } from '@/hooks/useExtras';
 import { paidDividendsByDay } from '@/lib/dividendAnalytics';
 import { buildPerformanceSeries, type SeriesPoint } from '@/lib/performanceSeries';
 import { assessReturnQuality, type ReturnQuality } from '@/lib/performanceQuality';
+import type { DisplayCurrency } from '@/lib/displayCurrency';
 
-export function usePerformanceSeries(currency: 'USD' | 'CZK'): { points: SeriesPoint[]; holdingsUsd: number; cashUsd: number; hasBench: boolean; quality: ReturnQuality } {
+export function usePerformanceSeries(currency: DisplayCurrency): { points: SeriesPoint[]; holdingsUsd: number; cashUsd: number; hasBench: boolean; quality: ReturnQuality } {
   const { data: snapshots = [] } = useDailySnapshots();
   const portfolio = useComputedPortfolio();
   const { data: bench = [] } = useBenchmark('SPX');
@@ -29,15 +30,16 @@ export function usePerformanceSeries(currency: 'USD' | 'CZK'): { points: SeriesP
         ...(last ?? { value_czk: 0, profit_usd: 0, profit_pct: 0, profit_czk: 0 }),
         snapshot_date: today,
         value_usd: holdingsUsd,
-        value_czk: holdingsUsd * portfolio.usdCzk,
-        fx_rate: portfolio.usdCzk,
+        // Snapshots are in the local currency (koruny or the chosen one): today's USD→local.
+        value_czk: holdingsUsd * portfolio.usdLocal,
+        fx_rate: portfolio.usdLocal,
         cash_usd: cashUsd, // today's balance is known exactly — no estimate needed
       };
       if (!last || last.snapshot_date < today) data.push(livePoint as any);
       else if (last.snapshot_date === today) data[data.length - 1] = livePoint as any;
     }
     return data;
-  }, [snapshots, holdingsUsd, cashUsd, portfolio.usdCzk]);
+  }, [snapshots, holdingsUsd, cashUsd, portfolio.usdLocal]);
 
   const benchSorted = useMemo(() => [...bench].sort((a, b) => a.date.localeCompare(b.date)), [bench]);
   const tradeFlows = useMemo(() => computeTradeFlows(transactions as any), [transactions]);
@@ -55,8 +57,8 @@ export function usePerformanceSeries(currency: 'USD' | 'CZK'): { points: SeriesP
       return best;
     };
     const rates = new Map(sorted.map((s) => [s.snapshot_date, s.fx_rate]));
-    return buildPerformanceSeries({ snapshots: sorted, tradeFlowsUsd: tradeFlows, incomeUsd: income, benchAt, currency, fallbackFx: portfolio.usdCzk, fxAt: (date) => rates.get(date) });
-  }, [sorted, tradeFlows, income, benchSorted, currency, portfolio.usdCzk]);
+    return buildPerformanceSeries({ snapshots: sorted, tradeFlowsUsd: tradeFlows, incomeUsd: income, benchAt, currency, fallbackFx: portfolio.usdLocal, fxAt: (date) => rates.get(date) });
+  }, [sorted, tradeFlows, income, benchSorted, currency, portfolio.usdLocal]);
 
   const quality = useMemo(() => assessReturnQuality(points, {
     cashTrackedFrom: sorted.find((s) => s.cash_usd != null)?.snapshot_date ?? null,

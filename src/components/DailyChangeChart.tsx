@@ -25,7 +25,7 @@ const DailyChangeChart = () => {
     );
   };
 
-  const tickFormatter = (v: number) => currency === 'CZK' ? `${v.toFixed(0)}` : `$${v}`;
+  const tickFormatter = (v: number) => currency !== 'USD' ? `${v.toFixed(0)}` : `$${v}`;
 
   return (
     <div className="gradient-card rounded-2xl border border-border p-5 sm:p-6 animate-fade-in-up hover-lift">

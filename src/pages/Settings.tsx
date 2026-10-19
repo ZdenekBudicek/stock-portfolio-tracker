@@ -9,8 +9,11 @@ import { useAuth } from '@/contexts/AuthContext';
 import { useCurrency } from '@/contexts/CurrencyContext';
 import { supabase } from '@/integrations/supabase/client';
 import { TaxResidencePanel } from '@/components/TaxResidence';
-import { useTaxResidence } from '@/hooks/useTaxResidence';
+import { useSaveUserSettings, useTaxResidence } from '@/hooks/useTaxResidence';
+import { DISPLAY_CURRENCIES, type DisplayCurrency } from '@/lib/displayCurrency';
 import { useTaxPrefs } from '@/hooks/useTaxPrefs';
+import { TaxProfileForm } from '@/components/tax/TaxProfileForm';
+import type { Country } from '@/lib/tax/engines';
 import { currentLang, setLanguage } from '@/i18n';
 import { Footnote, PageTitle, Panel, Pill, Segmented } from '@/components/v2/ui';
 import { Input } from '@/components/ui/input';
@@ -48,17 +51,47 @@ function TaxPrefsPanel() {
   );
 }
 
+/** Yearly tax profile for a country with its own engine (US, SK, DE, GB, PL). */
+function TaxProfilePanel() {
+  const { t } = useTranslation();
+  const { taxResidence } = useTaxResidence();
+  const thisYear = new Date().getFullYear();
+  const years = [2024, 2025, 2026].filter((y) => y <= thisYear);
+  const [year, setYear] = useState(years[years.length - 1]);
+  if (!taxResidence || !['US', 'SK', 'DE', 'GB', 'PL'].includes(taxResidence)) return null;
+  return (
+    <Panel title={t('intl.profile.title', { year })} action={<Segmented value={String(year)} onChange={(v) => setYear(Number(v))} options={years.map((y) => ({ value: String(y), label: String(y) }))} />}>
+      <TaxProfileForm country={taxResidence as Country} year={year} />
+    </Panel>
+  );
+}
+
 function DisplayPanel() {
   const { t } = useTranslation();
-  const { currency, setCurrency, hidden, toggleHidden } = useCurrency();
+  const { setCurrency, defaultCurrency, hidden, toggleHidden } = useCurrency();
+  const residence = useTaxResidence();
+  const save = useSaveUserSettings();
   const lang = currentLang();
+  // The saved default: the app opens in it on every device; the header switch only changes
+  // the current session.
+  const choose = (c: DisplayCurrency) => {
+    setCurrency(c);
+    if (c === defaultCurrency || !residence.known) return;
+    save.mutate({ taxResidence: residence.taxResidence ?? 'CZ', baseCurrency: c }, {
+      onError: () => toast.error(t('settings.display.currencyError')),
+    });
+  };
   return (
     <Panel title={t('settings.display.title')}>
       <Row title={t('settings.display.language')}>
         <Segmented value={lang} onChange={(v) => setLanguage(v)} options={[{ value: 'cs', label: 'Čeština' }, { value: 'en', label: 'English' }]} />
       </Row>
       <Row title={t('settings.display.currency')} sub={t('settings.display.currencySub')}>
-        <Segmented value={currency} onChange={(v) => setCurrency(v)} options={[{ value: 'CZK', label: lang === 'en' ? 'CZK' : 'Kč' }, { value: 'USD', label: 'USD $' }]} />
+        <select value={defaultCurrency} onChange={(e) => choose(e.target.value as DisplayCurrency)} disabled={save.isPending}
+          aria-label={t('settings.display.currency')}
+          className="rounded-lg border border-white/10 bg-white/[0.05] px-3 py-1.5 text-sm">
+          {DISPLAY_CURRENCIES.map((c) => <option key={c} value={c} className="bg-popover">{t(`settings.display.currencyName.${c}`)}</option>)}
+        </select>
       </Row>
       <Row title={t('settings.display.hide')} sub={t('settings.display.hideSub')}>
         <Segmented value={hidden ? 'on' : 'off'} onChange={(v) => { if ((v === 'on') !== hidden) toggleHidden(); }}
@@ -153,6 +186,7 @@ const Settings = () => {
         <div className="flex flex-col gap-4">
           <TaxResidencePanel />
           <TaxPrefsPanel />
+          <TaxProfilePanel />
         </div>
         <div className="flex flex-col gap-4">
           <DisplayPanel />

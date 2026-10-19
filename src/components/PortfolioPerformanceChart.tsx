@@ -1,5 +1,6 @@
 import { useTranslation } from "react-i18next";
-import { currentLocale } from "@/i18n";
+import { currentLang, currentLocale } from "@/i18n";
+import { formatMoney, wrapSymbol } from "@/lib/displayCurrency";
 import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, ReferenceLine } from 'recharts';
 import { useCurrency } from '@/contexts/CurrencyContext';
 import { useComputedPortfolio } from '@/hooks/usePortfolio';
@@ -9,11 +10,13 @@ const PortfolioPerformanceChart = () => {
   const { t } = useTranslation();
   const { formatAt, pick, currency, hidden } = useCurrency();
   const { positions } = useComputedPortfolio();
-  // Amounts in the displayed currency. In CZK the cost is at the purchase-day rate, the same
-  // "Investováno" the Pozice table shows, and the profit and % include the currency move.
+  // Amounts in the displayed currency. In the local one (koruny or the chosen one) the cost is
+  // at the purchase-day rate, the same "Investováno" the Pozice table shows, and the profit and
+  // % include the currency move.
+  const lang = currentLang() === 'en' ? 'en' : 'cs';
   const money = (v: number, digits = 0) => hidden
-    ? (currency === 'USD' ? '$••••' : t('legacy.portfolioPerformanceChart.czk'))
-    : currency === 'USD' ? `$${v.toLocaleString(currentLocale(), { maximumFractionDigits: digits })}` : t('legacy.portfolioPerformanceChart.czk2', { v0: v.toLocaleString(currentLocale(), { maximumFractionDigits: digits }) });
+    ? wrapSymbol('••••', currency, lang)
+    : currency === 'USD' ? `$${v.toLocaleString(currentLocale(), { maximumFractionDigits: digits })}` : formatMoney(v, currency, lang, { decimals: digits });
 
   const data = positions
     .filter((p) => p.type !== 'Cash' && p.ticker !== 'CASH')
@@ -43,8 +46,8 @@ const PortfolioPerformanceChart = () => {
     if (hidden) return '••';
     const abs = Math.abs(v);
     const sign = v < 0 ? '-' : '';
-    if (abs >= 1000) return currency === 'CZK' ? `${sign}${(abs / 1000).toLocaleString(currentLocale(), { minimumFractionDigits: 0, maximumFractionDigits: 0 })}k` : `${sign}$${(abs / 1000).toLocaleString(currentLocale(), { minimumFractionDigits: 0, maximumFractionDigits: 0 })}k`;
-    return currency === 'CZK' ? `${sign}${abs.toLocaleString(currentLocale(), { minimumFractionDigits: 0, maximumFractionDigits: 0 })}` : `${sign}$${abs.toLocaleString(currentLocale(), { minimumFractionDigits: 0, maximumFractionDigits: 0 })}`;
+    if (abs >= 1000) return currency !== 'USD' ? `${sign}${(abs / 1000).toLocaleString(currentLocale(), { minimumFractionDigits: 0, maximumFractionDigits: 0 })}k` : `${sign}$${(abs / 1000).toLocaleString(currentLocale(), { minimumFractionDigits: 0, maximumFractionDigits: 0 })}k`;
+    return currency !== 'USD' ? `${sign}${abs.toLocaleString(currentLocale(), { minimumFractionDigits: 0, maximumFractionDigits: 0 })}` : `${sign}$${abs.toLocaleString(currentLocale(), { minimumFractionDigits: 0, maximumFractionDigits: 0 })}`;
   };
 
   const CustomTooltip = ({ active, payload, label }: any) => {

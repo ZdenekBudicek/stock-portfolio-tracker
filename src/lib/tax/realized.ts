@@ -13,6 +13,7 @@
 // withholding, so they are left out and only counted.
 import type { Disposal, FifoWarning } from "@/lib/fifo";
 import { usdCzkFor } from "@/lib/cnbRates";
+import { czkPer } from "@/lib/displayCurrency";
 import { dividendAmountUsd, dividendPayDate, type DividendRecord } from "@/lib/dividendTax";
 import { isRecorded } from "@/lib/dividendAnalytics";
 import type { BaseCurrency } from "@/lib/tax/jurisdictions";
@@ -53,11 +54,17 @@ export interface RealizedYear {
 
 const day = (iso: string) => iso.slice(0, 10);
 
-/** USD → base currency on a date; null when the rate is missing. */
+/**
+ * USD → base currency on a date; null when the rate is missing. Koruny at the ČNB USD rate of
+ * the day; euro, pound and złoty through the ČNB cross rate of the same day.
+ */
 function toBase(usd: number, date: string, currency: BaseCurrency): number | null {
   if (currency === "USD") return usd;
   const fx = usdCzkFor(date, "cnb-daily");
-  return fx ? usd * fx.rate : null;
+  if (!fx) return null;
+  if (currency === "CZK") return usd * fx.rate;
+  const per = czkPer(currency, date);
+  return per > 0 ? (usd * fx.rate) / per : null;
 }
 
 export function buildRealizedReport(

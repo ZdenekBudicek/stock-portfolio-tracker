@@ -1,8 +1,8 @@
 // Day-over-day change of the positions value for the "Denní záznamy" log, net of trades.
 // The snapshots hold the positions only, so a purchase raises the value by what was paid and
 // a sale lowers it by what was received — neither is a gain or a loss. The money moved into
-// the positions that day (computeTradeFlows) is taken out of the change; in CZK at that day's
-// rate, the same rate value_czk is computed at.
+// the positions that day (computeTradeFlows) is taken out of the change; in the local currency
+// (koruny or the chosen one) at that day's rate, the same rate value_czk is computed at.
 
 export interface DailySnapshotLike {
   snapshot_date: string;

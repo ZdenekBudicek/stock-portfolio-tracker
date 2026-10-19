@@ -20,6 +20,7 @@ export interface NormalizedRow {
   isin?: string; // ISA/ISIN of the instrument (T212 trades) — used to resolve foreign tickers
   price_ccy?: number; // per-share price in the instrument currency (T212 trades)
   value_ccy?: number; // trade value in instrument currency
+  usd_total?: number; // T212: the trade's total when the statement settles it in USD (MĚNA TRANSAKCE = USD)
   ticker?: string;
   side?: Side;
   shares?: number;
@@ -105,7 +106,10 @@ export function parseRevolutHoldings(text: string): NormalizedRow[] {
     const price = parseUsd(m[4]);
     if (!(shares > 0)) continue;
     out.push({
-      external_id: `revolut:pos:${ticker}`, broker: "Revolut", account, kind: "HOLDING",
+      // Account-qualified: two Revolut accounts holding the same ticker must not share one
+      // snapshot row. Rows stored under the old "revolut:pos:TICKER" id are still matched
+      // (and migrated) by planHoldingsSnapshot in statementDedup.ts.
+      external_id: account ? `revolut:pos:${account}:${ticker}` : `revolut:pos:${ticker}`, broker: "Revolut", account, kind: "HOLDING",
       ticker, shares, price_usd: price, executed_at: new Date().toISOString(),
       label: `${ticker}: ${shares} ks @ $${price}`,
     });
@@ -165,7 +169,11 @@ export function parseRevolutText(text: string): NormalizedRow[] {
         // side instead ("US$3,099.55Sell"), and that number would be wildly off.
         const printed = parseUsd(/US\$([\d.,]+)\s*(?:Buy|Sell)/.exec(rest)?.[1] ?? "");
         const plausible = Number.isFinite(printed) && printed > 0 && Math.abs(printed * shares - value) <= Math.max(0.02 * value, 0.02);
-        const price = plausible ? printed : value / shares;
+        // The fallback derives the price from that net Value, so take the fee back out (add
+        // it back on a sell) — fee_usd carries it separately, and leaving it in counted it
+        // twice: a 1001 USD buy incl. a 1 USD fee came out as a 1002 USD cost basis.
+        const gross = side === "BUY" ? value - fee : value + fee;
+        const price = plausible ? printed : (gross > 0 ? gross : value) / shares;
         // Ticker + side + quantity at a given second identifies the fill. Price is left OUT
         // on purpose: it is derived (printed vs. value/quantity), so a parser improvement
         // would otherwise re-key every historical trade and duplicate the lot.
@@ -261,6 +269,19 @@ export function parseT212Activity(text: string): NormalizedRow[] {
   const tradeRe = /^(\d{4}-\d{2}-\d{2}) \d{2}:\d{2}:\d{2}\s+(\S+)\s+([A-Z0-9]{12})\s+([A-Z]{3})\s+(\d+)\s+(Koupit|Prodat)\s+(.+)$/;
   const cashRe = /^(\d{4}-\d{2}-\d{2}) \d{2}:\d{2}:\d{2}\s+(.+?)\s+CZK\s+(-?[\d,.]+)\s+CZK\s+(-?[\d,.]+)\s*$/;
   const seen = new Set<string>();
+  // Cash-flow ids are account + day + rounded amount, so two equal deposits on one day got
+  // the same id and the second was dropped as "already imported". The 2nd, 3rd… occurrence
+  // within the statement gets ":2", ":3"…; the first keeps the plain id every earlier import
+  // stored, so a re-import still recognises it and only adds the copies that were lost.
+  // A line repeated VERBATIM (same second, label, amount and running balance) is the same
+  // row printed twice, not a second deposit — it is skipped below, never suffixed.
+  const cashLines = new Set<string>();
+  const cashSeen = new Map<string, number>();
+  const cashId = (id: string) => {
+    const n = (cashSeen.get(id) ?? 0) + 1;
+    cashSeen.set(id, n);
+    return n === 1 ? id : `${id}:${n}`;
+  };
   for (const raw of text.split(/\r?\n/)) {
     const l = raw.replace(/\s+/g, " ").trim();
     let m = tradeRe.exec(l);
@@ -289,6 +310,9 @@ export function parseT212Activity(text: string): NormalizedRow[] {
       out.push({
         external_id: `t212:act:${orderId}`, broker: "T212", account, kind: "TRADE", ticker: m[2].toUpperCase(), isin: m[3],
         side, shares, ccy: m[4], price_ccy: price, value_ccy: value, czk: txCcy === "CZK" ? total : undefined,
+        // A non-USD instrument settled in USD has no CZK amount; without this its USD price
+        // could only come out as 0 (convertT212 in statementImport.ts).
+        usd_total: txCcy === "USD" && total > 0 ? total : undefined,
         executed_at: `${m[1]}T12:00:00.000Z`, label: `${side === "BUY" ? "Nákup" : "Prodej"} ${shares} × ${m[2]}`,
       });
       continue;
@@ -300,12 +324,14 @@ export function parseT212Activity(text: string): NormalizedRow[] {
       // zdarma" = a free-share promo; the shares themselves come in via the trades/holdings,
       // at $0 cost.) Dividends are imported separately from the API.
       if (/Poplatek|Akcie zdarma|Dividend/i.test(label)) continue;
+      if (cashLines.has(l)) continue;
+      cashLines.add(l);
       if (/vklad|Adyen|Bankovní převod|převod/i.test(label) && amt > 0)
-        out.push({ external_id: `t212:dep:${account ?? "x"}:${m[1]}:${Math.round(amt)}`, broker: "T212", account, kind: "DEPOSIT", czk: amt, executed_at: `${m[1]}T12:00:00.000Z`, label: `Vklad ${amt} Kč` });
+        out.push({ external_id: cashId(`t212:dep:${account ?? "x"}:${m[1]}:${Math.round(amt)}`), broker: "T212", account, kind: "DEPOSIT", czk: amt, executed_at: `${m[1]}T12:00:00.000Z`, label: `Vklad ${amt} Kč` });
       // "Výběr" = withdrawal; "Refundace" = an Adyen deposit refunded back out (the summary
       // counts it under Výběry), so it nets against deposits too.
       else if (/Výběr|Refundace/i.test(label) && amt < 0)
-        out.push({ external_id: `t212:wd:${account ?? "x"}:${m[1]}:${Math.round(-amt)}`, broker: "T212", account, kind: "WITHDRAWAL", czk: amt, executed_at: `${m[1]}T12:00:00.000Z`, label: `Výběr ${amt} Kč` });
+        out.push({ external_id: cashId(`t212:wd:${account ?? "x"}:${m[1]}:${Math.round(-amt)}`), broker: "T212", account, kind: "WITHDRAWAL", czk: amt, executed_at: `${m[1]}T12:00:00.000Z`, label: `Výběr ${amt} Kč` });
     }
   }
   return out;

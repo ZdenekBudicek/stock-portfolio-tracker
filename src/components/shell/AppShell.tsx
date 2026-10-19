@@ -4,6 +4,7 @@ import { NavLink, Outlet, Link, useNavigate } from 'react-router-dom';
 import { useQueryClient } from '@tanstack/react-query';
 import { useTranslation } from 'react-i18next';
 import { Bell, Eye, EyeOff, RefreshCw, LogOut, Wallet, ChevronDown, Menu, Settings as SettingsIcon } from 'lucide-react';
+import { DISPLAY_CURRENCIES, symbolOf } from '@/lib/displayCurrency';
 import { useCurrency } from '@/contexts/CurrencyContext';
 import { useAuth } from '@/contexts/AuthContext';
 import { useLivePrices } from '@/hooks/usePortfolio';
@@ -63,15 +64,17 @@ export default function AppShell() {
   const alerts = useAlerts();
   // Statements for a just-added company are fetched now, not at night.
   useAutoRequestFundamentals();
-  const { jurisdiction: { caps }, known: residenceKnown } = useTaxResidence();
+  const { jurisdiction: { caps }, known: residenceKnown, taxResidence } = useTaxResidence();
+  const jurisdictionHasEngine = !!taxResidence && ['US', 'SK', 'DE', 'GB', 'PL'].includes(taxResidence);
   // Outside the supported jurisdictions "Daně" is a neutral realized-gains view.
-  const navLabel = (key: string) => (key === 'taxes' && residenceKnown && !caps.taxEstimate ? t('residence.nav.realized') : t(`nav.${key}`));
+  // Only the neutral view (a country without its own rules) is called realized gains.
+  const navLabel = (key: string) => (key === 'taxes' && residenceKnown && !caps.taxEstimate && !jurisdictionHasEngine ? t('residence.nav.realized') : t(`nav.${key}`));
   const qc = useQueryClient();
   const navigate = useNavigate();
   const { data: pendingSplits = [] } = useSplits('pending');
   const urgent = alerts.filter((a) => a.tone === 'loss' || a.tone === 'warning' || a.kind === 'watch').length;
   const lang = currentLang();
-  const czkText = lang === 'en' ? 'CZK' : 'Kč';
+  const langCode = lang === 'en' ? 'en' : 'cs';
 
   const refresh = () => {
     qc.invalidateQueries({ queryKey: ['live-prices'] });
@@ -80,7 +83,7 @@ export default function AppShell() {
   };
 
   const langOptions = [{ v: 'cs' as Lang, text: 'CZ', aria: 'Čeština' }, { v: 'en' as Lang, text: 'EN', aria: 'English' }] as const;
-  const currencyOptions = [{ v: 'USD' as const, text: '$', aria: t('shell.dollars') }, { v: 'CZK' as const, text: czkText, aria: t('shell.koruny') }] as const;
+  const currencyOptions = DISPLAY_CURRENCIES.map((c) => ({ v: c, text: symbolOf(c, langCode), aria: t(`settings.display.currencyName.${c}`) }));
 
   return (
     <div className="min-h-screen">
@@ -136,7 +139,9 @@ export default function AppShell() {
                   <DropdownMenuSeparator />
                 </div>
                 <div className="sm:hidden">
-                  <DropdownMenuItem onSelect={() => setCurrency(currency === 'USD' ? 'CZK' : 'USD')}>{t('shell.switchCurrency', { to: currency === 'USD' ? czkText : '$' })}</DropdownMenuItem>
+                  {DISPLAY_CURRENCIES.filter((c) => c !== currency).map((c) => (
+                    <DropdownMenuItem key={c} onSelect={() => setCurrency(c)}>{t('shell.switchCurrency', { to: symbolOf(c, langCode) })}</DropdownMenuItem>
+                  ))}
                   <DropdownMenuItem onSelect={() => setLanguage(lang === 'cs' ? 'en' : 'cs')}>{lang === 'cs' ? 'Language: English' : 'Jazyk: čeština'}</DropdownMenuItem>
                   <DropdownMenuSeparator />
                 </div>

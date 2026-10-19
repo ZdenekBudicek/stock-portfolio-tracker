@@ -6,7 +6,7 @@ import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from 
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { useCurrency } from "@/contexts/CurrencyContext";
-import { usePositions, useComputedPortfolio } from "@/hooks/usePortfolio";
+import { usePositions } from "@/hooks/usePortfolio";
 import { useAddTransaction } from "@/hooks/useExtras";
 import { useToast } from "@/hooks/use-toast";
 
@@ -21,20 +21,20 @@ const CashAdjustDialog = () => {
   const [open, setOpen] = useState(false);
   const [mode, setMode] = useState<"DEPOSIT" | "WITHDRAW">("DEPOSIT");
   const [amount, setAmount] = useState("");
-  const [ccy, setCcy] = useState<"USD" | "CZK">("USD");
+  // "LOCAL" = the user's local currency (koruny or the chosen one), converted at today's rate.
+  const [ccy, setCcy] = useState<"USD" | "LOCAL">("USD");
   const [date, setDate] = useState(() => new Date().toISOString().slice(0, 16));
   const [note, setNote] = useState("");
 
-  const { format } = useCurrency();
+  const { format, local, usdLocal } = useCurrency();
   const { data: positions = [] } = usePositions();
-  const { usdCzk } = useComputedPortfolio();
   const add = useAddTransaction();
   const { toast } = useToast();
 
   const cashRow = positions.find((p) => p.ticker === "CASH");
   const cash = cashRow ? Number(cashRow.shares) : 0; // stored in USD
   const inputN = parseFloat(amount) || 0;
-  const amountN = ccy === "CZK" ? inputN / (usdCzk || 23) : inputN; // convert to USD for storage
+  const amountN = ccy === "LOCAL" ? inputN / (usdLocal || 23) : inputN; // convert to USD for storage
   const cashAfter = mode === "DEPOSIT" ? cash + amountN : cash - amountN;
 
   const submit = async () => {
@@ -98,11 +98,11 @@ const CashAdjustDialog = () => {
               <Input type="number" step="0.01" value={amount} onChange={(e) => setAmount(e.target.value)} placeholder="10000" className="flex-1" />
               <select value={ccy} onChange={(e) => setCcy(e.target.value as any)} className="px-2 rounded-md border border-border bg-background text-sm">
                 <option value="USD">USD</option>
-                <option value="CZK">CZK</option>
+                <option value="LOCAL">{local}</option>
               </select>
             </div>
-            {ccy === "CZK" && inputN > 0 && (
-              <p className="text-[10px] text-muted-foreground mt-1">≈ ${amountN.toLocaleString(currentLocale(), { minimumFractionDigits: 2, maximumFractionDigits: 2 })} {t('legacy.cashAdjustDialog.rate')}{" "}{(usdCzk || 23).toLocaleString(currentLocale(), { minimumFractionDigits: 2, maximumFractionDigits: 2 })})</p>
+            {ccy === "LOCAL" && inputN > 0 && (
+              <p className="text-[10px] text-muted-foreground mt-1">≈ ${amountN.toLocaleString(currentLocale(), { minimumFractionDigits: 2, maximumFractionDigits: 2 })} {t('legacy.cashAdjustDialog.rate')}{" "}{(usdLocal || 23).toLocaleString(currentLocale(), { minimumFractionDigits: 2, maximumFractionDigits: 2 })})</p>
             )}
           </div>
           <div>

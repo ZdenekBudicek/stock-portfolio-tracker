@@ -167,7 +167,7 @@ export default {
   },
   "holdingsTable": {
     "invalidAmount": "Invalid amount",
-    "usdCzkExchangeRateMissing": "USD/CZK exchange rate missing",
+    "usdCzkExchangeRateMissing": "USD/{{currency}} exchange rate missing",
     "saveFailed": "Save failed",
     "cashUpdated": "Cash updated",
     "holdings": "Holdings",
@@ -491,7 +491,7 @@ export default {
     "portfolioValue": "Portfolio value",
     "dailyChangeUsd": "Daily change (USD)",
     "dailyChange": "Daily change %",
-    "dailyChangeCzk": "Daily change (CZK)",
+    "dailyChangeCzk": "Daily change ({{currency}})",
     "noRecords": "No records",
     "showLess": "Show less",
     "recordCount_one": "({{count}} record)",

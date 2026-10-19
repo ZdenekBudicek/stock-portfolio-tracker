@@ -5,7 +5,7 @@ import { currentLocale } from "@/i18n";
 import { useMemo, useState } from "react";
 import { FileText, Calendar, Download, Shield, Clock, Layers, ChevronDown, AlertTriangle, Coins } from "lucide-react";
 import { useCurrency } from "@/contexts/CurrencyContext";
-import { usePositions, useTransactions, useComputedPortfolio } from "@/hooks/usePortfolio";
+import { usePositions, useTransactions, useComputedPortfolio, useLivePrices } from "@/hooks/usePortfolio";
 import { useDividends } from "@/hooks/useExtras";
 import { runFifo, isRealTradeTx, type FifoWarning, type OpenLot } from "@/lib/fifo";
 import { buildSalesReport, pragueDate, timeTestExemptFrom, daysBetween, SALE_INCOME_LIMIT_CZK, type TaxSettings } from "@/lib/czTax";
@@ -63,7 +63,9 @@ export interface TaxControls {
 /** `controls`: year and settings owned by the parent (Daně page) so its summary cards match. */
 const TaxReport = ({ controls }: { controls?: TaxControls } = {}) => {
   const { t } = useTranslation();
-  const { format, hidden, rate: liveRate } = useCurrency();
+  const { format, hidden } = useCurrency();
+  // Czech tax: today's REAL USD/CZK, whatever currency the app shows.
+  const liveRate = useLivePrices().data?.usdCzk ?? 23;
   const { data: positions = [] } = usePositions();
   const { data: allTxs = [] } = useTransactions();
   const { data: divs = [] } = useDividends();

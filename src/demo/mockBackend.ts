@@ -222,7 +222,26 @@ async function handleRest(table: string, method: string, url: URL, headers: Head
 
   if (method === "POST") {
     const payload = body ? JSON.parse(body) : [];
-    const list: any[] = Array.isArray(payload) ? payload : [payload];
+    let list: any[] = Array.isArray(payload) ? payload : [payload];
+    // upsert(…, { onConflict }): merge into the existing row instead of adding a duplicate
+    // (a second user_settings row would break every .maybeSingle() read).
+    const conflict = params.get("on_conflict")?.split(",").map((c) => c.trim()).filter(Boolean);
+    const merged: any[] = [];
+    if (conflict?.length && prefer.includes("resolution=")) {
+      list = list.filter((r) => {
+        // As in Postgres, a NULL in a conflict column never conflicts (user_id defaults to the demo user).
+        const key = (row: any, c: string) => (c === "user_id" ? row[c] ?? DEMO_USER_ID : row[c]);
+        const hit = rows.find((x) => conflict.every((c) => key(x, c) != null && key(r, c) != null && String(key(x, c)) === String(key(r, c))));
+        if (!hit) return true;
+        if (prefer.includes("resolution=merge-duplicates")) Object.assign(hit, r);
+        merged.push(hit);
+        return false;
+      });
+      if (list.length === 0) {
+        if (table === "transactions") afterTransactionWrite(tables);
+        return returnRep ? respond(project(merged, params.get("select"))) : empty(201);
+      }
+    }
     const created = list.map((r) => ({
       id: newId(),
       user_id: DEMO_USER_ID,
@@ -232,7 +251,7 @@ async function handleRest(table: string, method: string, url: URL, headers: Head
     }));
     rows.push(...created);
     if (table === "transactions") afterTransactionWrite(tables, created);
-    return returnRep ? respond(project(created, params.get("select"))) : empty(201);
+    return returnRep ? respond(project([...merged, ...created], params.get("select"))) : empty(201);
   }
 
   if (method === "PATCH") {

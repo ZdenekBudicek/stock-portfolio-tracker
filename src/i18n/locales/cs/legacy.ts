@@ -181,7 +181,7 @@ export default {
   },
   "holdingsTable": {
     "invalidAmount": "Neplatná částka",
-    "usdCzkExchangeRateMissing": "Chybí kurz USD/CZK",
+    "usdCzkExchangeRateMissing": "Chybí kurz USD/{{currency}}",
     "saveFailed": "Uložení selhalo",
     "cashUpdated": "Cash aktualizován",
     "holdings": "Pozice",
@@ -545,7 +545,7 @@ export default {
     "portfolioValue": "Hodnota portfolia",
     "dailyChangeUsd": "Změna dne (USD)",
     "dailyChange": "Změna dne %",
-    "dailyChangeCzk": "Změna dne (Kč)",
+    "dailyChangeCzk": "Změna dne ({{currency}})",
     "noRecords": "Žádné záznamy",
     "showLess": "Zobrazit méně",
     "recordCount_one": "({{count}} záznam)",

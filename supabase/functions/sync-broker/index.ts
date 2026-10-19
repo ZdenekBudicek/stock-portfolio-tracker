@@ -4,7 +4,7 @@
 // pulls /equity/portfolio and reconciles so positions are exact. Handles new users with
 // hundreds/thousands of orders despite T212 throttling the server IP + the 150s limit.
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2.45.0";
-import { syncCashFromApi, planT212History, reachedPageStop, selectT212OrdersToInsert, t212FillPriceUsd, blockingUnpricedFills, type T212StoredTrade } from "../_shared/t212.ts";
+import { syncCashFromApi, planT212History, reachedPageStop, selectT212OrdersToInsert, t212FillPriceUsd, blockingUnpricedFills, t212NextPage, rateNear, prepareReconcileHoldings, type T212StoredTrade, type T212PortfolioHolding } from "../_shared/t212.ts";
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
@@ -77,46 +77,80 @@ async function resolveAliases(
 //     the interest threshold → recorded.
 // Only flows AFTER the latest deposit we already have are added (the statement is
 // authoritative up to its date; a later statement re-import wipes & replaces these).
+// USD/<ccy> closes from `fromDay` on (ascending, paged), for converting each historical flow
+// at ITS day's rate (rateNear) instead of today's. THROWS on a failed read.
+async function loadUsdFx(svc: any, ccy: string, fromDay: string): Promise<{ date: string; close: number }[]> {
+  const from = new Date(Date.parse(fromDay) - 14 * 86400000).toISOString().slice(0, 10);
+  const out: { date: string; close: number }[] = [];
+  for (let f = 0; ; f += 1000) {
+    const { data, error } = await svc.from("price_history").select("date,close").eq("symbol", "USD" + ccy)
+      .gte("date", from).order("date", { ascending: true }).range(f, f + 999);
+    if (error) throw new Error(`USD${ccy} read failed: ${error.message}`);
+    out.push(...((data ?? []) as any[]).map((r) => ({ date: r.date, close: Number(r.close) })));
+    if ((data ?? []).length < 1000) break;
+  }
+  return out;
+}
+
+// T212 documents this endpoint as /equity/history/transactions; the code used to call the
+// undocumented /history/transactions. Try the documented path first and fall back to the old
+// one only when it is not found, so an account that worked before keeps working.
+async function fetchTransactionsPage(t212: (p: string) => Promise<Response>, path: string): Promise<Response> {
+  const r = await t212(path);
+  if (r.status !== 404 || !path.startsWith("/equity/history/transactions")) return r;
+  return t212(path.replace("/equity/history/transactions", "/history/transactions"));
+}
+
 async function syncDepositsFromApi(svc: any, userId: string, account: string, t212: (p: string) => Promise<Response>, summary: any) {
   const acctCcy = summary?.currency || "CZK";
-  const { data: lastDep } = await svc.from("deposits").select("flow_date").eq("user_id", userId).eq("broker", "T212").eq("broker_account", account).order("flow_date", { ascending: false }).limit(1);
+  // Only USD and CZK accounts can be converted (only USD/CZK history is kept); anything else
+  // used to be divided by a made-up 21.
+  if (acctCcy !== "USD" && acctCcy !== "CZK") return 0;
+  const { data: lastDep, error: lastErr } = await svc.from("deposits").select("flow_date").eq("user_id", userId).eq("broker", "T212").eq("broker_account", account).order("flow_date", { ascending: false }).limit(1);
+  if (lastErr) throw new Error(`deposits read failed: ${lastErr.message}`);
   const cutoff = lastDep?.[0]?.flow_date ?? "2000-01-01";
-  let fx = 1;
-  if (acctCcy !== "USD") {
-    const { data } = await svc.from("price_history").select("close").eq("symbol", "USD" + acctCcy).order("date", { ascending: false }).limit(1);
-    fx = Number(data?.[0]?.close) || 21;
-  }
   const items: any[] = [];
-  let path = "limit=50";
-  for (let guard = 0; guard < 12; guard++) {
-    const r = await t212("/history/transactions?" + path);
-    if (!r.ok) break;
+  const endpoint = "/equity/history/transactions";
+  let path: string | null = `${endpoint}?limit=50`;
+  for (let guard = 0; guard < 12 && path; guard++) {
+    const r = await fetchTransactionsPage(t212, path);
+    if (!r.ok) { console.warn(`sync-broker: transactions HTTP ${r.status} - deposits import stopped`); break; }
     const j = await r.json();
     const its = j.items ?? [];
     items.push(...its);
     if (its.some((x: any) => (x.dateTime ?? "").slice(0, 10) <= cutoff)) break;
-    if (!j.nextPagePath) break;
-    path = j.nextPagePath;
+    path = t212NextPage(j.nextPagePath, endpoint);
   }
   // Currencies present at each exact timestamp (a multi-currency instant = conversion).
   const tsCcy = new Map<string, Set<string>>();
   for (const x of items) { if (!tsCcy.has(x.dateTime)) tsCcy.set(x.dateTime, new Set()); tsCcy.get(x.dateTime)!.add(x.currency); }
-  const rows: any[] = [];
-  for (const x of items) {
+  const flows = items.filter((x) => {
     const day = (x.dateTime ?? "").slice(0, 10);
-    if (day <= cutoff) continue;
-    if (x.currency !== acctCcy) continue;
-    if (x.type !== "DEPOSIT" && x.type !== "WITHDRAW") continue;
-    if ((tsCcy.get(x.dateTime)?.size ?? 1) > 1) continue; // currency conversion leg
-    const usd = x.amount / (acctCcy === "USD" ? 1 : fx);
-    if (Math.abs(usd) < 2) continue; // interest / dust
+    if (!day || day <= cutoff) return false;
+    if (x.currency !== acctCcy) return false;
+    if (x.type !== "DEPOSIT" && x.type !== "WITHDRAW") return false;
+    return (tsCcy.get(x.dateTime)?.size ?? 1) <= 1; // else a currency conversion leg
+  });
+  if (!flows.length) return 0;
+  const fx = acctCcy === "USD" ? [] : await loadUsdFx(svc, acctCcy, flows.map((x) => String(x.dateTime).slice(0, 10)).sort()[0]);
+  const rows: any[] = [];
+  for (const x of flows) {
+    const day = String(x.dateTime).slice(0, 10);
+    const rate = acctCcy === "USD" ? 1 : rateNear(fx, day);
+    if (!rate) { console.warn(`sync-broker: no USD${acctCcy} rate for ${day} - deposit skipped`); continue; }
+    const usd = Number(x.amount) / rate;
+    if (!isFinite(usd) || Math.abs(usd) < 2) continue; // interest / dust
     rows.push({ user_id: userId, broker: "T212", broker_account: account, flow_date: day, amount_usd: usd, source: "api", ext_id: `t212:cashtx:${account}:${x.reference}` });
   }
   if (!rows.length) return 0;
-  const { data: existing } = await svc.from("deposits").select("ext_id").eq("user_id", userId).eq("broker", "T212").not("ext_id", "is", null);
+  const { data: existing, error: exErr } = await svc.from("deposits").select("ext_id").eq("user_id", userId).eq("broker", "T212").not("ext_id", "is", null);
+  if (exErr) throw new Error(`deposits read failed: ${exErr.message}`);
   const seen = new Set((existing ?? []).map((d: any) => d.ext_id));
   const fresh = rows.filter((r) => !seen.has(r.ext_id));
-  if (fresh.length) await svc.from("deposits").insert(fresh);
+  if (fresh.length) {
+    const { error } = await svc.from("deposits").insert(fresh);
+    if (error) throw new Error(`deposits insert failed: ${error.message}`);
+  }
   return fresh.length;
 }
 
@@ -125,22 +159,21 @@ async function syncDepositsFromApi(svc: any, userId: string, account: string, t2
 // once a page is fully already-imported. The import RPC runs under app.bulk_import so the
 // dividend cash-trigger doesn't re-credit cash (the API cash balance already includes it).
 async function syncDividendsFromApi(svc: any, userId: string, account: string, t212: (p: string) => Promise<Response>, summary: any) {
+  // `amount` is in the account's primary currency (T212 HistoryDividendItem).
   const acctCcy = summary?.currency || "CZK";
-  let fx = 1;
-  if (acctCcy !== "USD") {
-    if (acctCcy !== "CZK") return 0;
-    const { data } = await svc.from("price_history").select("close").eq("symbol", "USD" + acctCcy).order("date", { ascending: false }).limit(1);
-    fx = Number(data?.[0]?.close) || 21;
-  }
-  const { data: existing } = await svc.from("dividends").select("ext_id").eq("user_id", userId).eq("broker", "T212").not("ext_id", "is", null);
+  if (acctCcy !== "USD" && acctCcy !== "CZK") return 0;
+  const { data: existing, error: exErr } = await svc.from("dividends").select("ext_id").eq("user_id", userId).eq("broker", "T212").not("ext_id", "is", null);
+  if (exErr) throw new Error(`dividends read failed: ${exErr.message}`);
   const seen = new Set((existing ?? []).map((d: any) => d.ext_id));
-  const { data: aliasRows } = await svc.from("ticker_alias").select("alias,canonical");
+  const { data: aliasRows, error: aErr } = await svc.from("ticker_alias").select("alias,canonical");
+  if (aErr) throw new Error(`ticker_alias read failed: ${aErr.message}`);
   const alias = new Map((aliasRows ?? []).map((a: any) => [a.alias, a.canonical]));
-  const rows: any[] = [];
-  let path = "limit=50";
-  for (let g = 0; g < 25; g++) {
-    const r = await t212("/equity/history/dividends?" + path);
-    if (!r.ok) break;
+  const fresh: any[] = [];
+  const endpoint = "/equity/history/dividends";
+  let path: string | null = `${endpoint}?limit=50`;
+  for (let g = 0; g < 25 && path; g++) {
+    const r = await t212(path);
+    if (!r.ok) { console.warn(`sync-broker: dividends HTTP ${r.status} - dividends import stopped`); break; }
     const j = await r.json();
     const items = j.items ?? [];
     if (!items.length) break;
@@ -149,19 +182,34 @@ async function syncDividendsFromApi(svc: any, userId: string, account: string, t
       const ref = `t212:div:${account}:${it.reference}`;
       if (seen.has(ref)) continue;
       allSeen = false;
-      const base = stripT212(it.ticker);
-      const ticker = alias.get(base) ?? RENAME[base] ?? base;
-      const day = (it.paidOn ?? "").slice(0, 10);
-      const total = Number(it.amount) / (acctCcy === "USD" ? 1 : fx);
-      const qty = Number(it.quantity) || 0;
-      if (!day || !isFinite(total)) continue;
-      rows.push({ ticker, ex_date: day, pay_date: day, amount_per_share: qty > 0 ? total / qty : (Number(it.grossAmountPerShare) || 0), shares_held: qty, total_amount_usd: total, ext_id: ref });
+      fresh.push({ ...it, ref });
     }
     if (allSeen) break; // reached the already-imported region (API is newest-first)
-    if (!j.nextPagePath) break;
-    path = j.nextPagePath;
+    path = t212NextPage(j.nextPagePath, endpoint);
   }
-  if (rows.length) await svc.rpc("import_broker_dividends", { p_user_id: userId, p_broker: "T212", p_rows: rows });
+  // Each dividend at ITS payment day's USD rate, not today's.
+  const days = fresh.map((it) => String(it.paidOn ?? "").slice(0, 10)).filter(Boolean).sort();
+  const fx = acctCcy === "USD" || !days.length ? [] : await loadUsdFx(svc, acctCcy, days[0]);
+  const rows: any[] = [];
+  const queued = new Set<string>();
+  for (const it of fresh) {
+    if (queued.has(it.ref)) continue; // the same item on two pages would fail the unique index
+    const base = stripT212(it.ticker);
+    const ticker = alias.get(base) ?? RENAME[base] ?? base;
+    const day = String(it.paidOn ?? "").slice(0, 10);
+    if (!day) continue;
+    const rate = acctCcy === "USD" ? 1 : rateNear(fx, day);
+    if (!rate) { console.warn(`sync-broker: no USD${acctCcy} rate for ${day} - dividend skipped`); continue; }
+    const total = Number(it.amount) / rate;
+    const qty = Number(it.quantity) || 0;
+    if (!isFinite(total)) continue;
+    queued.add(it.ref);
+    rows.push({ ticker, ex_date: day, pay_date: day, amount_per_share: qty > 0 ? total / qty : (Number(it.grossAmountPerShare) || 0), shares_held: qty, total_amount_usd: total, ext_id: it.ref });
+  }
+  if (rows.length) {
+    const { error } = await svc.rpc("import_broker_dividends", { p_user_id: userId, p_broker: "T212", p_rows: rows });
+    if (error) throw new Error(`import_broker_dividends: ${error.message}`);
+  }
   return rows.length;
 }
 
@@ -180,9 +228,9 @@ async function fetchPortfolioHjson(svc: any, t212: (p: string) => Promise<Respon
   const { data: pAlias } = pBases.length ? await svc.from("ticker_alias").select("alias,canonical").in("alias", pBases) : { data: [] };
   const pMap = new Map<string, string>();
   for (const r of (pAlias ?? []) as any[]) pMap.set(r.alias, r.canonical);
-  return holdings.filter((h) => Number(h.quantity) > 0).map((h) => {
+  return holdings.filter((h) => Number(h.quantity) > 0).map((h): T212PortfolioHolding => {
     const b = stripT212(h.ticker);
-    return { ticker: pMap.get(b) ?? RENAME[b] ?? b, qty: Number(h.quantity), avg: Number(h.averagePrice), cur: Number(h.currentPrice) };
+    return { ticker: pMap.get(b) ?? RENAME[b] ?? b, qty: Number(h.quantity), avg: Number(h.averagePrice), cur: Number(h.currentPrice), usdQuoted: /_US_EQ$/.test(String(h.ticker)) };
   });
 }
 
@@ -197,48 +245,11 @@ async function fetchPortfolioHjson(svc: any, t212: (p: string) => Promise<Respon
 // from statements, plus Revolut/XTB/manual buys of the same tickers. Reconciling against
 // the connected account's portfolio while counting all of them zeroed every ticker the
 // other account held and subtracted its shares from the shared ones.
-async function reconcileT212Holdings(
-  svc: any, userId: string, account: string,
-  hjson: { ticker: string; qty: number; avg: number; cur?: number }[],
-) {
-  const { data: pcRows } = await svc.from("price_cache").select("symbol,price");
-  const pxMap = new Map<string, number>((pcRows ?? []).map((r: any) => [r.symbol, Number(r.price)]));
-  // The broker's averagePrice is in the instrument's native currency (GBp/EUR/CZK…).
-  // Scale it by the avg/current RATIO (currency-free) onto our USD price so the adjustment
-  // carries a sane USD cost: avg_usd = ourUsdPrice × (broker.avg / broker.current).
-  let holdings = hjson.filter((h) => h.qty > 0).map((h) => {
-    const usd = pxMap.get(h.ticker);
-    const avgUsd = h.cur && h.cur > 0 && usd && usd > 0 ? Math.round(usd * (h.avg / h.cur) * 1e6) / 1e6 : h.avg;
-    return { ticker: h.ticker, qty: h.qty, avg: avgUsd };
-  });
-
-  // Ticker-rename guard. The portfolio endpoint can label an instrument with a different
-  // symbol than the order history does (Barclays "BARCL" vs "BARC", Grab "AGC" vs "GRAB"),
-  // which would zero the real position AND create a phantom one under the other symbol.
-  // When a broker-only ticker and a trades-only ticker carry the SAME quantity they are the
-  // same instrument: relabel the snapshot to the ticker the trades already use.
-  const net = new Map<string, number>();
-  for (let from = 0; ; from += 1000) {
-    const { data: txs } = await svc.from("transactions")
-      .select("ticker,side,shares").eq("user_id", userId).eq("broker", "T212")
-      .eq("broker_account", account).neq("ticker", "CASH")
-      .not("ext_id", "like", "t212:adj:%") // last run's corrections aren't part of the net
-      .range(from, from + 999);
-    if (!txs || txs.length === 0) break;
-    for (const t of txs) net.set(t.ticker, (net.get(t.ticker) ?? 0) + (t.side === "BUY" ? 1 : -1) * Number(t.shares));
-    if (txs.length < 1000) break;
-  }
-  const reported = new Set(holdings.map((h) => h.ticker));
-  const orphanTrades = [...net].filter(([tk, q]) => q > 1e-4 && !reported.has(tk));
-  const taken = new Set<string>();
-  holdings = holdings.map((h) => {
-    if (net.has(h.ticker)) return h;
-    const m = orphanTrades.find(([tk, q]) => !taken.has(tk) && Math.abs(q - h.qty) < 1e-4);
-    if (!m) return h;
-    taken.add(m[0]);
-    return { ...h, ticker: m[0] };
-  });
-
+async function reconcileT212Holdings(svc: any, userId: string, account: string, hjson: T212PortfolioHolding[]) {
+  // USD average cost (never a native GBX/EUR number as USD) + the ticker-rename guard (only
+  // between tickers linked by alias/ISIN, never by equal quantity alone) - shared with
+  // auto-sync, see prepareReconcileHoldings in _shared/t212.ts.
+  const holdings = await prepareReconcileHoldings(svc, userId, account, hjson);
   const { error } = await svc.rpc("reconcile_broker_account", {
     p_user_id: userId, p_broker: "T212", p_account: account,
     p_holdings: holdings, p_note: "Dorovnání podle Trading 212",
@@ -298,7 +309,12 @@ Deno.serve(async (req) => {
     // Non-retrying variant for the big paginated history pulls (dividends, transactions):
     // on a 429 it returns immediately so the caller stops and keeps what it has, instead of
     // burning 6×2s per rate-limited page (which made the whole sync time out).
-    const t212Once = (path: string) => fetch(`${base}${path}`, { headers: { Authorization: basic, Accept: "application/json" } });
+    // Every request of the cash-flow imports must fit the 150 s function limit: past 135 s it
+    // throws instead (the import then stores nothing; the next sync starts it again).
+    const t212Once = (path: string) => {
+      if (Date.now() - started > 135_000) return Promise.reject(new Error("time budget spent"));
+      return fetch(`${base}${path}`, { headers: { Authorization: basic, Accept: "application/json" }, signal: AbortSignal.timeout(10_000) });
+    };
 
     const body = await req.json().catch(() => ({}));
     const cashR = await t212("/equity/account/cash");
@@ -356,10 +372,11 @@ Deno.serve(async (req) => {
     const statementMode = plan.statementMode;
     // Defensive: drop API orders the statement covers (left by an older full sync, or by a
     // statement imported after them) — keeping them would double-count.
-    if (statementMode && isFirstBatch && plan.statementCutoff) {
+    // Only within the statement's own period: fills before its first trade are not covered.
+    if (statementMode && isFirstBatch && plan.statementCutoff && plan.statementStart) {
       const { error: delErr } = await svc.from("transactions").delete()
         .eq("user_id", userId).eq("broker", "T212").eq("broker_account", account)
-        .like("ext_id", "t212:ord:%").lte("executed_at", plan.statementCutoff);
+        .like("ext_id", "t212:ord:%").gte("executed_at", plan.statementStart).lte("executed_at", plan.statementCutoff);
       if (delErr) return json({ error: `Nepodařilo se uklidit obchody pokryté výpisem: ${delErr.message}` });
     }
 
@@ -469,9 +486,9 @@ Deno.serve(async (req) => {
       try { await reconcileT212Holdings(svc, userId, account, await fetchPortfolioHjson(svc, t212)); reconciled = true; } catch (e) { console.warn("sync-broker: reconcile skipped —", (e as Error).message); }
       // Cash + deposit sync are best-effort: a failure here must not break the core sync.
       let newDeps = 0, newDivs = 0;
-      try { await syncCashFromApi(svc, userId, summary); } catch (_e) { /* keep going */ }
-      try { newDeps = await syncDepositsFromApi(svc, userId, account, t212Once, summary); } catch (_e) { /* keep going */ }
-      try { newDivs = await syncDividendsFromApi(svc, userId, account, t212Once, summary); } catch (_e) { /* keep going */ }
+      try { await syncCashFromApi(svc, userId, summary); } catch (e) { console.warn("sync-broker: cash mirror failed -", (e as Error).message); }
+      try { newDeps = await syncDepositsFromApi(svc, userId, account, t212Once, summary); } catch (e) { console.warn("sync-broker: deposits import failed -", (e as Error).message); }
+      try { newDivs = await syncDividendsFromApi(svc, userId, account, t212Once, summary); } catch (e) { console.warn("sync-broker: dividends import failed -", (e as Error).message); }
       const status = reconciled ? "synchronizováno (výpis + API)" : "synchronizováno (výpis + API), pozice nedorovnány";
       await svc.from("broker_connections").update({ last_sync_cursor: null, last_sync_at: new Date().toISOString(), status }).eq("user_id", userId).eq("broker", "T212");
       return json({ ok: true, done: true, mode: "statement-append", appended: toInsert.length, deposits: newDeps, dividends: newDivs, reconciled });
@@ -490,9 +507,19 @@ Deno.serve(async (req) => {
       await svc.from("broker_connections").update({ last_sync_cursor: null, status: "obchody staženy, pozice nedorovnány" }).eq("user_id", userId).eq("broker", "T212");
       return json({ error: `Obchody jsou stažené, ale dorovnání pozic se nepovedlo (${(e as Error).message}). Zkus synchronizaci za pár minut znovu.` });
     }
-    try { await syncCashFromApi(svc, userId, summary); } catch (_e) { /* best-effort */ }
+    // Cash, deposits and dividends: best-effort as in statement mode - and run here too.
+    // They used to run only in statement mode, so an API-only account never got its
+    // dividends or deposits (net deposits / total return were wrong for it).
+    let newDeps = 0, newDivs = 0;
+    try { await syncCashFromApi(svc, userId, summary); } catch (e) { console.warn("sync-broker: cash mirror failed -", (e as Error).message); }
+    // This branch may follow a full 100 s order batch; stay clear of the 150 s function limit
+    // (the next sync picks them up — both imports only add what is not stored yet).
+    if (Date.now() - started < 115_000) {
+      try { newDeps = await syncDepositsFromApi(svc, userId, account, t212Once, summary); } catch (e) { console.warn("sync-broker: deposits import failed -", (e as Error).message); }
+      try { newDivs = await syncDividendsFromApi(svc, userId, account, t212Once, summary); } catch (e) { console.warn("sync-broker: dividends import failed -", (e as Error).message); }
+    }
     await svc.from("broker_connections").update({ last_sync_cursor: null, last_sync_at: new Date().toISOString(), status: `${hjson.length} pozic` }).eq("user_id", userId).eq("broker", "T212");
-    return json({ ok: true, done: true, positions: hjson.length });
+    return json({ ok: true, done: true, positions: hjson.length, deposits: newDeps, dividends: newDivs });
   } catch (e) {
     return json({ error: (e as Error).message }, 500);
   }

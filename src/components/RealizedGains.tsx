@@ -9,21 +9,19 @@ import { TickerLogo } from '@/components/TickerLogo';
 import { fmtDate } from '@/components/v2/widgets';
 import { EmptyNote, Footnote, Kpi, Label, PageTitle, Panel, Pill, Segmented } from '@/components/v2/ui';
 import { currentLang } from '@/i18n';
-import { fmtCzk, fmtNum } from '@/i18n/format';
+import { fmtNum } from '@/i18n/format';
 import type { BaseCurrency } from '@/lib/tax/jurisdictions';
+import { formatMoney, wrapSymbol } from '@/lib/displayCurrency';
 import { cn } from '@/lib/utils';
 
 /** Formats an amount already in the base currency (respects the privacy mask). */
 export function useBaseMoney(currency: BaseCurrency) {
   const { hidden } = useCurrency();
-  const en = currentLang() === 'en';
+  const lang = currentLang() === 'en' ? 'en' : 'cs';
   return (v: number | null | undefined, signed = false) => {
     if (v == null) return '—';
-    const sign = signed && v > 0 ? '+' : '';
-    if (currency === 'CZK') return hidden ? (en ? 'CZK ••••' : '•••• Kč') : `${sign}${fmtCzk(v)}`;
-    if (hidden) return '$••••';
-    const s = `$${Math.abs(v).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
-    return v < 0 ? `-${s}` : `${sign}${s}`;
+    if (hidden) return wrapSymbol('••••', currency, lang);
+    return formatMoney(v, currency, lang, { signed });
   };
 }
 
@@ -93,7 +91,7 @@ export function RealizedGainsView() {
               </table>
             </div>
           )}
-          <p className="mt-3 text-xs text-muted-foreground">{m.currency === 'CZK' ? t('residence.realized.fxCzk') : t('residence.realized.fxUsd')}</p>
+          <p className="mt-3 text-xs text-muted-foreground">{m.currency === 'USD' ? t('residence.realized.fxUsd') : m.currency === 'CZK' ? t('residence.realized.fxCzk') : t('residence.realized.fxOther', { currency: m.currency })}</p>
         </Panel>
       </div>
       <Footnote>{t('residence.realized.footnote')}</Footnote>

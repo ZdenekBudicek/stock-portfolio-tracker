@@ -13,7 +13,7 @@
 // rewrites every account's adjustments, so a valid JWT is not enough: the anon key is public
 // and anyone can sign up. The response carries counts only — never user ids or accounts.
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2.45.0";
-import { syncCashFromApi } from "../_shared/t212.ts";
+import { syncCashFromApi, prepareReconcileHoldings, type T212PortfolioHolding } from "../_shared/t212.ts";
 import { isSchedulerToken } from "../_shared/auth.ts";
 
 const corsHeaders = {
@@ -25,48 +25,16 @@ const RENAME: Record<string, string> = { IPOE: "SOFI", VACQ: "RKLB", FB: "META",
 const stripT212 = (t: string) => t.replace(/_US_EQ$/, "").replace(/_EQ$/, "").toUpperCase();
 
 // Reconcile ONE T212 account to its live portfolio, via the shared account-scoped RPC.
-// Scaling of the native-currency average onto our USD price + the ticker-rename guard match
-// sync-broker exactly, so a manual sync and this background sync are interchangeable.
-async function reconcileAccount(
-  svc: any, userId: string, account: string,
-  hjson: { ticker: string; qty: number; avg: number; cur?: number }[],
-) {
-  const { data: pcRows } = await svc.from("price_cache").select("symbol,price");
-  const pxMap = new Map<string, number>((pcRows ?? []).map((r: any) => [r.symbol, Number(r.price)]));
-  let holdings = hjson.filter((h) => h.qty > 0).map((h) => {
-    const usd = pxMap.get(h.ticker);
-    const avgUsd = h.cur && h.cur > 0 && usd && usd > 0 ? Math.round(usd * (h.avg / h.cur) * 1e6) / 1e6 : h.avg;
-    return { ticker: h.ticker, qty: h.qty, avg: avgUsd };
-  });
-
-  // Ticker-rename guard (Barclays "BARCL" vs "BARC", Grab "AGC" vs "GRAB"): when a
-  // broker-only ticker and a trades-only ticker carry the same quantity, relabel the
-  // snapshot to the ticker the trades already use so reconcile doesn't zero + phantom it.
-  const net = new Map<string, number>();
-  for (let from = 0; ; from += 1000) {
-    const { data: txs } = await svc.from("transactions")
-      .select("ticker,side,shares").eq("user_id", userId).eq("broker", "T212")
-      .eq("broker_account", account).neq("ticker", "CASH")
-      .not("ext_id", "like", "t212:adj:%").range(from, from + 999);
-    if (!txs || txs.length === 0) break;
-    for (const t of txs) net.set(t.ticker, (net.get(t.ticker) ?? 0) + (t.side === "BUY" ? 1 : -1) * Number(t.shares));
-    if (txs.length < 1000) break;
-  }
-  const reported = new Set(holdings.map((h) => h.ticker));
-  const orphanTrades = [...net].filter(([tk, q]) => q > 1e-4 && !reported.has(tk));
-  const taken = new Set<string>();
-  holdings = holdings.map((h) => {
-    if (net.has(h.ticker)) return h;
-    const m = orphanTrades.find(([tk, q]) => !taken.has(tk) && Math.abs(q - h.qty) < 1e-4);
-    if (!m) return h;
-    taken.add(m[0]);
-    return { ...h, ticker: m[0] };
-  });
-
-  await svc.rpc("reconcile_broker_account", {
+// USD average cost + the ticker-rename guard come from the shared prepareReconcileHoldings,
+// the same code sync-broker uses, so a manual sync and this background sync are
+// interchangeable.
+async function reconcileAccount(svc: any, userId: string, account: string, hjson: T212PortfolioHolding[]) {
+  const holdings = await prepareReconcileHoldings(svc, userId, account, hjson);
+  const { error } = await svc.rpc("reconcile_broker_account", {
     p_user_id: userId, p_broker: "T212", p_account: account,
     p_holdings: holdings, p_note: "Dorovnání podle Trading 212 (auto)",
   });
+  if (error) throw new Error(`reconcile_broker_account: ${error.message}`);
 }
 
 // Per-user outcomes go to the function log (visible to the project owner only); the HTTP
@@ -123,8 +91,9 @@ Deno.serve(async (req) => {
         await svc.from("broker_connections").update({ account_summary: summary, account_id: account, last_sync_at: new Date().toISOString() }).eq("user_id", userId).eq("broker", "T212");
         if (!account) { results.push({ userId, skip: "no account id" }); continue; }
 
-        // 2) free cash mirror
-        await syncCashFromApi(svc, userId, summary);
+        // 2) free cash mirror. Best-effort (a cash failure must not stop the reconcile), but
+        //    never silent: syncCashFromApi throws on any failed read/write.
+        try { await syncCashFromApi(svc, userId, summary); } catch (e) { console.warn(`auto-sync: cash mirror failed for one user: ${(e as Error).message}`); }
 
         // 3) Claim this account's legacy rows (written before per-account scoping). Only safe
         //    when no OTHER T212 account is present — otherwise the reconcile guard refuses and
@@ -151,7 +120,7 @@ Deno.serve(async (req) => {
           for (const r of (pAlias ?? []) as any[]) pMap.set(r.alias, r.canonical);
           const hjson = holdings.filter((h) => Number(h.quantity) > 0).map((h) => {
             const b = stripT212(h.ticker);
-            return { ticker: pMap.get(b) ?? RENAME[b] ?? b, qty: Number(h.quantity), avg: Number(h.averagePrice), cur: Number(h.currentPrice) };
+            return { ticker: pMap.get(b) ?? RENAME[b] ?? b, qty: Number(h.quantity), avg: Number(h.averagePrice), cur: Number(h.currentPrice), usdQuoted: /_US_EQ$/.test(String(h.ticker)) };
           });
           await reconcileAccount(svc, userId, account, hjson);
           results.push({ userId, ok: true, account, positions: hjson.length });

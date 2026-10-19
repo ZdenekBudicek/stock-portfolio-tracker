@@ -2,7 +2,8 @@ import { useTranslation } from "react-i18next";
 import { currentLang, currentLocale } from "@/i18n";
 import { useEffect, useMemo, useState } from 'react';
 import { LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, Legend } from 'recharts';
-import { formatCzk, formatPct } from '@/data/portfolio';
+import { formatPct } from '@/data/portfolio';
+import { formatMoney, wrapSymbol } from '@/lib/displayCurrency';
 import { useDailySnapshots, useTransactions, useComputedPortfolio, computeTradeFlows } from '@/hooks/usePortfolio';
 import { computeYearlyGrowth, type YearData } from '@/lib/yearlyGrowth';
 import { Target, CalendarDays, ChevronDown, ChevronUp, Pencil, Check, X } from 'lucide-react';
@@ -26,14 +27,15 @@ const useAnnualGoalPct = () => {
 };
 
 const CustomTooltip = ({ active, payload, label, hidden }: any) => {
-  const { t } = useTranslation();
+  const { local } = useCurrency();
+  const lang = currentLang() === 'en' ? 'en' : 'cs';
   if (!active || !payload?.length) return null;
   return (
     <div className="gradient-card border border-border rounded-lg px-3 py-2 shadow-lg">
       <p className="text-xs text-muted-foreground mb-1.5 font-medium">{label}</p>
       {payload.map((p: any) => (
         <p key={p.dataKey} className="text-xs font-medium" style={{ color: p.color }}>
-          {p.name}: {p.dataKey === 'totalValueCzk' ? (hidden ? t('legacy.yearlyGrowth.czk') : t('legacy.yearlyGrowth.czkM', { v0: (p.value / 1_000_000).toLocaleString(currentLocale(), { minimumFractionDigits: 2, maximumFractionDigits: 2 }) })) : `${p.value > 0 ? '+' : ''}${p.value.toLocaleString(currentLocale(), { minimumFractionDigits: 2, maximumFractionDigits: 2 })}%`}
+          {p.name}: {p.dataKey === 'totalValueCzk' ? wrapSymbol(hidden ? '••••' : `${(p.value / 1_000_000).toLocaleString(currentLocale(), { minimumFractionDigits: 2, maximumFractionDigits: 2 })}M`, local, lang) : `${p.value > 0 ? '+' : ''}${p.value.toLocaleString(currentLocale(), { minimumFractionDigits: 2, maximumFractionDigits: 2 })}%`}
         </p>
       ))}
     </div>
@@ -44,8 +46,10 @@ const YearCard = ({ d, annualGoalPct }: { d: YearData; annualGoalPct: number }) 
   const { t } = useTranslation();
   const [expanded, setExpanded] = useState(false);
   const goalReached = d.growthPct >= annualGoalPct;
-  const { hidden } = useCurrency();
-  const czk = (n: number) => (hidden ? t('legacy.yearlyGrowth.czk') : formatCzk(n));
+  const { hidden, local } = useCurrency();
+  const lang = currentLang() === 'en' ? 'en' : 'cs';
+  // Year figures are in the local currency (koruny or the chosen one).
+  const czk = (n: number) => (hidden ? wrapSymbol('••••', local, lang) : formatMoney(n, local, lang));
   return (
     <div className="rounded-lg border border-border bg-accent/30 overflow-hidden transition-all">
       <button onClick={() => setExpanded(!expanded)} className="w-full p-4 flex items-center justify-between hover:bg-accent/50 transition-colors text-left">
@@ -103,7 +107,7 @@ const YearlyGrowth = () => {
   const { data: snaps = [] } = useDailySnapshots();
   const { data: txs = [] } = useTransactions();
   const portfolio = useComputedPortfolio();
-  const { usdCzk } = portfolio;
+  const { usdLocal } = portfolio; // today's USD→local, the rate the snapshots' value_czk is in
 
   // Today's value split exactly as the header computes it (positions + cash, live prices), so
   // the running year ends on the same number as "Hodnota portfolia". Skipped while prices
@@ -117,11 +121,11 @@ const YearlyGrowth = () => {
   const years: YearData[] = useMemo(() => computeYearlyGrowth({
     snapshots: snaps,
     tradeFlowsUsd,
-    live: liveReady ? { date: new Date().toISOString().slice(0, 10), holdingsUsd, cashUsd, usdCzk } : null,
+    live: liveReady ? { date: new Date().toISOString().slice(0, 10), holdingsUsd, cashUsd, usdCzk: usdLocal } : null,
     goalPct: pct,
     nowYear: new Date().getFullYear(),
-    fallbackFx: usdCzk || 23,
-  }), [snaps, tradeFlowsUsd, liveReady, holdingsUsd, cashUsd, usdCzk, pct]);
+    fallbackFx: usdLocal || 23,
+  }), [snaps, tradeFlowsUsd, liveReady, holdingsUsd, cashUsd, usdLocal, pct]);
 
   return (
     <div className="gradient-card rounded-2xl border border-border p-5 sm:p-6 animate-fade-in-up space-y-4 hover-lift">

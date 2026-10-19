@@ -6,8 +6,8 @@ import { formatPct } from '@/data/portfolio';
 const ProfitByStock = () => {
   const { formatAt, pick, currency, hidden } = useCurrency();
   const { positions } = useComputedPortfolio();
-  // `profit` is in the displayed currency: in CZK the koruna profit against the purchase-day
-  // cost, so the bar, its colour and the % all say the same thing.
+  // `profit` is in the displayed currency: in the local one (koruny or the chosen one) the profit
+  // against the purchase-day cost, so the bar, its colour and the % all say the same thing.
   const data = positions
     .filter(p => p.type !== 'Cash' && p.ticker !== 'CASH')
     .map(p => ({ name: p.ticker, profit: pick(p.profitUsd, p.profitCzk), pct: pick(p.profitPct, p.profitPctCzk) }))
@@ -29,7 +29,7 @@ const ProfitByStock = () => {
     );
   };
 
-  const tickFormatter = (v: number) => hidden ? '••' : currency === 'CZK' ? `${(v / 1000).toFixed(0)}k` : `$${(v / 1000).toFixed(0)}k`;
+  const tickFormatter = (v: number) => hidden ? '••' : currency !== 'USD' ? `${(v / 1000).toFixed(0)}k` : `$${(v / 1000).toFixed(0)}k`;
 
   return (
     <div className="gradient-card rounded-2xl border border-border p-5 sm:p-6 animate-fade-in-up hover-lift">

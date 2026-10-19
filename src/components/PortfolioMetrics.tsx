@@ -2,6 +2,8 @@ import { useMemo } from "react";
 import { Activity, TrendingDown, Gauge, Shuffle, AlertTriangle } from "lucide-react";
 import { useDailySnapshots, useComputedPortfolio, useTransactions } from "@/hooks/usePortfolio";
 import { useCurrency } from "@/contexts/CurrencyContext";
+import { currentLang } from "@/i18n";
+import { wrapSymbol } from "@/lib/displayCurrency";
 
 const PortfolioMetrics = () => {
   const { data: snaps = [] } = useDailySnapshots();
@@ -117,7 +119,7 @@ const PortfolioMetrics = () => {
           icon={<TrendingDown className="w-3.5 h-3.5" />}
           label="Max drawdown"
           value={`${drawdown.toFixed(1)}%`}
-          sub={hidden ? "Peak ••••" : currency === "USD" ? `Peak $${(peak / 1000).toFixed(1)}k` : `Peak ${(peakCzk / 1000).toFixed(0)}k Kč`}
+          sub={hidden ? "Peak ••••" : currency === "USD" ? `Peak $${(peak / 1000).toFixed(1)}k` : `Peak ${wrapSymbol(`${(peakCzk / 1000).toFixed(currency === "CZK" ? 0 : 1)}k`, currency, currentLang() === "en" ? "en" : "cs")}`}
 
           accent="loss"
         />

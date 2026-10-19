@@ -466,7 +466,7 @@ export function generateDemoData(now = new Date()): DemoData {
 
   const newsRows = positions
     .filter((p) => p.ticker !== "CASH")
-    .map((p, i) => ({ symbol: p.ticker, items: demoNews(p.ticker, p.name, now), fetched_at: new Date(now.getTime() - (20 + i) * 60_000).toISOString() }));
+    .map((p, i) => ({ symbol: p.ticker, items: demoNews(p.ticker, p.name, now, p.type === "Crypto"), fetched_at: new Date(now.getTime() - (20 + i) * 60_000).toISOString() }));
 
   return {
     today,
@@ -547,25 +547,45 @@ function buildPath(inst: Inst, days: string[], idxOf: (d: string) => number, anc
 }
 
 /** Generic, clearly made-up headlines — no real news. */
-function demoNews(ticker: string, name: string, now: Date) {
+function demoNews(ticker: string, name: string, now: Date, crypto = false) {
   const nowS = Math.floor(now.getTime() / 1000);
-  const pub = "Demo · smyšlená zpráva";
-  const items = [
-    {
-      cs: `${name}: analytici před výsledky čekají mírný růst tržeb`,
-      sumCs: `Ukázkový text pro demo. Tady by byl automaticky přeložený výtah článku k akcii ${ticker} — skutečná aplikace stahuje titulky z Yahoo Finance a překládá je do češtiny.`,
-      ago: 3 * 3600,
-    },
-    {
-      cs: `Akcie ${ticker} se tento týden pohybují v užším pásmu, trh vyčkává na makrodata`,
-      sumCs: "Smyšlená zpráva pro ukázku rozbalování novinek. Obsah nemá žádnou vazbu na skutečné dění na trhu.",
-      ago: 26 * 3600,
-    },
-    {
-      cs: `Jak si ${ticker} vede proti sektoru od začátku roku`,
-      sumCs: "Demo obsah — v ostré verzi se tu zobrazí krátké shrnutí článku.",
-      ago: 3 * 86400,
-    },
-  ];
-  return items.map((it) => ({ en: it.cs, cs: it.cs, sumEn: it.sumCs, sumCs: it.sumCs, publisher: pub, url: "", ts: nowS - it.ago }));
+  const items = crypto
+    ? [
+        {
+          en: `${name}: trading volume rises as the market waits for macro data`,
+          cs: `${name}: objem obchodů roste, trh vyčkává na makrodata`,
+          ago: 3 * 3600,
+        },
+        {
+          en: `${ticker} moves in a narrower range this week`,
+          cs: `${ticker} se tento týden pohybuje v užším pásmu`,
+          ago: 26 * 3600,
+        },
+        {
+          en: `How ${ticker} has done against the rest of the crypto market this year`,
+          cs: `Jak si ${ticker} vede proti zbytku kryptotrhu od začátku roku`,
+          ago: 3 * 86400,
+        },
+      ]
+    : [
+        {
+          en: `${name}: analysts expect modest revenue growth ahead of results`,
+          cs: `${name}: analytici před výsledky čekají mírný růst tržeb`,
+          ago: 3 * 3600,
+        },
+        {
+          en: `${ticker} shares trade in a narrower range this week as the market waits for macro data`,
+          cs: `Akcie ${ticker} se tento týden pohybují v užším pásmu, trh vyčkává na makrodata`,
+          ago: 26 * 3600,
+        },
+        {
+          en: `How ${ticker} has done against its sector this year`,
+          cs: `Jak si ${ticker} vede proti sektoru od začátku roku`,
+          ago: 3 * 86400,
+        },
+      ];
+  const sumEn = "Invented headline for the demo. The real app fetches headlines from Yahoo Finance and shows a short summary here.";
+  const sumCs = "Smyšlená zpráva pro demo. Skutečná aplikace stahuje titulky z Yahoo Finance a ukazuje tu krátké shrnutí.";
+  return items.map((it) => ({ en: it.en, cs: it.cs, sumEn, sumCs, publisher: "Demo · sample news", url: "", ts: nowS - it.ago }));
 }
+

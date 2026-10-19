@@ -66,23 +66,27 @@ const isManual = (t: DepositLedgerRow) => (t.broker ?? "manual").toLowerCase() =
 const isT212 = (t: DepositLedgerRow) => (t.broker ?? "").toUpperCase() === "T212";
 
 /** Net deposits of the connected T212 account from its balance identity, or null if unusable. */
-function t212Identity(s: T212AccountSummary | null | undefined, usdCzk: number): NetDeposits | null {
+function t212Identity(s: T212AccountSummary | null | undefined, usdCzk: number, localPerCzk: number): NetDeposits | null {
   if (!s || !(s.total > 0)) return null;
   const net = s.total - s.ppl - s.result;
   // A profitable account that has been drawn down can legitimately sit at or below zero net
   // deposits — "return on deposits" then means nothing, so the trade proxy is kept instead.
   if (!(net > 0)) return null;
-  if (s.currency === "CZK") return { usd: net / usdCzk, czk: net };
-  if (s.currency === "USD") return { usd: net, czk: net * usdCzk };
+  // Another local currency: the account's koruny at today's ČNB cross rate (the per-deposit
+  // dates are not known from the balance identity).
+  if (s.currency === "CZK") return { usd: net / usdCzk, czk: net * localPerCzk };
+  if (s.currency === "USD") return { usd: net, czk: net * usdCzk * localPerCzk };
   return null; // unknown account currency — never guess (EUR read as CZK is off by ~25 %)
 }
 
-export function computeNetDeposits({ txs, t212, usdCzk, fxAt, dividends = [] }: {
+export function computeNetDeposits({ txs, t212, usdCzk, localPerCzk = 1, fxAt, dividends = [] }: {
   txs: DepositLedgerRow[];
   t212?: T212AccountSummary | null;
   /** Today's USD/CZK, for the connected account's CZK↔USD conversion. */
   usdCzk: number;
-  /** USD/CZK on a given day (YYYY-MM-DD), for flows booked in USD. */
+  /** Local display currency per 1 CZK today (1 = koruny); the `czk` result is in that currency. */
+  localPerCzk?: number;
+  /** USD→local (USD/CZK for koruny) on a given day (YYYY-MM-DD), for flows booked in USD. */
   fxAt: (date: string) => number;
   /**
    * Paid dividends. At a broker whose cash is NOT tracked a dividend is money that came back
@@ -92,7 +96,7 @@ export function computeNetDeposits({ txs, t212, usdCzk, fxAt, dividends = [] }: 
    */
   dividends?: DepositDividendRow[];
 }): NetDeposits {
-  const identity = t212Identity(t212, usdCzk);
+  const identity = t212Identity(t212, usdCzk, localPerCzk);
   const account = t212?.account ?? null;
   // Rows written before per-account scoping carry no account. The sync only adopts them for
   // the connected account when no other T212 account is present — read them the same way.

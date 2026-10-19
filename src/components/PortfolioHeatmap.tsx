@@ -2,6 +2,8 @@ import { Treemap, ResponsiveContainer } from "recharts";
 import { Grid3X3 } from "lucide-react";
 import { useComputedPortfolio } from "@/hooks/usePortfolio";
 import { useCurrency } from "@/contexts/CurrencyContext";
+import { currentLang } from "@/i18n";
+import { wrapSymbol } from "@/lib/displayCurrency";
 
 const colorFor = (pct: number) => {
   const clamped = Math.max(-5, Math.min(5, pct));
@@ -40,9 +42,10 @@ const Tile = (props: any) => {
 const PortfolioHeatmap = () => {
   const { positions } = useComputedPortfolio();
   const { currency, convert, hidden } = useCurrency();
+  const lang = currentLang() === "en" ? "en" : "cs";
   const money = (usd: number) => hidden
-    ? (currency === "USD" ? "$••••" : "•••• Kč")
-    : currency === "USD" ? `$${(usd / 1000).toFixed(1)}k` : `${(convert(usd) / 1000).toFixed(0)}k Kč`;
+    ? wrapSymbol("••••", currency, lang)
+    : currency === "USD" ? `$${(usd / 1000).toFixed(1)}k` : wrapSymbol(`${(convert(usd) / 1000).toFixed(currency === "CZK" ? 0 : 1)}k`, currency, lang);
   const data = positions
     .filter((p) => p.ticker !== "CASH" && p.value > 0)
     .map((p) => ({ name: p.ticker, value: p.value, pct: p.dailyChangePct }));

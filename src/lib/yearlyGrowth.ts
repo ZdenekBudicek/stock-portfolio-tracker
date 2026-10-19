@@ -8,7 +8,7 @@
 
 export interface GrowthSnapshot {
   snapshot_date: string;
-  /** Positions only, converted at that day's FX. */
+  /** Positions only, in the local currency (koruny or the chosen one) at that day's FX. */
   value_czk: number;
   fx_rate?: number | null;
   /** Recorded cash balance; null on days before cash tracking began. */
@@ -20,6 +20,7 @@ export interface LiveTotal {
   date: string;
   holdingsUsd: number;
   cashUsd: number;
+  /** Today's USD → local currency (the name predates non-koruna local currencies). */
   usdCzk: number;
 }
 

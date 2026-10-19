@@ -10,6 +10,20 @@ import { usePositions, useLivePrices } from "@/hooks/usePortfolio";
 import { useAddTransaction } from "@/hooks/useExtras";
 import { useToast } from "@/hooks/use-toast";
 
+/**
+ * A quick trade needs a positive, finite quantity and price and a non-negative fee. Only zero
+ * used to be rejected, so "-5" shares went in as a BUY and inverted the position and cash.
+ * (Splits, transfers and broker corrections never go through this dialog — they come from
+ * statement imports and the broker sync.)
+ */
+// eslint-disable-next-line react-refresh/only-export-components
+export function isValidQuickTrade(ticker: string, shares: number, price: number, fee: number): boolean {
+  return !!ticker.trim()
+    && Number.isFinite(shares) && shares > 0
+    && Number.isFinite(price) && price > 0
+    && Number.isFinite(fee) && fee >= 0;
+}
+
 const QuickTradeDialog = () => {
   const { t } = useTranslation();
   const [open, setOpen] = useState(false);
@@ -53,7 +67,7 @@ const QuickTradeDialog = () => {
   };
 
   const submit = async () => {
-    if (!upper || !sharesN || !priceN) {
+    if (!isValidQuickTrade(upper, sharesN, priceN, feeN)) {
       toast({ title: t('legacy.quickTradeDialog.enterTickerQuantityAndPrice'), variant: "destructive" });
       return;
     }

@@ -8,10 +8,12 @@ import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } f
 import { Button } from '@/components/ui/button';
 import { Panel } from '@/components/v2/ui';
 import { useSaveUserSettings, useTaxResidence } from '@/hooks/useTaxResidence';
-import { BASE_CURRENCIES, TAX_RESIDENCES, type BaseCurrency, type TaxResidence } from '@/lib/tax/jurisdictions';
+import { BASE_CURRENCIES, SUPPORTED_TAX_RESIDENCES, type BaseCurrency, type TaxResidence } from '@/lib/tax/jurisdictions';
 import { cn } from '@/lib/utils';
 
-function ResidenceForm({ onSaved, submitLabel }: { onSaved?: () => void; submitLabel: string }) {
+// withCurrency: the first-login dialog also asks for the default currency; Settings has its
+// own currency row (Display), so the residence form there leaves it alone.
+function ResidenceForm({ onSaved, submitLabel, withCurrency = true }: { onSaved?: () => void; submitLabel: string; withCurrency?: boolean }) {
   const { t } = useTranslation();
   const current = useTaxResidence();
   const save = useSaveUserSettings();
@@ -19,14 +21,15 @@ function ResidenceForm({ onSaved, submitLabel }: { onSaved?: () => void; submitL
   const [currency, setCurrency] = useState<BaseCurrency>(current.baseCurrency);
   useEffect(() => { setResidence(current.taxResidence ?? 'CZ'); setCurrency(current.baseCurrency); }, [current.taxResidence, current.baseCurrency]);
   const dirty = !current.confirmed || residence !== current.taxResidence || currency !== current.baseCurrency;
-  const submit = () => save.mutate({ taxResidence: residence, baseCurrency: currency }, {
+  // Without the currency field the saved default is kept as it is at the moment of saving.
+  const submit = () => save.mutate({ taxResidence: residence, baseCurrency: withCurrency ? currency : current.baseCurrency }, {
     onSuccess: () => { toast.success(t('residence.settings.saved')); onSaved?.(); },
     onError: () => toast.error(t('residence.settings.error')),
   });
   return (
     <div className="space-y-3">
-      <div role="radiogroup" aria-label={t('residence.settings.title')} className="grid gap-2">
-        {TAX_RESIDENCES.map((r) => (
+      <div role="radiogroup" aria-label={t('residence.settings.title')} className="grid gap-2 sm:grid-cols-2">
+        {SUPPORTED_TAX_RESIDENCES.map((r) => (
           <button key={r} type="button" role="radio" aria-checked={residence === r} onClick={() => setResidence(r)}
             className={cn('rounded-2xl border p-3.5 text-left transition-colors',
               residence === r ? 'border-primary/60 bg-primary/10' : 'border-white/10 bg-white/[0.04] hover:bg-white/[0.07]')}>
@@ -38,12 +41,12 @@ function ResidenceForm({ onSaved, submitLabel }: { onSaved?: () => void; submitL
           </button>
         ))}
       </div>
-      <label className="block text-xs text-muted-foreground">{t('residence.currency.label')}
+      {withCurrency && <label className="block text-xs text-muted-foreground">{t('residence.currency.label')}
         <select value={currency} onChange={(e) => setCurrency(e.target.value as BaseCurrency)}
           className="mt-1.5 h-10 w-full rounded-xl border border-white/10 bg-white/[0.04] px-2.5 text-sm text-foreground outline-none">
-          {BASE_CURRENCIES.map((c) => <option key={c} value={c} className="bg-popover">{t(`residence.currency.${c}`)}</option>)}
+          {BASE_CURRENCIES.map((c) => <option key={c} value={c} className="bg-popover">{t(`settings.display.currencyName.${c}`)}</option>)}
         </select>
-      </label>
+      </label>}
       <Button onClick={submit} disabled={save.isPending || !dirty} className="w-full rounded-xl">{submitLabel}</Button>
     </div>
   );
@@ -89,7 +92,7 @@ export function TaxResidencePanel() {
       <p className="-mt-2 mb-3 text-xs text-muted-foreground">{t('residence.settings.sub')}</p>
       {!known ? (isError ? <ResidenceLoadError /> : <p className="text-sm text-muted-foreground">{t('common.loading')}</p>)
         : !available ? <p className="text-sm text-muted-foreground">{t('residence.settings.unavailable')}</p>
-        : <ResidenceForm submitLabel={t('residence.settings.save')} />}
+        : <ResidenceForm submitLabel={t('residence.settings.save')} withCurrency={false} />}
     </Panel>
   );
 }

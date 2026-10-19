@@ -18,6 +18,20 @@ const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
 const dstr = (d: Date) => d.toISOString().slice(0, 10);
 const TIME_BUDGET = 90_000;
 
+// Every page of a select, in a deterministic order (PostgREST caps one select at 1000 rows and
+// paging without ORDER BY can skip or repeat rows). A failed read THROWS — treating it as "no
+// rows" rebuilt an empty history and then deleted the user's stored one.
+async function fetchAll(label: string, page: (from: number, to: number) => PromiseLike<{ data: any[] | null; error: any }>): Promise<any[]> {
+  const out: any[] = [];
+  for (let f = 0; ; f += 1000) {
+    const { data, error } = await page(f, f + 999);
+    if (error) throw new Error(`čtení ${label} selhalo: ${error.message ?? error}`);
+    const rows = data ?? [];
+    out.push(...rows);
+    if (rows.length < 1000) return out;
+  }
+}
+
 // Twelve Data symbol, or null for crypto that has no entry in the shared map. Never the
 // bare ticker: Twelve Data covers US equities, so "LINK" is Interlink Electronics and
 // "ATOM" is Atomera — a bare-ticker fallback writes a company's closes into the shared
@@ -40,17 +54,15 @@ Deno.serve(async (req) => {
     // PostgREST caps a single select at 1000 rows; heavy accounts have far more transactions
     // (this one ~1950), so page through — otherwise tickers whose trades fall past row 1000 are
     // dropped and the reconstructed value is undercounted (the chart's spike/dip at "today").
-    const txRows: any[] = [];
-    for (let f = 0; ; f += 1000) {
-      const { data } = await svc.from("transactions").select("ticker,side,shares,price_usd,executed_at,ext_id").eq("user_id", userId).range(f, f + 999);
-      const page = data ?? []; txRows.push(...page); if (page.length < 1000) break;
-    }
+    const txRows = await fetchAll("transactions", (f, t) => svc.from("transactions").select("ticker,side,shares,price_usd,executed_at,ext_id")
+      .eq("user_id", userId).order("executed_at", { ascending: true }).order("id", { ascending: true }).range(f, t));
     const ledger = txRows.filter((t: any) => t.ticker !== "CASH");
     const trades = ledger.filter((t: any) => !isSyntheticRow(t.ext_id));
 
     // Current broker-truth shares per ticker (positions table = reconciled to the broker).
     // The reconstruction is ANCHORED to these — see _shared/history.js for why.
-    const { data: posRows } = await svc.from("positions").select("ticker,shares,type,holding_start_date").eq("user_id", userId);
+    const posRows = await fetchAll("positions", (f, t) => svc.from("positions").select("ticker,shares,type,holding_start_date")
+      .eq("user_id", userId).order("id", { ascending: true }).range(f, t));
     const positions = ((posRows ?? []) as any[]).filter((p) => p.ticker !== "CASH" && String(p.type ?? "") !== "Cash");
     if (!trades.length && !positions.length) return json({ ok: true, done: true, message: "no trades" });
     const truth = new Map<string, number>();
@@ -68,7 +80,8 @@ Deno.serve(async (req) => {
     const needSymbols = [...tickers, "USDCZK"];
     // earliest stored date per symbol via aggregate RPC (a plain REST select caps at
     // 1000 rows, which mis-reported covered tickers as missing -> endless re-download).
-    const { data: cov } = await svc.rpc("price_history_coverage", { p_symbols: needSymbols });
+    const { data: cov, error: covErr } = await svc.rpc("price_history_coverage", { p_symbols: needSymbols });
+    if (covErr) throw new Error(`čtení pokrytí cen selhalo: ${covErr.message}`);
     const earliest = new Map<string, string>();
     for (const r of (cov ?? []) as any[]) earliest.set(r.symbol, r.earliest);
     const needsFetch = (sym: string, fromDate: string) => { const e = earliest.get(sym); return !e || e > fromDate; };
@@ -80,9 +93,10 @@ Deno.serve(async (req) => {
     // A curated equity alias (ticker_alias.yahoo_symbol that is not a coin pair) pins a
     // coin-named ticker to the security — the same escape hatch the nightly worker honours,
     // e.g. ATOM held as Atomera stock.
-    const { data: aliasRows } = toFetch.length
+    const { data: aliasRows, error: aliasErr } = toFetch.length
       ? await svc.from("ticker_alias").select("alias,yahoo_symbol").in("alias", toFetch)
-      : { data: [] as any[] };
+      : { data: [] as any[], error: null };
+    if (aliasErr) throw new Error(`čtení ticker_alias selhalo: ${aliasErr.message}`);
     const pinnedEquity = new Set(((aliasRows ?? []) as any[]).filter((a) => a.yahoo_symbol && !/-USD$/i.test(String(a.yahoo_symbol))).map((a) => a.alias));
     let fetched = 0; let remaining = 0;
     const skipped: string[] = [];
@@ -99,8 +113,12 @@ Deno.serve(async (req) => {
         const vals: any[] = j?.values ?? [];
         if (vals.length) {
           const rows = vals.map((v) => ({ symbol: sym, date: v.datetime, close: Number(v.close) })).filter((x) => Number.isFinite(x.close));
-          for (let i = 0; i < rows.length; i += 1000) await svc.from("price_history").upsert(rows.slice(i, i + 1000), { onConflict: "symbol,date" });
-          fetched++;
+          let stored = true;
+          for (let i = 0; i < rows.length && stored; i += 1000) {
+            const { error } = await svc.from("price_history").upsert(rows.slice(i, i + 1000), { onConflict: "symbol,date" });
+            if (error) stored = false;
+          }
+          if (stored) fetched++; else skipped.push(sym); // not stored — retry on the next run
         } else if (j?.status === "error" && /symbol|not found|invalid/i.test(String(j?.message ?? ""))) {
           // Twelve Data says it does not know this symbol (delisted/SPAC) -> mark attempted so
           // we don't retry forever. ONLY then: a tombstone makes needsFetch() false for good,
@@ -121,11 +139,8 @@ Deno.serve(async (req) => {
     }
 
     // all covered -> reconstruct daily_snapshots from price_history (no external calls)
-    const priceRows: any[] = [];
-    for (let f = 0; ; f += 1000) {
-      const { data } = await svc.from("price_history").select("symbol,date,close").in("symbol", needSymbols).range(f, f + 999);
-      const page = data ?? []; priceRows.push(...page); if (page.length < 1000) break;
-    }
+    const priceRows = await fetchAll("price_history", (f, t) => svc.from("price_history").select("symbol,date,close")
+      .in("symbol", needSymbols).order("symbol", { ascending: true }).order("date", { ascending: true }).range(f, t));
     const series = new Map<string, Map<string, number>>();
     for (const r of priceRows) { if (!series.has(r.symbol)) series.set(r.symbol, new Map()); series.get(r.symbol)!.set(r.date, Number(r.close)); }
     const fxSeries = series.get("USDCZK") ?? new Map();
@@ -160,12 +175,21 @@ Deno.serve(async (req) => {
     const timeline = createHoldingsTimeline(tradeEvents, truth, firstByTicker);
     const lastClose = new Map<string, number>();
 
+    // The daily cash balance is RECORDED, never recomputed — carry it across the rebuild, and
+    // keep a row for a cash-only day (everything sold), or the cleanup below deletes its cash.
+    const prevCash = await fetchAll("daily_snapshots", (f, t) => svc.from("daily_snapshots").select("snapshot_date,cash_usd")
+      .eq("user_id", userId).not("cash_usd", "is", null).order("snapshot_date", { ascending: true }).range(f, t));
+    const cashByDay = new Map<string, number>();
+    for (const r of prevCash) { const c = Number(r.cash_usd); if (Number.isFinite(c)) cashByDay.set(String(r.snapshot_date).slice(0, 10), c); }
+    const firstCash = [...cashByDay.keys()].sort()[0];
+    const loopFirst = firstCash && firstCash < globalFirst ? firstCash : globalFirst;
+
     let lastFx = 23;
     const snaps: any[] = [];
     const todayMs = Date.now();
     // Iterate in UTC milliseconds — stepping a local Date by one day skips/repeats a day
     // across a DST boundary.
-    for (let ms = Date.parse(globalFirst); ms <= todayMs; ms += 86400000) {
+    for (let ms = Date.parse(loopFirst); ms <= todayMs; ms += 86400000) {
       const day = dstr(new Date(ms));
       const held = timeline.advanceTo(day);
       if (fxSeries.has(day)) lastFx = fxSeries.get(day)!;
@@ -183,25 +207,29 @@ Deno.serve(async (req) => {
       // there. `daily-snapshot-cron` stores the same holdings-only figure.
       // cash_usd on EVERY row (null where not tracked) — PostgREST rejects a bulk insert whose
       // objects do not all carry the same keys, which truncates the rebuild mid-way.
-      if (val > 0) snaps.push({ user_id: userId, snapshot_date: day, value_usd: Math.round(val * 100) / 100, value_czk: Math.round(val * lastFx * 100) / 100, cash_usd: null, profit_usd: 0, profit_pct: 0, profit_czk: 0, fx_rate: lastFx });
+      const cash = cashByDay.get(day) ?? null;
+      if (val > 0 || cash != null) snaps.push({ user_id: userId, snapshot_date: day, value_usd: Math.round(val * 100) / 100, value_czk: Math.round(val * lastFx * 100) / 100, cash_usd: cash, profit_usd: 0, profit_pct: 0, profit_czk: 0, fx_rate: lastFx });
     }
-    // The daily cash balance is RECORDED, never recomputed — carry it across the rebuild, or
-    // deleting the rows below would throw away the only record of what cash was on each day.
-    const { data: prevCash } = await svc.from("daily_snapshots")
-      .select("snapshot_date,cash_usd").eq("user_id", userId).not("cash_usd", "is", null);
-    const cashByDay = new Map<string, number>();
-    for (const r of (prevCash ?? []) as any[]) cashByDay.set(r.snapshot_date, Number(r.cash_usd));
-    for (const s of snaps) { const c = cashByDay.get(s.snapshot_date); if (c != null) s.cash_usd = c; }
+    // Never replace a stored history with an empty one.
+    if (!snaps.length) return json({ error: "Z dostupných dat nevyšel žádný den historie — uložená historie zůstává beze změny." }, 500);
 
-    await svc.from("daily_snapshots").delete().eq("user_id", userId);
+    // Overwrite day by day (upsert) instead of delete-then-insert: a failed batch leaves the
+    // previous history in place, not a truncated one. Days the rebuild no longer produces are
+    // deleted only after every batch was written.
     let written = 0;
     for (let i = 0; i < snaps.length; i += 500) {
       const chunk = snaps.slice(i, i + 500);
-      const { error } = await svc.from("daily_snapshots").insert(chunk);
-      // The rows were deleted first, so a failed batch leaves a truncated history. Say so
-      // instead of reporting success over half a chart.
-      if (error) return json({ error: `Historie se zapsala jen zčásti (${written} z ${snaps.length} dní): ${error.message}` }, 500);
+      const { error } = await svc.from("daily_snapshots").upsert(chunk, { onConflict: "user_id,snapshot_date" });
+      if (error) return json({ error: `Historie se zapsala jen zčásti (${written} z ${snaps.length} dní, starší data ponechána): ${error.message}` }, 500);
       written += chunk.length;
+    }
+    const keep = new Set(snaps.map((s) => s.snapshot_date));
+    const existing = await fetchAll("daily_snapshots", (f, t) => svc.from("daily_snapshots").select("snapshot_date")
+      .eq("user_id", userId).order("snapshot_date", { ascending: true }).range(f, t));
+    const gone = existing.map((r) => String(r.snapshot_date).slice(0, 10)).filter((d) => !keep.has(d));
+    for (let i = 0; i < gone.length; i += 100) {
+      const { error } = await svc.from("daily_snapshots").delete().eq("user_id", userId).in("snapshot_date", gone.slice(i, i + 100));
+      if (error) return json({ error: `Historie zapsána, ale úklid starých dní selhal: ${error.message}` }, 500);
     }
     return json({
       ok: true, done: true, snapshots: snaps.length,

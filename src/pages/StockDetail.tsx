@@ -19,10 +19,11 @@ import { fmtNum, fmtPercent } from '@/i18n/format';
 import { EmptyNote, Footnote, Kpi, Label, PageTitle, Panel, Pill, Segmented } from '@/components/v2/ui';
 import { addDays, daysBetween, pragueDate } from '@/lib/czTax';
 import { isRealTradeTx } from '@/lib/fifo';
-import { nextExemptionOf } from '@/lib/taxLots';
 import { formatPct, formatUsd } from '@/data/portfolio';
 import { cn } from '@/lib/utils';
 import { useJurisdiction } from '@/hooks/useTaxResidence';
+import { holdingProgress, holdingRuleFor } from '@/lib/tax/holdingRule';
+import { isCryptoHolding } from '../../supabase/functions/_shared/crypto.js';
 
 type Range = '1M' | '6M' | '1Y' | '5Y' | 'ALL';
 const RANGE_DAYS: Record<Range, number | null> = { '1M': 31, '6M': 183, '1Y': 365, '5Y': 1826, 'ALL': null };
@@ -122,7 +123,7 @@ function PriceChart({ sym, marks, avgPrice, earningsDate }: { sym: string; marks
         <span className="flex items-center gap-1.5"><span className="h-2.5 w-2.5 rounded-full bg-profit shadow-[0_0_8px_hsl(var(--profit))]" />{t('stock.chart.buys')}</span>
         <span className="flex items-center gap-1.5"><span className="h-2.5 w-2.5 rounded-full bg-loss" />{t('stock.chart.sells')}</span>
         {avgPrice != null && <span className="flex items-center gap-1.5"><span className="w-4 border-t-2 border-dashed border-warning" />{t('stock.chart.avgLegend')}</span>}
-        <span className="flex items-center gap-1.5"><span className="h-2.5 w-2.5 rounded-sm bg-primary" />{t('stock.chart.earnings')}</span>
+        {earningsDate && <span className="flex items-center gap-1.5"><span className="h-2.5 w-2.5 rounded-sm bg-primary" />{t('stock.chart.earnings')}</span>}
       </span>
     } action={<Segmented<Range> value={range} onChange={setRange} options={(['1M', '6M', '1Y', '5Y', 'ALL'] as const).map((r) => ({ value: r, label: t(`stock.range.${r}`) }))} />}>
       {isLoading ? <div className="h-[340px] animate-pulse rounded-2xl bg-white/[0.03]" /> : data.length < 2 ? (
@@ -149,13 +150,15 @@ const StockDetail = () => {
   const { data: news } = useStockNews(sym);
   const { data: history = [] } = usePriceHistory(sym);
   const tax = useTaxModel();
-  const { caps } = useJurisdiction();
+  const { code: residence } = useJurisdiction();
   const div = useDividendModel();
   const [openNews, setOpenNews] = useState<number | null>(null);
   const [tradeFilter, setTradeFilter] = useState<'all' | 'BUY' | 'SELL'>('all');
   const today = todayPrague();
 
   const p = positions.find((x) => x.ticker === sym);
+  // A coin has no results, statements, fair value or dividends — those cards are company-only.
+  const isCrypto = isCryptoHolding(sym, p?.type);
   const name = p?.name ?? dbPositions.find((x) => x.ticker === sym)?.name ?? watch.find((w) => w.ticker === sym)?.name ?? sym;
   const quote = live.data?.prices[sym];
   const price = p?.currentPrice ?? quote?.price ?? null;
@@ -192,10 +195,10 @@ const StockDetail = () => {
   const rangePos = lo && hi && price && hi.close > lo.close ? Math.min(100, Math.max(0, ((price - lo.close) / (hi.close - lo.close)) * 100)) : null;
 
   const lots = tax.lots.filter((l) => l.ticker === sym);
-  const heldShares = lots.reduce((s, l) => s + l.shares, 0);
-  const exemptShares = lots.filter((l) => l.exempt).reduce((s, l) => s + l.shares, 0);
-  const exemptPct = heldShares > 0 ? (exemptShares / heldShares) * 100 : 0;
-  const nextExempt = nextExemptionOf(tax.lots, sym);
+  // The holding-period rule of the user's residence for this kind (null = none, just "held since").
+  const rule = holdingRuleFor(residence, tax.kindOf(sym).kind);
+  const hold = rule ? holdingProgress(lots, rule, today) : null;
+  const holdKeys = !rule ? null : rule.effect === 'long-term' ? 'stock.tax.longTerm' : 'stock.tax';
   const oldestLot = lots.reduce<string | null>((a, l) => (a == null || l.acquiredDate < a ? l.acquiredDate : a), null);
   const annualDiv = div.annual.get(sym.split('.')[0]) ?? 0;
   const profit = p ? pick(p.profitUsd, p.profitCzk) : 0;
@@ -265,6 +268,7 @@ const StockDetail = () => {
             </>
           ) : <div className="mt-2 text-sm text-muted-foreground">{t('stock.range52.none')}</div>}
         </Panel>
+        {!isCrypto && (
         <Panel className="lg:col-span-3">
           <Label>{t('stock.earnings.title')}</Label>
           {nextEarnings ? (
@@ -275,29 +279,40 @@ const StockDetail = () => {
             </div>
           ) : <div className="mt-2 text-sm text-muted-foreground">{t('stock.earnings.unknown')}</div>}
         </Panel>
-        {caps.holdingExemption ? (
+        )}
+        {rule && hold && holdKeys ? (
+        // Tax-free after the holding period (CZ, DE crypto, SK securities) or, in the US, only
+        // the long-term rate — never called tax-free there.
         <Panel className="lg:col-span-3">
-          <Label>{t('stock.tax.title')}</Label>
-          <div className="mt-2 text-2xl font-semibold tracking-[-0.03em] num">{heldShares > 0 ? fmtPercent(exemptPct, 0) : '—'} <span className="text-xs font-medium text-muted-foreground">{t('stock.tax.exempt')}</span></div>
-          <div className="mt-2.5 h-2 rounded-full bg-white/[0.06]">{exemptPct > 0 && <div className="h-2 rounded-full bg-profit" style={{ width: `${exemptPct}%` }} />}</div>
-          <div className="mt-2.5 text-xs text-muted-foreground">{nextExempt ? t('stock.tax.next', { date: fmtDate(nextExempt) }) : heldShares > 0 ? t('stock.tax.all') : ''}</div>
+          <Label>{rule.effect === 'exempt' && rule.years === 1 ? t('stock.tax.titleOneYear') : t(`${holdKeys}.title`)}</Label>
+          <div className="mt-2 text-2xl font-semibold tracking-[-0.03em] num">{hold.heldShares > 0 ? fmtPercent(hold.qualifiedPct, 0) : '—'} <span className="text-xs font-medium text-muted-foreground">{t(`${holdKeys}.exempt`)}</span></div>
+          <div className="mt-2.5 h-2 rounded-full bg-white/[0.06]">{hold.qualifiedPct > 0 && <div className={cn('h-2 rounded-full', rule.effect === 'exempt' ? 'bg-profit' : 'bg-primary')} style={{ width: `${hold.qualifiedPct}%` }} />}</div>
+          <div className="mt-2.5 text-xs text-muted-foreground">{hold.next ? t(`${holdKeys}.next`, { date: fmtDate(hold.next) }) : hold.heldShares > 0 ? t(`${holdKeys}.all`) : ''}</div>
+          {rule.effect === 'long-term' && <div className="mt-1 text-xs text-muted-foreground">{t('stock.tax.longTerm.note')}</div>}
         </Panel>
         ) : (
-        // No holding-period exemption in the user's jurisdiction: just how long it is held.
+        // No holding-period rule in the user's jurisdiction for this kind: just how long it is held.
         <Panel className="lg:col-span-3">
           <Label>{t('residence.stock.title')}</Label>
           <div className="mt-2 text-2xl font-semibold tracking-[-0.03em] num">{oldestLot ? t('residence.stock.since', { date: fmtDate(oldestLot) }) : '—'}</div>
           <div className="mt-2.5 text-xs text-muted-foreground">{lots.length > 0 ? t('residence.stock.lots', { count: lots.length }) : ''}</div>
         </Panel>
         )}
+        {isCrypto ? (
+        <Panel className="lg:col-span-6">
+          <Label>{t('stock.crypto.title')}</Label>
+          <div className="mt-2 text-sm leading-relaxed text-muted-foreground">{t('stock.crypto.text')}</div>
+        </Panel>
+        ) : (
         <Panel className="lg:col-span-3">
           <Label>{t('stock.dividend.title')}</Label>
           <div className="mt-2 text-2xl font-semibold tracking-[-0.03em] text-profit num">{annualDiv > 0 ? `≈ ${format(annualDiv)}` : '—'} <span className="text-xs font-medium text-muted-foreground">{t('common.perYear')}</span></div>
           <div className="mt-3 text-xs text-muted-foreground">{annualDiv > 0 && p ? t('stock.dividend.yields', { onCost: fmtPercent((annualDiv / p.invested) * 100, 2), today: fmtPercent((annualDiv / p.value) * 100, 2) }) : t('stock.dividend.none')}</div>
         </Panel>
+        )}
 
-        <CompanyFinancials symbol={sym} />
-        <FairValueForSymbol symbol={sym} price={price} />
+        {!isCrypto && <CompanyFinancials symbol={sym} />}
+        {!isCrypto && <FairValueForSymbol symbol={sym} price={price} />}
 
         <Panel className="lg:col-span-12" title={t('stock.trades.title')} action={
           <Segmented<'all' | 'BUY' | 'SELL'> value={tradeFilter} onChange={setTradeFilter} options={[{ value: 'all', label: t('stock.trades.all', { count: trades.length }) }, { value: 'BUY', label: t('stock.trades.buys') }, { value: 'SELL', label: t('stock.trades.sells') }] as const} />

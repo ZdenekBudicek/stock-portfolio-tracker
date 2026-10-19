@@ -6,6 +6,8 @@ import { useCurrency } from '@/contexts/CurrencyContext';
 import { useAuth } from '@/contexts/AuthContext';
 import { useComputedPortfolio, useDailySnapshots, useLivePrices } from '@/hooks/usePortfolio';
 import { formatPct } from '@/data/portfolio';
+import { currentLang } from '@/i18n';
+import { symbolOf, type DisplayCurrency } from '@/lib/displayCurrency';
 import { isUsMarketOpen } from '@/lib/marketHours';
 import QuickTradeDialog from '@/components/QuickTradeDialog';
 import CashAdjustDialog from '@/components/CashAdjustDialog';
@@ -50,7 +52,8 @@ const Stat = ({ label, value, sub, accent, icon }: {
 );
 
 const PortfolioHeader = () => {
-  const { currency, setCurrency, format, formatAt, pick, hidden, toggleHidden } = useCurrency();
+  const { currency, setCurrency, local, format, formatAt, pick, hidden, toggleHidden } = useCurrency();
+  const lang = currentLang() === 'en' ? 'en' : 'cs';
   const { user, signOut } = useAuth();
   const live = useLivePrices();
   const p = useComputedPortfolio();
@@ -62,7 +65,7 @@ const PortfolioHeader = () => {
   const dailyPositive = p.dailyReturn >= 0;
   // Total profit = current value − net deposits (honest "how much more I have than I put
   // in", includes realized gains from sold positions). Falls back to realized+unrealized.
-  // In CZK against the koruny actually put in, so the currency move is part of the result.
+  // In the local currency (koruny or the chosen one) against the money actually put in, so the currency move is part of the result.
   const totalProfit = pick(p.totalProfit, p.totalProfitCzk);
   const unrealized = pick(p.unrealizedProfit, p.unrealizedProfitCzk);
   const prevValue = p.totalValue - p.dailyReturn;
@@ -74,15 +77,16 @@ const PortfolioHeader = () => {
   // (not the 60-day trend) — otherwise the line is red while "+x % dnes" is green, which
   // reads as a bug. The shape still reflects the 60-day history.
   // Whole portfolio like the number above it (positions + recorded cash, a day without a
-  // recorded balance keeps the last one), each day at its own rate in CZK, ending on today's
-  // live value. The Y axis starts at the lowest point — from 0 a ±5 % move was a flat line.
+  // recorded balance keeps the last one), each day at its own rate in the local currency,
+  // ending on today's live value. The Y axis starts at the lowest point — from 0 a ±5 % move
+  // was a flat line.
   let lastCash = 0;
   const spark = snapshots.slice(-60).map((s) => {
     if (s.cash_usd != null) lastCash = s.cash_usd;
-    const fx = s.fx_rate || (s.value_usd > 0 ? s.value_czk / s.value_usd : p.usdCzk);
+    const fx = s.fx_rate || (s.value_usd > 0 ? s.value_czk / s.value_usd : p.usdLocal);
     return { v: currency === 'USD' ? s.value_usd + lastCash : s.value_czk + lastCash * fx };
   });
-  if (!p.loading && p.totalValue > 0) spark.push({ v: currency === 'USD' ? p.totalValue : p.totalValue * p.usdCzk });
+  if (!p.loading && p.totalValue > 0) spark.push({ v: currency === 'USD' ? p.totalValue : p.totalValue * p.usdLocal });
   const sparkColor = dailyPositive ? 'hsl(var(--profit))' : 'hsl(var(--loss))';
 
   const [backfilling, setBackfilling] = useState(false);
@@ -244,18 +248,17 @@ const PortfolioHeader = () => {
               <CashAdjustDialog />
               <ExportMenu />
               <div className="flex items-center rounded-lg border border-border overflow-hidden bg-background/40">
-              <button
-                onClick={() => setCurrency('USD')}
-                className={`px-3 py-1 text-xs font-semibold transition-all ${
-                  currency === 'USD' ? 'bg-primary text-primary-foreground shadow-md shadow-primary/30' : 'text-muted-foreground hover:text-foreground hover:bg-accent'
-                }`}
-              >USD</button>
-              <button
-                onClick={() => setCurrency('CZK')}
-                className={`px-3 py-1 text-xs font-semibold transition-all ${
-                  currency === 'CZK' ? 'bg-primary text-primary-foreground shadow-md shadow-primary/30' : 'text-muted-foreground hover:text-foreground hover:bg-accent'
-                }`}
-              >CZK</button>
+              {/* Dollars and the user's local currency; the full picker is in the app shell. */}
+              {(['USD', local] as DisplayCurrency[]).map((c) => (
+                <button
+                  key={c}
+                  onClick={() => setCurrency(c)}
+                  title={c}
+                  className={`px-3 py-1 text-xs font-semibold transition-all ${
+                    currency === c ? 'bg-primary text-primary-foreground shadow-md shadow-primary/30' : 'text-muted-foreground hover:text-foreground hover:bg-accent'
+                  }`}
+                >{symbolOf(c, lang)}</button>
+              ))}
               </div>
               {user && (
                 <button
@@ -273,7 +276,7 @@ const PortfolioHeader = () => {
             <Stat
               label="Vloženo"
               value={p.netDepositsUsd != null
-                ? formatAt(p.netDepositsUsd, p.netDepositsCzk ?? p.netDepositsUsd * p.usdCzk)
+                ? formatAt(p.netDepositsUsd, p.netDepositsCzk ?? p.netDepositsUsd * p.usdLocal)
                 : formatAt(p.totalInvested, p.totalInvestedCzk)}
             />
             <Stat

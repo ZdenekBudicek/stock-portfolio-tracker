@@ -15,6 +15,9 @@ import { Kpi, PageTitle, Panel, Segmented, Footnote, EmptyNote } from '@/compone
 import { squarify } from '@/lib/treemap';
 import { formatPct } from '@/data/portfolio';
 import { fmtPercent } from '@/i18n/format';
+import { currentLang } from '@/i18n';
+import { compactMoney } from '@/lib/displayCurrency';
+import { cn } from '@/lib/utils';
 import { useJurisdiction } from '@/hooks/useTaxResidence';
 
 type MapMode = 'day' | 'total';
@@ -97,6 +100,54 @@ function Concentration() {
   );
 }
 
+type GridMode = 'total' | 'day';
+
+/**
+ * Every open position at a glance: rank by value, logo, weight, price and the gain in money and
+ * percent — overall (unrealized, in the shown currency) or today. Three columns on wide screens.
+ */
+function PositionsGrid() {
+  const { t } = useTranslation();
+  const { positions, usdLocal } = useComputedPortfolio();
+  const { currency, hidden } = useCurrency();
+  const [mode, setMode] = useState<GridMode>('total');
+  const hold = holdingsOf(positions).sort((a, b) => b.value - a.value);
+  const compact = (v: number) => {
+    if (hidden) return '••••';
+    // "$60.63K" in dollars (as brokers show it), "1,26 mil. Kč" in koruna (likewise the other local currencies).
+    const sign = v < 0 ? '−' : '';
+    if (currency === 'USD') return `${sign}$${new Intl.NumberFormat('en-US', { notation: 'compact', maximumFractionDigits: 2 }).format(Math.abs(v))}`;
+    return sign + compactMoney(Math.abs(v), currency, currentLang() === 'en' ? 'en' : 'cs', 2);
+  };
+  const price = (v: number) => (hidden ? '••••' : `$${v.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`);
+  if (hold.length === 0) return null;
+  return (
+    <Panel title={t('positions.grid.title')} action={<Segmented<GridMode> value={mode} onChange={setMode} options={[{ value: 'total', label: t('positions.map.total') }, { value: 'day', label: t('positions.map.day') }]} />}>
+      <div className="grid grid-cols-1 gap-x-8 md:grid-cols-2 xl:grid-cols-3">
+        {hold.map((p, i) => {
+          const amt = mode === 'day' ? (currency !== 'USD' ? p.dailyChangeUsd * usdLocal : p.dailyChangeUsd) : (currency !== 'USD' ? p.profitCzk : p.profitUsd);
+          const pct = mode === 'day' ? p.dailyChangePct : (currency !== 'USD' ? p.profitPctCzk : p.profitPct);
+          const up = amt >= 0;
+          return (
+            <Link key={p.ticker} to={`/stock/${p.ticker}`} className="group/link flex items-center gap-3 border-b border-white/[0.06] py-3 transition-colors hover:bg-white/[0.03]">
+              <span className="w-8 shrink-0 text-right text-xs text-muted-foreground num">#{i + 1}</span>
+              <TickerLogo ticker={p.ticker} size="md" />
+              <div className="min-w-0 flex-1">
+                <div className="truncate font-semibold">{p.ticker}</div>
+                <div className="text-xs text-muted-foreground num">{fmtPercent(p.allocation, 2)}</div>
+              </div>
+              <div className="text-right">
+                <div className="font-semibold num">{price(p.currentPrice)}</div>
+                <div className={cn('text-xs font-medium num', up ? 'text-profit' : 'text-loss')}>{up ? '' : ''}{compact(amt)} ({fmtPercent(pct, 2, true)})</div>
+              </div>
+            </Link>
+          );
+        })}
+      </div>
+    </Panel>
+  );
+}
+
 const Positions = () => {
   const { t } = useTranslation();
   const p = useComputedPortfolio();
@@ -125,6 +176,7 @@ const Positions = () => {
           <Concentration />
         </div>
       </div>
+      <div className="mt-4"><PositionsGrid /></div>
       <div className="mt-4 space-y-4">
         <HoldingsTable />
         <div id="watchlist"><Watchlist /></div>

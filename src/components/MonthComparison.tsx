@@ -14,10 +14,11 @@ const MonthComparison = () => {
 
   const monthly = useMemo(() => {
     if (snaps.length < 2) return [] as Array<{ key: string; pct: number; amount: number; }>;
-    // In CZK the month is measured on the koruna values of its own days (value_czk, at each
-    // day's rate) and the money put in at the rate of the day it went in — not on the USD
-    // series times today's rate, which gave the USD % with a koruna label.
-    const czk = currency === 'CZK';
+    // In the local currency (koruny or the chosen one) the month is measured on the local
+    // values of its own days (value_czk, at each day's rate) and the money put in at the rate of
+    // the day it went in — not on the USD series times today's rate, which gave the USD % with
+    // a koruna label.
+    const czk = currency !== 'USD';
     const sorted = [...snaps].sort((a, b) => a.snapshot_date.localeCompare(b.snapshot_date));
     const fxDays = sorted.filter((s) => s.fx_rate);
     const fxAt = (date: string) => {

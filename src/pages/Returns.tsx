@@ -19,6 +19,7 @@ import { dividendPayDate, dividendTaxRow } from '@/lib/dividendTax';
 import { addDays, pragueDate } from '@/lib/czTax';
 import { fmtCzk, fmtDay, fmtMonthShort, fmtMonthYear, fmtNum, fmtPercent } from '@/i18n/format';
 import { currentLang } from '@/i18n';
+import { formatMoney, symbolOf, wrapSymbol, type DisplayCurrency } from '@/lib/displayCurrency';
 import { cn } from '@/lib/utils';
 
 type Period = 'YTD' | '1R' | '3R' | 'ALL';
@@ -78,11 +79,12 @@ function MonthHeatmap({ points }: { points: Point[] }) {
   );
 }
 
-function CashFlow({ points, currency }: { points: Point[]; currency: 'USD' | 'CZK' }) {
+function CashFlow({ points, currency }: { points: Point[]; currency: DisplayCurrency }) {
   const { t } = useTranslation();
   const { data: divs = [] } = useDividends();
   const { data: txs = [] } = useTransactions();
   const { hidden } = useCurrency();
+  const lang = currentLang() === 'en' ? 'en' : 'cs';
   const p = useComputedPortfolio();
   const today = todayPrague();
   const months = useMemo(() => {
@@ -91,7 +93,7 @@ function CashFlow({ points, currency }: { points: Point[]; currency: 'USD' | 'CZ
     for (let i = 11; i >= 0; i--) out.push(new Date(Date.UTC(y, m - 1 - i, 1)).toISOString().slice(0, 7));
     return out;
   }, [today]);
-  const k = currency === 'CZK' ? p.usdCzk : 1; // dividends and fees are converted at today's rate (approximate)
+  const k = currency !== 'USD' ? p.usdLocal : 1; // dividends and fees are converted at today's rate (approximate)
   const [hot, setHot] = useState<number | null>(null);
   const data = useMemo(() => {
     const net = monthlyNetFlows(points);
@@ -116,6 +118,7 @@ function CashFlow({ points, currency }: { points: Point[]; currency: 'USD' | 'CZ
   const money = (v: number) => {
     if (hidden) return '••••';
     if (currency === 'CZK') return fmtCzk(v);
+    if (currency !== 'USD') return formatMoney(v, currency, lang, { decimals: 0 });
     return `${v < 0 ? '−' : ''}$${fmtNum(Math.abs(Math.round(v)))}`;
   };
   const inSum = sum((d) => Math.max(0, d.net)), outSum = sum((d) => Math.min(0, d.net));
@@ -173,22 +176,25 @@ function CashFlow({ points, currency }: { points: Point[]; currency: 'USD' | 'CZ
 function ProfitSources() {
   const { t } = useTranslation();
   const p = useComputedPortfolio();
-  const { format, formatAt, currency, pick, hidden } = useCurrency();
+  const { format, formatAt, currency, local, pick, hidden } = useCurrency();
+  const lang = currentLang() === 'en' ? 'en' : 'cs';
   const total = pick(p.totalProfit, p.totalProfitCzk);
-  const realized = currency === 'USD' ? p.realizedProfit : p.realizedProfit * p.usdCzk;
+  const realized = currency === 'USD' ? p.realizedProfit : p.realizedProfit * p.usdLocal;
   const unrealized = pick(p.unrealizedProfit, p.unrealizedProfitCzk);
-  // Open positions in CZK: what came from the share price (at today's rate) and what from the
-  // koruna's move since each purchase — exact, from the cost at each purchase day's rate.
-  const priceCzk = p.unrealizedProfit * p.usdCzk;
+  // Open positions in the local currency (koruny or the chosen one): what came from the share
+  // price (at today's rate) and what from the currency's move since each purchase — exact, from
+  // the cost at each purchase day's rate.
+  const priceCzk = p.unrealizedProfit * p.usdLocal;
   const fxCzk = p.unrealizedProfitCzk - priceCzk;
   const rest = total - realized - unrealized;
   const rows = [
     { label: t('returns.sources.realized'), v: realized, text: format(p.realizedProfit) },
     { label: t('returns.sources.unrealized'), v: unrealized, text: formatAt(p.unrealizedProfit, p.unrealizedProfitCzk) },
-    { label: t('returns.sources.rest'), v: rest, text: format(currency === 'USD' ? rest : rest / p.usdCzk) },
+    { label: t('returns.sources.rest'), v: rest, text: format(currency === 'USD' ? rest : rest / p.usdLocal) },
   ];
   const max = Math.max(1e-9, ...rows.map((r) => Math.abs(r.v)));
-  const czkMasked = currentLang() === 'en' ? 'CZK ••••' : '•••• Kč';
+  const czkMasked = wrapSymbol('••••', local, lang);
+  const localMoney = (v: number) => (local === 'CZK' ? fmtCzk(v) : formatMoney(v, local, lang));
   return (
     <Panel className="lg:col-span-5" title={t('returns.sources.title')} action={<Pill tone={total >= 0 ? 'profit' : 'loss'}>{total >= 0 ? '+' : ''}{formatAt(p.totalProfit, p.totalProfitCzk)}</Pill>}>
       <div className="space-y-4">
@@ -202,10 +208,10 @@ function ProfitSources() {
         ))}
       </div>
       <div className="mt-5 border-t border-white/[0.08] pt-4">
-        <Label>{t('returns.sources.openCzk')}</Label>
+        <Label>{t('returns.sources.openCzk', { currency: symbolOf(local, lang) })}</Label>
         <div className="mt-2 grid grid-cols-2 gap-3">
-          <Kpi label={t('returns.sources.fromPrice')} value={hidden ? czkMasked : fmtCzk(priceCzk)} tone={priceCzk >= 0 ? 'profit' : 'loss'} size="sm" />
-          <Kpi label={t('returns.sources.fromFx')} value={hidden ? czkMasked : fmtCzk(fxCzk)} tone={fxCzk >= 0 ? 'profit' : 'loss'} size="sm" />
+          <Kpi label={t('returns.sources.fromPrice')} value={hidden ? czkMasked : localMoney(priceCzk)} tone={priceCzk >= 0 ? 'profit' : 'loss'} size="sm" />
+          <Kpi label={t('returns.sources.fromFx')} value={hidden ? czkMasked : localMoney(fxCzk)} tone={fxCzk >= 0 ? 'profit' : 'loss'} size="sm" />
         </div>
       </div>
     </Panel>
@@ -283,7 +289,7 @@ const Returns = () => {
             sub={p.netDepositsUsd != null ? t('returns.kpi.fromDeposits', { amount: formatAt(p.netDepositsUsd, p.netDepositsCzk ?? 0) }) : undefined} />
         </Panel>
         <Panel>
-          <Kpi label={t('returns.kpi.periodProfit', { period: periodLabel })} value={stats ? `${stats.profit >= 0 ? '+' : ''}${formatAt(currency === 'USD' ? stats.profit : stats.profit / p.usdCzk, stats.profit)}` : '—'}
+          <Kpi label={t('returns.kpi.periodProfit', { period: periodLabel })} value={stats ? `${stats.profit >= 0 ? '+' : ''}${formatAt(currency === 'USD' ? stats.profit : stats.profit / p.usdLocal, stats.profit)}` : '—'}
             tone={stats && stats.profit >= 0 ? 'profit' : 'loss'} size="lg" sub={t('returns.kpi.periodProfitSub')} />
         </Panel>
         <Panel>

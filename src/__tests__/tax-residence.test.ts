@@ -17,10 +17,12 @@ describe('jurisdiction selection', () => {
     expect(jurisdictionFor('CZ')).toBe(CZ);
     expect(jurisdictionFor(' cz ')).toBe(CZ);
     expect(jurisdictionFor('OTHER')).toBe(OTHER);
-    expect(jurisdictionFor('DE')).toBe(OTHER);
+    expect(jurisdictionFor('DE').annualEngine?.residence).toBe('DE');
+    expect(jurisdictionFor('FR')).toBe(OTHER);
     expect(normalizeResidence(null)).toBe('OTHER');
     expect(normalizeBaseCurrency('usd')).toBe('USD');
-    expect(normalizeBaseCurrency('EUR')).toBe('CZK');
+    expect(normalizeBaseCurrency('eur')).toBe('EUR');
+    expect(normalizeBaseCurrency('CHF')).toBe('CZK');
   });
 
   it('a transient read error is thrown (retried), never read as a Czech resident', () => {

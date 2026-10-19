@@ -9,6 +9,7 @@
 
 import { applySplitAdjustment, createHoldingsTimeline, isSyntheticRow, sanitizeSeries } from "../supabase/functions/_shared/history.js";
 import { parseOnlySymbols } from './only-symbols.mjs';
+import { pathToFileURL } from "node:url";
 import { isCryptoHolding, yahooCryptoSymbol, twelveCryptoSymbol } from "../supabase/functions/_shared/crypto.js";
 
 const U = process.env.SUPABASE_URL;
@@ -19,7 +20,6 @@ const TD = process.env.TWELVE_DATA_KEY || "";
 // Present but invalid stops the run (never a silent full run over every user).
 let ONLY = [];
 try { ONLY = parseOnlySymbols(process.env.ONLY_SYMBOLS) ?? []; } catch (e) { console.error(e.message); process.exit(1); }
-if (!U || !K) { console.error("Missing SUPABASE_URL / SUPABASE_SERVICE_KEY"); process.exit(1); }
 
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 const dstr = (d) => d.toISOString().slice(0, 10);
@@ -117,7 +117,40 @@ async function resolveYahooCandidatesViaIsin(isin) {
 // Spike filter lives in _shared/history.js (sanitizeSeries) so it is tested.
 const sanitize = sanitizeSeries;
 
+/**
+ * One user's daily snapshot rows, from the first datable holding (or the first recorded cash
+ * day, if earlier) through today (UTC). `valueOn(day)` is called once per day in ascending
+ * order and returns the holdings value in USD. A day is kept when it has a holdings value OR
+ * a recorded cash balance (a cash-only day after selling everything) — the cleanup after the
+ * upsert deletes every day not returned here, so dropping such a day would delete its cash.
+ * Today's live cash balance is stamped on TODAY's row only (created when needed), never on
+ * an older last row.
+ * cash_usd is present on EVERY row (null where not tracked): a bulk insert where some objects
+ * carry a key and others do not is rejected wholesale by PostgREST.
+ */
+export function planDailySnapshots({ uid, uFirst, todayMs, prevCash, todayCash, fxCzk, valueOn }) {
+  const today = dstr(new Date(todayMs));
+  const hasTodayCash = todayCash != null && Number.isFinite(todayCash);
+  const firstCash = [...prevCash.keys()].sort()[0];
+  const loopFirst = firstCash && firstCash < uFirst ? firstCash : uFirst;
+  let lastCzk = 23;
+  let carried = 0;
+  const snapMap = new Map(); // keyed by day -> dedupes any DST-repeated date
+  // iterate in UTC ms to avoid DST quirks
+  for (let ms = Date.parse(loopFirst); ms <= todayMs; ms += 86400000) {
+    const day = dstr(new Date(ms));
+    if (fxCzk.has(day)) lastCzk = fxCzk.get(day);
+    const val = valueOn(day);
+    const cash = day === today && hasTodayCash ? todayCash : prevCash.get(day);
+    if (!(val > 0) && cash == null) continue;
+    if (cash != null) carried++;
+    snapMap.set(day, { user_id: uid, snapshot_date: day, value_usd: Math.round(val * 100) / 100, value_czk: Math.round(val * lastCzk * 100) / 100, cash_usd: cash ?? null, profit_usd: 0, profit_pct: 0, profit_czk: 0, fx_rate: lastCzk });
+  }
+  return { snaps: [...snapMap.values()], carried };
+}
+
 async function main() {
+  if (!U || !K) { console.error("Missing SUPABASE_URL / SUPABASE_SERVICE_KEY"); process.exit(1); }
   // 1) the ledger + the broker-reconciled positions.
   // The reconstruction is ANCHORED to `positions` (see _shared/history.js), so both are
   // needed: the ledger supplies the dated moves, `positions` supplies today's truth.
@@ -360,49 +393,32 @@ async function main() {
     const uFirst = [...timeline.start.values()].filter(Boolean).sort()[0];
     if (!uFirst) { console.log(`user ${uid.slice(0, 8)}: nothing datable — SKIP`); continue; }
 
-    const last = {};
-    let lastCzk = 23;
-    const snapMap = new Map(); // keyed by day -> dedupes any DST-repeated date
-    // iterate in UTC ms to avoid DST quirks
-    const todayMs = Date.now();
-    for (let ms = Date.parse(uFirst); ms <= todayMs; ms += 86400000) {
-      const day = dstr(new Date(ms));
-      const held = timeline.advanceTo(day);
-      if (fxCzk.has(day)) lastCzk = fxCzk.get(day);
-      let val = 0;
-      for (const [t, qty] of held) {
-        if (qty <= 1e-9) continue;
-        const s = series[t];
-        if (s?.has(day)) last[t] = s.get(day);
-        if (last[t]) val += qty * last[t];
-      }
-      // cash_usd is present on EVERY row (null where not tracked). A bulk insert where some
-      // objects carry a key and others do not is rejected wholesale by PostgREST — that is
-      // how a rebuild silently stopped after three batches and truncated the history.
-      if (val > 0) snapMap.set(day, { user_id: uid, snapshot_date: day, value_usd: Math.round(val * 100) / 100, value_czk: Math.round(val * lastCzk * 100) / 100, cash_usd: null, profit_usd: 0, profit_pct: 0, profit_czk: 0, fx_rate: lastCzk });
-    }
-    if (timeline.clamped > 1e-6) console.log(`  ! user ${uid.slice(0, 8)}: ledger sells exceed broker holdings by ${timeline.clamped.toFixed(4)} shares (clamped to 0)`);
-    if (timeline.unknownStart.length) console.log(`  ! user ${uid.slice(0, 8)}: no date for ${timeline.unknownStart.join(", ")} — left out of history`);
-
     // The daily cash balance is RECORDED, never recomputed — this job rebuilds the holdings
-    // value from prices and would otherwise wipe it, since it deletes the user's rows first.
-    // Carry every already-recorded balance across the rebuild.
+    // value from prices and would otherwise wipe it. Read it first: a day that holds only cash
+    // (everything sold) still needs its row, or the cleanup below would delete that balance.
     const prevCash = new Map();
     for (const r of await rest(`daily_snapshots?select=snapshot_date,cash_usd&user_id=eq.${uid}&cash_usd=not.is.null&order=snapshot_date.asc`)) {
-      prevCash.set(r.snapshot_date, Number(r.cash_usd));
+      const c = Number(r.cash_usd);
+      if (Number.isFinite(c)) prevCash.set(String(r.snapshot_date).slice(0, 10), c);
     }
-    let carried = 0;
-    for (const s of snapMap.values()) {
-      const c = prevCash.get(s.snapshot_date);
-      if (c != null && Number.isFinite(c)) { s.cash_usd = c; carried++; }
-    }
-    // Stamp today's balance, which is the one figure we know for certain.
-    const snaps = [...snapMap.values()];
     const todayCash = cashByUser.get(uid);
-    if (snaps.length && todayCash != null && Number.isFinite(todayCash)) {
-      snaps[snaps.length - 1].cash_usd = todayCash;
-      carried++;
-    }
+    const last = {};
+    const { snaps, carried } = planDailySnapshots({
+      uid, uFirst, todayMs: Date.now(), prevCash, todayCash, fxCzk,
+      valueOn: (day) => {
+        const held = timeline.advanceTo(day);
+        let val = 0;
+        for (const [t, qty] of held) {
+          if (qty <= 1e-9) continue;
+          const s = series[t];
+          if (s?.has(day)) last[t] = s.get(day);
+          if (last[t]) val += qty * last[t];
+        }
+        return val;
+      },
+    });
+    if (timeline.clamped > 1e-6) console.log(`  ! user ${uid.slice(0, 8)}: ledger sells exceed broker holdings by ${timeline.clamped.toFixed(4)} shares (clamped to 0)`);
+    if (timeline.unknownStart.length) console.log(`  ! user ${uid.slice(0, 8)}: no date for ${timeline.unknownStart.join(", ")} — left out of history`);
     if (carried) console.log(`  hotovost: ${carried} dní (dnes $${Math.round(todayCash ?? 0)})`);
     if (!snaps.length) { console.log(`user ${uid.slice(0, 8)}: 0 snapshots computed — SKIP delete (keeping existing)`); continue; }
     // Overwrite day by day (upsert on user_id+snapshot_date) instead of delete-then-insert:
@@ -444,4 +460,6 @@ async function main() {
   }
   console.log("DONE");
 }
-main().catch((e) => { console.error(e); process.exit(1); });
+// Run only when executed (node scripts/price-worker.mjs), so tests can import the helpers.
+const invokedDirectly = !!process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href;
+if (invokedDirectly) main().catch((e) => { console.error(e); process.exit(1); });

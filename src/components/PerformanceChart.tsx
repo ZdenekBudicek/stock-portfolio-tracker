@@ -7,7 +7,8 @@ import { usePerformanceSeries } from '@/hooks/usePerformanceSeries';
 import { formatPct } from '@/data/portfolio';
 import { useTranslation } from 'react-i18next';
 import { currentLang, currentLocale } from '@/i18n';
-import { fmtCzk, fmtPercent } from '@/i18n/format';
+import { fmtPercent } from '@/i18n/format';
+import { compactMoney, formatMoney, symbolOf, wrapSymbol } from '@/lib/displayCurrency';
 import { type SeriesPoint } from '@/lib/performanceSeries';
 
 const timeRanges = ['1M', '3M', '6M', 'YTD', '1R', '5R', 'VŠE'] as const;
@@ -57,6 +58,7 @@ const PerformanceChart = ({ embedded = false }: { embedded?: boolean } = {}) => 
   const [range, setRange] = useState<RangeKey>('YTD');
   const [showBench, setShowBench] = useState(true);
   const { formatAt, pick, convert, currency, hidden } = useCurrency();
+  const lang = currentLang() === 'en' ? 'en' : 'cs';
   const portfolio = useComputedPortfolio();
   // Same series as the Výnosy screen (hooks/usePerformanceSeries).
   const { points, holdingsUsd, cashUsd } = usePerformanceSeries(currency);
@@ -262,7 +264,7 @@ const PerformanceChart = ({ embedded = false }: { embedded?: boolean } = {}) => 
         locale: currentLocale(),
         priceFormatter: (v: number) => asPct
           ? fmtPercent(v, 0, true)
-          : hidden ? '••••' : (currency === 'CZK' ? `${(v / 1_000_000).toFixed(2)}M` : `$${(v / 1000).toFixed(0)}k`),
+          : hidden ? '••••' : (currency === 'CZK' ? `${(v / 1_000_000).toFixed(2)}M` : currency === 'USD' ? `$${(v / 1000).toFixed(0)}k` : compactMoney(v, currency, lang)),
       },
     });
   };
@@ -296,9 +298,9 @@ const PerformanceChart = ({ embedded = false }: { embedded?: boolean } = {}) => 
   const positive = delta >= 0;
   const hasBench = points.some((p) => p.benchVal != null);
 
-  const fmtMoney = (v: number) => hidden ? (currency === 'USD' ? '$••••' : currentLang() === 'en' ? 'CZK ••••' : '•••• Kč') : currency === 'USD'
+  const fmtMoney = (v: number) => hidden ? wrapSymbol('••••', currency, lang) : currency === 'USD'
     ? `$${v.toLocaleString('en-US', { maximumFractionDigits: 0 })}`
-    : fmtCzk(v);
+    : formatMoney(v, currency, lang, { decimals: 0 });
   const rangeLabel = (k: typeof timeRanges[number]) => (k === '1R' ? t('perf.range.1y') : k === '5R' ? t('perf.range.5y') : k === 'VŠE' ? t('perf.range.all') : k);
 
   return (
@@ -330,7 +332,7 @@ const PerformanceChart = ({ embedded = false }: { embedded?: boolean } = {}) => 
         </div>
         <div className="flex items-center gap-2 flex-wrap">
           <div className="flex rounded-md border border-border overflow-hidden">
-            {([['money', currency === 'USD' ? '$' : currentLang() === 'en' ? 'CZK' : 'Kč'], ['pct', '%']] as const).map(([m, label]) => (
+            {([['money', symbolOf(currency, lang)], ['pct', '%']] as const).map(([m, label]) => (
               <button
                 key={m}
                 onClick={() => setPctMode(m === 'pct')}

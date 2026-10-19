@@ -20,6 +20,21 @@ async function usdCzkAt(): Promise<(date: string) => number> {
   return makeRateLookup(rows);
 }
 
+/**
+ * USD per-share price of a T212 statement trade. USD instruments: the statement's own price.
+ * Others: the CZK settlement converted at the day's rate — or, when the row was settled in
+ * USD (no CZK amount at all), the USD total itself. Without that last case an EUR/GBP
+ * instrument settled in USD fell through to `(undefined ?? 0)` and a real buy was stored at $0.
+ * 0 only when the statement gives no usable amount.
+ */
+export function t212PriceUsd(r: NormalizedRow, czkPerUsd: number): number {
+  if (r.ccy === "USD" && r.price_ccy) return r.price_ccy;
+  if (!r.shares) return 0;
+  if (r.czk != null) return (r.czk / czkPerUsd) / r.shares;
+  if (r.usd_total != null) return r.usd_total / r.shares;
+  return 0;
+}
+
 // Convert T212 rows (CZK) to USD: trade price_usd and deposit/withdrawal amount_usd.
 async function convertT212(rows: NormalizedRow[]): Promise<NormalizedRow[]> {
   const fx = await usdCzkAt();
@@ -31,16 +46,13 @@ async function convertT212(rows: NormalizedRow[]): Promise<NormalizedRow[]> {
       // pie/auto-invest rows (sometimes already in USD), so never derive USD price from
       // it for USD trades. Non-USD instruments (GBX/EUR/GBP) have no FX series here, so
       // fall back to the CZK value converted to USD per share.
-      const usd = r.ccy === "USD" && r.price_ccy
-        ? r.price_ccy
-        : (r.shares ? ((r.czk ?? 0) / rate) / r.shares : 0);
-      return { ...r, price_usd: usd, fee_usd: 0 };
+      return { ...r, price_usd: t212PriceUsd(r, rate), fee_usd: 0 };
     }
     return { ...r, amount_usd: (r.czk ?? 0) / rate };
   });
 }
 import { matchManual, type MatchableTx } from "../../supabase/functions/_shared/t212";
-import { apiFillsReplacedBefore, createDuplicateGuard, replacedByStatement } from "@/lib/statementDedup";
+import { apiFillsReplacedBefore, apiFillsReplacedFrom, createDuplicateGuard, planHoldingsSnapshot, replacedByStatement, type StoredHolding } from "@/lib/statementDedup";
 
 pdfjsLib.GlobalWorkerOptions.workerSrc = workerUrl;
 
@@ -147,13 +159,15 @@ export interface ImportPlan {
   blockedReconcile: boolean;
   /** T212: this account's API fills dated before this instant are replaced by the statement. */
   replaceApiFillsBefore: string | null;
+  /** T212: …and dated at or after this instant (the statement's first day). */
+  replaceApiFillsFrom: string | null;
 }
 
 const emptyPlan = (broker: string, mode: ImportMode, account?: string): ImportPlan => ({
   broker, account, mode, holdings: [], holdingsRemove: [], toInsertTrades: [], toCorrectTrades: [],
   deposits: [], withdrawals: [], dividends: [], fees: [], splits: [], alreadyImported: 0,
   reconcileTo: [], otherAccounts: [], legacyUnassigned: 0, adoptLegacy: false, blockedReconcile: false,
-  replaceApiFillsBefore: null,
+  replaceApiFillsBefore: null, replaceApiFillsFrom: null,
 });
 
 export async function planImport(parsed: ParsedStatement): Promise<ImportPlan> {
@@ -161,9 +175,10 @@ export async function planImport(parsed: ParsedStatement): Promise<ImportPlan> {
 
   if (parsed.mode === "holdings") {
     plan.holdings = parsed.rows.filter((r) => r.kind === "HOLDING");
-    const { data } = await supabase.from("transactions").select("id,ticker,ext_id,broker").eq("broker", parsed.broker).like("ext_id", `${parsed.broker.toLowerCase()}:pos:%`);
-    const keep = new Set(plan.holdings.map((h) => h.external_id));
-    plan.holdingsRemove = (data ?? []).filter((t: any) => !keep.has(t.ext_id)).map((t: any) => ({ id: t.id, label: t.ticker }));
+    // Scoped to the statement's own account (see planHoldingsSnapshot): another account's
+    // snapshot rows are neither overwritten nor removed.
+    const { data } = await supabase.from("transactions").select("id,ticker,ext_id,broker,broker_account").eq("broker", parsed.broker).like("ext_id", `${parsed.broker.toLowerCase()}:pos:%`);
+    plan.holdingsRemove = planHoldingsSnapshot((data ?? []) as StoredHolding[], plan.holdings, parsed.broker, parsed.account).remove;
     return plan;
   }
 
@@ -194,7 +209,8 @@ export async function planImport(parsed: ParsedStatement): Promise<ImportPlan> {
   // this account's API fills of those days first. Everything below reasons about the rows
   // that will REMAIN — never about the ones about to be deleted.
   plan.replaceApiFillsBefore = parsed.broker === "T212" ? apiFillsReplacedBefore(parsed.rows) : null;
-  const scope = { broker: parsed.broker, account: parsed.account, adoptLegacy: plan.adoptLegacy, replaceApiFillsBefore: plan.replaceApiFillsBefore };
+  plan.replaceApiFillsFrom = parsed.broker === "T212" ? apiFillsReplacedFrom(parsed.rows) : null;
+  const scope = { broker: parsed.broker, account: parsed.account, adoptLegacy: plan.adoptLegacy, replaceApiFillsBefore: plan.replaceApiFillsBefore, replaceApiFillsFrom: plan.replaceApiFillsFrom };
   const remaining = existing.filter((t) => !replacedByStatement(t, scope));
 
   // The end-of-period snapshot is only the truth if this statement is the NEWEST data we
@@ -217,7 +233,7 @@ export async function planImport(parsed: ParsedStatement): Promise<ImportPlan> {
 
   // Duplicate guard over the rows that remain after the import's own deletion (see
   // statementDedup.ts for why it is content-based and counted by multiplicity).
-  const guard = createDuplicateGuard(existing, scope);
+  const guard = createDuplicateGuard(existing, scope, parsed.rows);
   const divExt = new Set((divData ?? []).filter((d: any) => d.ext_id).map((d: any) => `${d.broker}:${d.ext_id}`));
   const depExt = new Set((depData ?? []).filter((d: any) => d.ext_id).map((d: any) => d.ext_id));
   const adoptable: MatchableTx[] = existing.filter((t) => t.broker === "manual" && !t.t212_id && !t.ext_id);
@@ -254,11 +270,13 @@ export async function executeImport(plan: ImportPlan): Promise<ImportSummary> {
   if (plan.mode === "holdings") {
     const { data: userData } = await supabase.auth.getUser();
     const uid = userData.user?.id;
-    const { data: existing } = await supabase.from("transactions").select("id,ext_id").eq("broker", plan.broker).like("ext_id", `${plan.broker.toLowerCase()}:pos:%`);
-    const byExt = new Map((existing ?? []).map((t: any) => [t.ext_id, t.id]));
+    const { data: existing } = await supabase.from("transactions").select("id,ticker,ext_id,broker_account").eq("broker", plan.broker).like("ext_id", `${plan.broker.toLowerCase()}:pos:%`);
+    // Same account scope as planImport. A matched legacy row ("revolut:pos:TICKER") is
+    // updated in place and moves to the account-qualified id — never a second copy.
+    const { matchId } = planHoldingsSnapshot((existing ?? []) as StoredHolding[], plan.holdings, plan.broker, plan.account);
     for (const h of plan.holdings) {
       const row = { ticker: h.ticker, side: "BUY", shares: h.shares, price_usd: h.price_usd, fee_usd: 0, executed_at: h.executed_at, broker: plan.broker, broker_account: h.account ?? plan.account ?? null, ext_id: h.external_id, note: `${plan.broker} holding (import)`, user_id: uid };
-      const id = byExt.get(h.external_id);
+      const id = matchId.get(h.external_id);
       const { error } = id ? await supabase.from("transactions").update(row).eq("id", id) : await supabase.from("transactions").insert(row);
       if (!error) s.holdings++;
     }
@@ -290,10 +308,12 @@ export async function executeImport(plan: ImportPlan): Promise<ImportSummary> {
 
   // Scoped to the statement's own account — a second account at the same broker keeps its
   // API-imported fills — and to the statement's own days: fills after its last day are not
-  // in it and stay. planImport's duplicate guard (replacedByStatement) mirrors this delete.
+  // in it and stay. Fills BEFORE its first day are not in it either (a June statement must not
+  // wipe January's API fills). planImport's duplicate guard (replacedByStatement) mirrors this.
   if (plan.broker === "T212" && plan.replaceApiFillsBefore) {
     let q = supabase.from("transactions").delete().eq("user_id", uid0).eq("broker", "T212").like("ext_id", "t212:ord:%")
       .lt("executed_at", plan.replaceApiFillsBefore);
+    if (plan.replaceApiFillsFrom) q = q.gte("executed_at", plan.replaceApiFillsFrom);
     q = plan.account ? q.eq("broker_account", plan.account) : q.is("broker_account", null);
     await q;
   }

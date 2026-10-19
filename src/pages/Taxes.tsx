@@ -15,12 +15,29 @@ import { SALE_INCOME_LIMIT_CZK } from '@/lib/czTax';
 import { simulateSale } from '@/lib/saleSimulation';
 import { currentLang } from '@/i18n';
 import { fmtCzk, fmtNum, fmtPercent } from '@/i18n/format';
+import { formatMoney } from '@/lib/displayCurrency';
 import { cn } from '@/lib/utils';
 import { proceedsBreakdown, type Bucket } from '@/lib/taxBreakdown';
 import { useTaxPrefs } from '@/hooks/useTaxPrefs';
 import { useTaxResidence } from '@/hooks/useTaxResidence';
 import { RealizedGainsView } from '@/components/RealizedGains';
+import { InternationalTaxes } from '@/components/tax/InternationalTaxes';
+import type { Country } from '@/lib/tax/engines';
+
+const INTERNATIONAL = ['US', 'SK', 'DE', 'GB', 'PL'] as const;
 import { ResidenceLoadError } from '@/components/TaxResidence';
+
+/**
+ * Czech tax is computed in CZK (ČNB rates of each trade). When the app shows another currency,
+ * the main figures get a rough equivalent in it at today's rate next to them — the CZK stays
+ * the real number.
+ */
+function UsdHint({ czk: v }: { czk: number | null | undefined }) {
+  const { currency, hidden, rate } = useCurrency();
+  const { usdCzk } = useComputedPortfolio();
+  if (currency === 'CZK' || v == null || !(usdCzk > 0) || hidden) return null;
+  return <span className="ml-2 align-middle text-sm font-medium tracking-normal text-muted-foreground num">≈ {formatMoney((v / usdCzk) * rate, currency, currentLang() === 'en' ? 'en' : 'cs', { decimals: 0 })}</span>;
+}
 
 function useCzk() {
   const { hidden } = useCurrency();
@@ -68,7 +85,7 @@ function ProceedsBreakdownPanel({ report }: { report: TaxModel['report'] }) {
           return (
             <div key={k} className="rounded-2xl bg-white/[0.04] p-3.5">
               <div className="flex items-center gap-2 text-xs text-muted-foreground"><span className="h-2.5 w-2.5 rounded-full" style={{ background: BUCKET_COLOR[k] }} />{t(`taxes.brk.b.${k}`)}</div>
-              <div className="mt-1.5 text-xl font-semibold tracking-tight num">{czk(x.proceedsCzk)}</div>
+              <div className="mt-1.5 text-xl font-semibold tracking-tight num">{czk(x.proceedsCzk)}<UsdHint czk={x.proceedsCzk} /></div>
               <div className="mt-0.5 text-xs text-muted-foreground num">
                 {t('taxes.brk.lots', { count: x.lots })} · {fmtPercent((x.proceedsCzk / Math.max(b.totalCzk, 1e-9)) * 100, 0)}
               </div>
@@ -134,7 +151,7 @@ function Simulator({ model }: { model: TaxModel }) {
   const { t } = useTranslation();
   const { data: txs = [] } = useTransactions();
   const { positions, usdCzk } = useComputedPortfolio();
-  const { formatAt, currency } = useCurrency();
+  const { format, formatAt, currency } = useCurrency();
   const czk = useCzk();
   const tickers = useMemo(() => [...new Set(model.lots.map((l) => l.ticker))].sort(), [model.lots]);
   const [ticker, setTicker] = useState<string>('');
@@ -195,13 +212,14 @@ function Simulator({ model }: { model: TaxModel }) {
               <Label className="mt-4">{t('taxes.sim.lots')}</Label>
               <div className="mt-2 space-y-1.5 max-h-40 overflow-y-auto">
                 {sim.pieces.map((p, i) => {
-                  // In CZK the gain is against the purchase-day rate (what the tax uses).
+                  // In CZK the gain is against the purchase-day rate (what the tax uses); other
+                  // currencies show the dollar gain at today's rate.
                   const g = currency === 'CZK' ? p.gainCzk : p.gainUsd;
                   return (
                     <div key={i} className="flex items-center justify-between rounded-xl bg-white/[0.04] px-3 py-2 text-[13px]">
                       <span className="num">{fmtDate(p.acquiredDate)} · {t('taxes.sim.sharesN', { n: sh(p.shares) })}</span>
                       <span className="flex items-center gap-2">
-                        <span className={cn('num', g == null ? 'text-muted-foreground' : g >= 0 ? 'text-profit' : 'text-loss')}>{g == null ? '—' : `${g >= 0 ? '+' : ''}${formatAt(p.gainUsd, g)}`}</span>
+                        <span className={cn('num', g == null ? 'text-muted-foreground' : g >= 0 ? 'text-profit' : 'text-loss')}>{g == null ? '—' : `${g >= 0 ? '+' : ''}${currency === 'CZK' ? formatAt(p.gainUsd, g) : format(p.gainUsd)}`}</span>
                         <Pill tone={p.exempt ? 'profit' : 'warning'}>{p.exempt ? t('taxes.sim.exempt') : t('taxes.sim.taxable')}</Pill>
                       </span>
                     </div>
@@ -247,7 +265,9 @@ const CzTaxes = () => {
   const { format, formatAt, currency } = useCurrency();
   const gainText = (usd: number | null, czkV: number | null) => {
     const g = currency === 'CZK' ? czkV : usd;
-    return g == null || usd == null ? '—' : `${g >= 0 ? '+' : ''}${formatAt(usd, g)}`;
+    if (g == null || usd == null) return '—';
+    // Koruny: the tax gain (purchase-day rate); other currencies: the dollar gain at today's rate.
+    return `${g >= 0 ? '+' : ''}${currency === 'CZK' ? formatAt(usd, g) : format(usd)}`;
   };
   const czk = useCzk();
   const r = tax.report;
@@ -261,10 +281,11 @@ const CzTaxes = () => {
   return (
     <div>
       <PageTitle eyebrow={t('taxes.eyebrow')} title={t('taxes.title', { year: r.year })} right={<span className="text-xs text-muted-foreground">{t('taxes.switchHint')}</span>} />
+      {currency !== 'CZK' && <p className="-mt-3 mb-4 text-xs text-muted-foreground">{t('taxes.czkNote')}</p>}
       <div className="grid grid-cols-1 gap-4 lg:grid-cols-12">
         <Panel className="lg:col-span-5" glow="warning">
           <div className="flex items-center justify-between"><Label className="text-warning/80">{t('taxes.est.title')}</Label><Pill tone="warning">{fmtPercent(15, 0)}</Pill></div>
-          <div className="mt-2.5 text-5xl font-semibold tracking-[-0.045em] text-warning leading-none num">{czk(r.estTaxCzk)}</div>
+          <div className="mt-2.5 text-5xl font-semibold tracking-[-0.045em] text-warning leading-none num">{czk(r.estTaxCzk)}<UsdHint czk={r.estTaxCzk} /></div>
           <div className="mt-2.5 text-xs text-muted-foreground">{t('taxes.est.sub', { gain: czk(r.taxable.gainCzk) })}</div>
           <div className="mt-5 grid grid-cols-2 gap-2.5">
             <div className="rounded-2xl bg-white/[0.05] p-3"><Kpi label={t('taxes.est.exemptGain')} value={czk(r.exempt.gainCzk)} tone="profit" size="sm" /></div>
@@ -278,7 +299,7 @@ const CzTaxes = () => {
         <Panel className="lg:col-span-7" title={t('taxes.limit.title', { limit: limitText })} action={tax.limitState === 'over' ? <Pill tone="loss">{t('taxes.limit.over')}{times >= 2 ? ` ${Math.floor(times)}×` : ''}</Pill> : tax.limitState === 'under' ? <Pill tone="profit">{t('overview.tax.under')}</Pill> : <Pill tone="warning">{t('overview.tax.unknown')}</Pill>}>
           <div className="text-xs text-muted-foreground -mt-2">{t(tax.settings.limitIncludesExempt ? 'taxes.limit.ruleInclExempt' : 'taxes.limit.rule')}</div>
           <div className="mt-5 flex items-end gap-3 flex-wrap">
-            <div className="text-4xl font-semibold tracking-[-0.04em] num">{czk(r.limitBaseCzk)}</div>
+            <div className="text-4xl font-semibold tracking-[-0.04em] num">{czk(r.limitBaseCzk)}<UsdHint czk={r.limitBaseCzk} /></div>
             <div className="mb-1.5 text-xs text-muted-foreground">{t('taxes.limit.proceeds', { year: r.year })}{tax.limitState === 'unknown' ? ` · ${t('taxes.limit.cannotConfirm')}` : ''}</div>
           </div>
           <div className="relative mt-5 h-4 rounded-full" style={{ background: secOver ? `linear-gradient(90deg, hsl(var(--profit)) 0 ${limitPct}%, hsl(var(--warning)) ${limitPct}%, hsl(var(--loss)))` : 'hsl(0 0% 100% / 0.07)' }}>
@@ -370,10 +391,13 @@ const CzTaxes = () => {
 
 // Which view depends on the user's tax residence, not on the UI language.
 const Taxes = () => {
-  const { jurisdiction, known, isError } = useTaxResidence();
+  const { jurisdiction, known, isError, taxResidence } = useTaxResidence();
   // Unknown residence: neither the Czech nor the neutral view (a wrong one is worse than none).
   if (!known) return isError ? <ResidenceLoadError /> : null;
-  return jurisdiction.caps.taxEstimate ? <CzTaxes /> : <RealizedGainsView />;
+  if (jurisdiction.caps.taxEstimate) return <CzTaxes />;
+  // A country with its own engine (US, SK, DE, GB, PL): that country's rules and currency.
+  if (taxResidence && (INTERNATIONAL as readonly string[]).includes(taxResidence)) return <InternationalTaxes country={taxResidence as Country} />;
+  return <RealizedGainsView />;
 };
 
 export default Taxes;
