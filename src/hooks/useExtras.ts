@@ -2,6 +2,11 @@ import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { supabase } from "@/integrations/supabase/client";
 import { dedupeDividends } from "@/lib/dividendTax";
 
+import { toBrokerSummary } from "@/lib/brokerSummary";
+import type { BrokerSummary } from "@/lib/brokerSummary";
+export { toBrokerSummary } from "@/lib/brokerSummary";
+export type { BrokerSummary } from "@/lib/brokerSummary";
+
 const PAGE_SIZE = 1000;
 
 async function fetchAllRows<T>(buildQuery: (from: number, to: number) => PromiseLike<{ data: T[] | null; error: unknown }>): Promise<T[]> {
@@ -37,7 +42,7 @@ export function useSplits(status?: DbSplit["status"]) {
       if (status) q = q.eq("status", status);
       const { data, error } = await q;
       if (error) throw error;
-      return (data as any[]).map((s) => ({ ...s, ratio: Number(s.ratio) })) as DbSplit[];
+      return (data).map((s) => ({ ...s, ratio: Number(s.ratio) })) as DbSplit[];
     },
   });
 }
@@ -46,7 +51,7 @@ export function useApplySplit() {
   const qc = useQueryClient();
   return useMutation({
     mutationFn: async (id: string) => {
-      const { error } = await supabase.rpc("apply_split" as any, { split_id: id });
+      const { error } = await supabase.rpc("apply_split", { split_id: id });
       if (error) throw error;
     },
     onSuccess: () => {
@@ -61,7 +66,7 @@ export function useDismissSplit() {
   const qc = useQueryClient();
   return useMutation({
     mutationFn: async (id: string) => {
-      const { error } = await supabase.rpc("dismiss_split" as any, { split_id: id });
+      const { error } = await supabase.rpc("dismiss_split", { split_id: id });
       if (error) throw error;
     },
     onSuccess: () => qc.invalidateQueries({ queryKey: ["splits"] }),
@@ -99,7 +104,7 @@ export function useWatchlist() {
     queryFn: async () => {
       const { data, error } = await supabase.from("watchlist").select("*").order("ticker");
       if (error) throw error;
-      return (data as any[]).map((w) => ({
+      return (data).map((w) => ({
         ...w,
         target_price_usd: w.target_price_usd != null ? Number(w.target_price_usd) : null,
       })) as DbWatch[];
@@ -148,7 +153,7 @@ export function useGoals() {
         .eq("is_active", true)
         .order("created_at", { ascending: false });
       if (error) throw error;
-      return (data as any[]).map((g) => ({ ...g, target_amount_usd: Number(g.target_amount_usd) })) as DbGoal[];
+      return (data).map((g) => ({ ...g, target_amount_usd: Number(g.target_amount_usd) })) as DbGoal[];
     },
   });
 }
@@ -214,7 +219,7 @@ export function useDividends() {
     queryKey: ["dividends"],
     queryFn: async () => {
       // Paged: a plain select stops at 1000 rows, and the tax report needs every dividend.
-      const data = await fetchAllRows<any>((from, to) =>
+      const data = await fetchAllRows((from, to) =>
         supabase.from("dividends").select("*").order("ex_date", { ascending: false }).order("id", { ascending: true }).range(from, to),
       );
       const rows = data.map((d) => ({
@@ -293,7 +298,7 @@ export function useBenchmark(symbol = "SPX") {
   return useQuery({
     queryKey: ["benchmark", symbol],
     queryFn: async () => {
-      const data = await fetchAllRows<any>((from, to) =>
+      const data = await fetchAllRows((from, to) =>
         supabase
           .from("benchmark_history")
           .select("symbol,date,close_value")
@@ -301,60 +306,25 @@ export function useBenchmark(symbol = "SPX") {
           .order("date", { ascending: true })
           .range(from, to),
       );
-      return (data as any[]).map((r) => ({ ...r, close_value: Number(r.close_value) })) as DbBench[];
+      return (data).map((r) => ({ ...r, close_value: Number(r.close_value) })) as DbBench[];
     },
   });
 }
 
 /* ───────── Broker account summary (authoritative value/P&L/deposits) ───────── */
-export interface BrokerSummary {
-  currency: string | null;
-  total: number;     // total account value (account currency)
-  free: number;      // free cash
-  invested: number;  // cost basis of open positions
-  ppl: number;       // unrealised P&L on open positions
-  result: number;    // lifetime realised P&L
-  netDepositsUsd: number | null; // combined net deposits across all brokers, in USD (if known)
-  /** Last finished sync of the connection (null when never synced). */
-  lastSyncAt: string | null;
-  /**
-   * T212 account number the summary belongs to (null on summaries stored before scoping).
-   * computeNetDeposits needs it to tell the connected account's rows from another T212
-   * account imported from statements — without it every T212 row counted as connected.
-   */
-  account: string | null;
-}
-
-/** Maps one get_broker_connection_status row to a BrokerSummary (null without a summary). */
-export function toBrokerSummary(row: { account_summary?: any; last_sync_at?: string | null } | null | undefined): BrokerSummary | null {
-  const s = row?.account_summary;
-  if (!s) return null;
-  return {
-    currency: s.currency ?? null,
-    total: Number(s.total) || 0,
-    free: Number(s.free) || 0,
-    invested: Number(s.invested) || 0,
-    ppl: Number(s.ppl) || 0,
-    result: Number(s.result) || 0,
-    netDepositsUsd: s.total_net_deposits_usd != null ? Number(s.total_net_deposits_usd) : null,
-    lastSyncAt: row?.last_sync_at ?? null,
-    account: s.account != null && s.account !== "" ? String(s.account) : null,
-  };
-}
-
 export function useBrokerSummary(broker = "T212") {
   return useQuery({
     queryKey: ["broker-summary", broker],
     queryFn: async (): Promise<BrokerSummary | null> => {
       // Read via the security-definer RPC (broker_connections has RLS with no direct
       // select policy, and we must never expose the encrypted API key to the client).
-      const { data, error } = await supabase.rpc("get_broker_connection_status" as any);
+      const { data, error } = await supabase.rpc("get_broker_connection_status");
       if (error) throw error;
       // EXACT broker match only. Falling back to the first connection handed one broker's
       // account summary out under another broker's name — and the caller then swapped that
       // broker's net-invested capital in for a proxy that was never counted, double-counting
       // it in the net-deposits total.
-      const row = (data as any[])?.find((r) => r.broker === broker);
+      const row = (data as (Parameters<typeof toBrokerSummary>[0] & { broker: string })[])?.find((r) => r.broker === broker);
       return toBrokerSummary(row);
     },
   });
@@ -367,11 +337,11 @@ export function useStockNews(symbol: string) {
     queryKey: ["stock-news", symbol],
     enabled: !!symbol,
     queryFn: async (): Promise<{ items: StockNewsItem[]; fetchedAt: string } | null> => {
-      const { data, error } = await (supabase as any)
+      const { data, error } = await supabase
         .from("stock_news").select("items,fetched_at").eq("symbol", symbol).maybeSingle();
       if (error) throw error;
       if (!data) return null;
-      return { items: (data.items as StockNewsItem[]) ?? [], fetchedAt: data.fetched_at };
+      return { items: (data.items as unknown as StockNewsItem[]) ?? [], fetchedAt: data.fetched_at };
     },
     staleTime: 30 * 60 * 1000,
   });
@@ -379,6 +349,9 @@ export function useStockNews(symbol: string) {
 
 /* ───────── Deposits (dated external cash flows per broker) ───────── */
 export interface DbDeposit {
+  broker_account?: string | null;
+  original_currency?: string | null;
+  original_amount?: number | null;
   broker: string | null;
   flow_date: string;
   amount_usd: number;
@@ -389,9 +362,8 @@ export function useDeposits() {
   return useQuery({
     queryKey: ["deposits"],
     queryFn: async (): Promise<DbDeposit[]> => {
-      const { data, error } = await supabase.from("deposits").select("broker,flow_date,amount_usd,source");
-      if (error) throw error;
-      return (data as any[]).map((d) => ({ ...d, amount_usd: Number(d.amount_usd) }));
+      const data = await fetchAllRows((from, to) => supabase.from("deposits").select("broker,broker_account,flow_date,amount_usd,source,original_currency,original_amount").order("id").range(from, to));
+      return (data).map((d) => ({ ...d, amount_usd: Number(d.amount_usd) }));
     },
   });
 }

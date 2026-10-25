@@ -207,14 +207,14 @@ describe("40 mil. Kč cap on the time-test exemption", () => {
       expect(rep.crypto.capTaxedGainCzk).toBeCloseTo(25_031.21, 2);
       expect(rep.crypto.taxBaseCzk).toBeCloseTo(25_031.21, 2);
     }
-    // Lenient: time-test lots stay out of the value test entirely, capped or not.
+    // Audit B11: the old lenient setting is ignored — time-test lots always count in the value test.
     const lenient = report(txs, 2026, LENIENT);
-    expect(lenient.crypto.limitBaseCzk).toBe(0);
-    expect(lenient.crypto.underLimit).toBe(true);
-    // A small taxable sale beside it is still exempt by the value test; the capped part is not.
+    expect(lenient.crypto.limitBaseCzk).toBeCloseTo(40_050_000, 4);
+    expect(lenient.crypto.underLimit).toBe(false);
+    // So a small taxable sale beside it is over the value test too, and taxed with the capped part.
     const mixed = report([...txs, trade("BUY", "ETH", "2025-06-02", 10_000), trade("SELL", "ETH", "2026-06-01", 30_000)], 2026, LENIENT);
-    expect(mixed.crypto.underLimit).toBe(true);
-    expect(mixed.crypto.taxBaseCzk).toBeCloseTo(25_031.21, 2);
+    expect(mixed.crypto.underLimit).toBe(false);
+    expect(mixed.crypto.taxBaseCzk).toBeCloseTo(45_031.21, 2);
   });
 
   it("under the cap nothing changes", () => {

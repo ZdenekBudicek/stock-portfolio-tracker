@@ -34,6 +34,7 @@ export function RealizedGainsView() {
   const r = m.report;
   const money = useBaseMoney(m.currency);
   const years = m.years.slice(0, 6);
+  if (m.loading) return <div className="h-48 animate-pulse rounded-3xl bg-white/[0.03]" />;
   return (
     <div>
       <PageTitle eyebrow={t('residence.realized.eyebrow')} title={t('residence.realized.title', { year: r.year })}

@@ -31,8 +31,8 @@ Deno.serve(async (req) => {
     fetchAllRows("watchlist", (f, t) => supabase.from("watchlist").select("ticker").order("id", { ascending: true }).range(f, t)),
   ]);
   const all = Array.from(new Set([
-    ...positions.map((p: any) => p.ticker),
-    ...watch.map((w: any) => w.ticker),
+    ...positions.map((p) => p.ticker),
+    ...watch.map((w) => w.ticker),
   ])).filter((t: string) => t && t.toUpperCase() !== "CASH");
 
   const cryptoTickers = all.filter((t) => cryptoBase(t));
@@ -40,7 +40,7 @@ Deno.serve(async (req) => {
   // so a large set is refreshed over consecutive runs (every 10 min) in rotation.
   const cachedRows = await fetchRowsBySymbols(all, (chunk, f, t) => supabase.from("price_cache").select("symbol,fetched_at")
     .in("symbol", chunk).order("symbol", { ascending: true }).range(f, t), "price_cache");
-  const cachedAt = new Map<string, number>(cachedRows.map((r: any) => [r.symbol, new Date(r.fetched_at).getTime() || 0]));
+  const cachedAt = new Map<string, number>(cachedRows.map((r) => [r.symbol, new Date(r.fetched_at).getTime() || 0]));
   // Rotation by run, not by fetched_at: a ticker that never prices keeps an old fetched_at
   // and would take the front of the queue every run. Each 10-minute run starts ~55 symbols
   // further along a stable order, so every symbol is tried every ceil(n/55) runs.
@@ -57,6 +57,8 @@ Deno.serve(async (req) => {
   const missing = () => stockTickers.filter((t) => !collected.has(t) && (finnhubTried.has(t) || !cachedAt.has(t) || !finnhubKey));
   const merge = (m: Map<string, Quote>) => m.forEach((v, k) => collected.set(k, v));
   const providersUsed: Record<string, number> = {};
+  // Closes copied from price_history: symbol → the day of that close (audit B6).
+  const carried = new Map<string, string>();
   const run = async (name: string, fn: () => Promise<Map<string, Quote>>) => {
     const before = collected.size;
     merge(await fn());
@@ -86,6 +88,7 @@ Deno.serve(async (req) => {
       for (const [symbol, r] of hist) {
         if (collected.has(symbol)) continue;
         collected.set(symbol, { price: r.close, prev: r.close, pct: 0 });
+        carried.set(symbol, r.date);
         fromHistory++;
       }
     } catch (e) {
@@ -111,23 +114,40 @@ Deno.serve(async (req) => {
   const now = new Date().toISOString();
   const rows: Array<Record<string, unknown>> = Array.from(collected.entries())
     .filter(([symbol]) => all.includes(symbol)) // don't store helper base symbols not actually held
-    .map(([symbol, q]) => ({ symbol, price: q.price, prev_close: q.prev, change_pct: q.pct, fetched_at: now }));
+    // A carried close keeps its own day (as_of, and fetched_at at the start of that day) so nothing reads it as a
+    // quote retrieved now; a live quote resets as_of.
+    .map(([symbol, q]) => carried.has(symbol)
+      ? { symbol, price: q.price, prev_close: q.prev, change_pct: q.pct, fetched_at: `${carried.get(symbol)}T00:00:00.000Z`, as_of: carried.get(symbol) }
+      : { symbol, price: q.price, prev_close: q.prev, change_pct: q.pct, fetched_at: now, as_of: null });
 
   const fx = await fetchFxUsdCzk();
-  if (fx) rows.push({ symbol: "USDCZK", price: fx, prev_close: null, change_pct: null, fetched_at: now });
+  if (fx) rows.push({ symbol: "USDCZK", price: fx, prev_close: null, change_pct: null, fetched_at: now, as_of: null });
   // CZK per euro / pound / złoty: today's rate of the app's other display currencies.
   for (const c of ["EUR", "GBP", "PLN"] as const) {
     const v = await fetchFxCzk(c);
-    if (v) rows.push({ symbol: `${c}CZK`, price: v, prev_close: null, change_pct: null, fetched_at: now });
+    if (v) rows.push({ symbol: `${c}CZK`, price: v, prev_close: null, change_pct: null, fetched_at: now, as_of: null });
   }
 
-  if (rows.length) await supabase.from("price_cache").upsert(rows, { onConflict: "symbol" });
+  const failures: string[] = [];
+  if (rows.length) {
+    let { error } = await supabase.from("price_cache").upsert(rows, { onConflict: "symbol" });
+    // Deployed before migration 20261026100110: the cache must keep updating, without the as_of day.
+    if (error && /as_of/.test(error.message ?? "")) {
+      ({ error } = await supabase.from("price_cache").upsert(rows.map(({ as_of: _asOf, ...r }) => r), { onConflict: "symbol" }));
+    }
+    if (error) failures.push(`price_cache: ${error.message}`);
+  }
 
   // Also append today's close to the shared price_history (keeps history current for charts, free).
   const today = now.slice(0, 10);
-  const histRows = rows.filter((r: any) => Number.isFinite(Number(r.price)) && Number(r.price) > 0)
-    .map((r: any) => ({ symbol: r.symbol, date: today, close: r.price }));
-  if (histRows.length) await supabase.from("price_history").upsert(histRows, { onConflict: "symbol,date" });
+  // A carried close is already in price_history under its own day: never written again as today's.
+  const histRows = rows.filter((r) => !r.as_of && Number.isFinite(Number(r.price)) && Number(r.price) > 0)
+    .map((r) => ({ symbol: r.symbol, date: today, close: r.price }));
+  if (histRows.length) {
+    const { error } = await supabase.from("price_history").upsert(histRows, { onConflict: "symbol,date" });
+    if (error) failures.push(`price_history: ${error.message}`);
+  }
+  if (failures.length) console.error("refresh-prices writes failed", failures.join("; "));
 
   // "deferred" = not reached by Finnhub this run, cached price kept; refreshed on a later run.
   const deferred = stockTickers.filter((t) => !collected.has(t) && !missing().includes(t));
@@ -135,8 +155,8 @@ Deno.serve(async (req) => {
   return new Response(
     JSON.stringify({
       refreshed: rows.length, stocks: stockTickers.length, crypto: cryptoTickers.length,
-      providersUsed, missing: missingFinal, deferred: deferred.length,
+      providersUsed, missing: missingFinal, deferred: deferred.length, ...(failures.length ? { ok: false, failures } : {}),
     }),
-    { headers: { "Content-Type": "application/json" } },
+    { status: failures.length ? 500 : 200, headers: { "Content-Type": "application/json" } },
   );
 });

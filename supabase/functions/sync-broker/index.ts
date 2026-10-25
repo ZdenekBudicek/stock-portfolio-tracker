@@ -1,92 +1,40 @@
+import type { T212Client, T212Summary, T212Key, T212Holding, T212Dividend, T212Deposit, T212OrderItem } from "../_shared/t212-types.ts";
 // Trading 212 sync — RESUMABLE full order-history import that works for any volume.
 // Each call pulls orders for ~100s, appends them (fast bulk insert, recalc deferred),
 // and saves a cursor. The client calls repeatedly until {done:true}; the final call
 // pulls /equity/portfolio and reconciles so positions are exact. Handles new users with
 // hundreds/thousands of orders despite T212 throttling the server IP + the 150s limit.
+import { t212AccountGuard } from "../_shared/t212-account.ts";
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2.45.0";
-import { syncCashFromApi, planT212History, reachedPageStop, selectT212OrdersToInsert, t212FillPriceUsd, blockingUnpricedFills, t212NextPage, rateNear, prepareReconcileHoldings, type T212StoredTrade, type T212PortfolioHolding } from "../_shared/t212.ts";
+import { collectT212CashPages, t212CashId, t212ExternalCashFlows, matchT212CashStatements, syncCashFromApi, planT212History, reachedPageStop, selectT212OrdersToInsert, blockingUnpricedFills, t212NextPage, rateNear, prepareReconcileHoldings, parseT212OrderItem, t212ItemTime, priceT212Fills, loadT212AccountTrades, T212_RENAME as RENAME, stripT212, type T212RawFill, type T212PortfolioHolding } from "../_shared/t212.ts";
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
   "Access-Control-Allow-Headers": "authorization, x-client-info, apikey, content-type",
 };
 const json = (b: unknown, s = 200) => new Response(JSON.stringify(b), { status: s, headers: { ...corsHeaders, "Content-Type": "application/json" } });
-const RENAME: Record<string, string> = { IPOE: "SOFI", VACQ: "RKLB", FB: "META", FBA: "META" };
-const stripT212 = (t: string) => t.replace(/_US_EQ$/, "").replace(/_EQ$/, "").toUpperCase();
 const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
 const TIME_BUDGET_MS = 100_000;
 
-// Resolve broker base tickers -> current price-provider tickers, using the
-// permanent ISIN via OpenFIGI (free, no key). Results are cached globally in
-// ticker_alias so every instrument is resolved once and reused by all users.
-async function resolveAliases(
-  pairs: { base: string; isin: string | null; name?: string | null }[],
-  svc: any,
-): Promise<Map<string, string>> {
-  const map = new Map<string, string>();
-  const bases = [...new Set(pairs.map((p) => p.base))];
-  if (!bases.length) return map;
-  const { data: cached } = await svc.from("ticker_alias").select("alias,canonical").in("alias", bases);
-  for (const r of (cached ?? []) as any[]) map.set(r.alias, r.canonical);
-
-  const jobs: { base: string; isin: string; name?: string | null }[] = [];
-  const seen = new Set<string>();
-  for (const p of pairs) {
-    if (map.has(p.base) || !p.isin || seen.has(p.base)) continue;
-    seen.add(p.base); jobs.push({ base: p.base, isin: p.isin, name: p.name });
-  }
-  for (let i = 0; i < jobs.length; i += 10) { // OpenFIGI no-key: 10 jobs/req, 25 req/min
-    const chunk = jobs.slice(i, i + 10);
-    try {
-      const r = await fetch("https://api.openfigi.com/v3/mapping", {
-        method: "POST", headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(chunk.map((j) => ({ idType: "ID_ISIN", idValue: j.isin, exchCode: "US" }))),
-      });
-      if (r.ok) {
-        const arr = await r.json();
-        const rows: any[] = [];
-        chunk.forEach((j, idx) => {
-          const d = arr?.[idx]?.data?.[0];
-          const canonical = d?.ticker ? String(d.ticker).toUpperCase() : j.base;
-          map.set(j.base, canonical);
-          rows.push({ alias: j.base, canonical, isin: j.isin, name: j.name ?? null, source: "openfigi" });
-        });
-        if (rows.length) await svc.from("ticker_alias").upsert(rows, { onConflict: "alias" });
-      } else {
-        chunk.forEach((j) => { if (!map.has(j.base)) map.set(j.base, j.base); });
-      }
-    } catch (_e) {
-      chunk.forEach((j) => { if (!map.has(j.base)) map.set(j.base, j.base); });
-    }
-    if (i + 10 < jobs.length) await sleep(2500);
-  }
-  for (const p of pairs) if (!map.has(p.base)) map.set(p.base, RENAME[p.base] ?? p.base);
-  return map;
-}
+// resolveT212Aliases, priceT212Fills and loadT212AccountTrades live in ../_shared/t212.ts:
+// the background sync (auto-sync) appends new fills with the same code.
 
 // syncCashFromApi now lives in ../_shared/t212.ts so this function and auto-sync share one
 // implementation (and one currency-safety guard) — see there for the rationale.
 
-// Append real external deposits/withdrawals from the T212 API into the deposits table,
-// so total-return (value − net deposits) stays correct between statement imports. T212's
-// /history/transactions conflates three things under generic types, so we classify:
-//   • currency conversions — a same-instant set of legs in >1 currency (CZK out + USD in,
-//     often with a FEE leg). Net external flow = 0 → skipped.
-//   • interest — tiny daily credits (< ~$2) → skipped.
-//   • real deposits/withdrawals — an account-currency leg, alone at its timestamp, above
-//     the interest threshold → recorded.
-// Only flows AFTER the latest deposit we already have are added (the statement is
-// authoritative up to its date; a later statement re-import wipes & replaces these).
+// External cash flows use broker types and exclude multi-currency conversion instants,
+// never an amount threshold.
+// Paging is staged until the entire overlapping range is complete.
 // USD/<ccy> closes from `fromDay` on (ascending, paged), for converting each historical flow
 // at ITS day's rate (rateNear) instead of today's. THROWS on a failed read.
-async function loadUsdFx(svc: any, ccy: string, fromDay: string): Promise<{ date: string; close: number }[]> {
+async function loadUsdFx(svc: T212Client, ccy: string, fromDay: string): Promise<{ date: string; close: number }[]> {
   const from = new Date(Date.parse(fromDay) - 14 * 86400000).toISOString().slice(0, 10);
   const out: { date: string; close: number }[] = [];
   for (let f = 0; ; f += 1000) {
     const { data, error } = await svc.from("price_history").select("date,close").eq("symbol", "USD" + ccy)
       .gte("date", from).order("date", { ascending: true }).range(f, f + 999);
     if (error) throw new Error(`USD${ccy} read failed: ${error.message}`);
-    out.push(...((data ?? []) as any[]).map((r) => ({ date: r.date, close: Number(r.close) })));
+    out.push(...((data ?? [])).map((r) => ({ date: r.date, close: Number(r.close) })));
     if ((data ?? []).length < 1000) break;
   }
   return out;
@@ -101,56 +49,63 @@ async function fetchTransactionsPage(t212: (p: string) => Promise<Response>, pat
   return t212(path.replace("/equity/history/transactions", "/history/transactions"));
 }
 
-async function syncDepositsFromApi(svc: any, userId: string, account: string, t212: (p: string) => Promise<Response>, summary: any) {
-  const acctCcy = summary?.currency || "CZK";
-  // Only USD and CZK accounts can be converted (only USD/CZK history is kept); anything else
-  // used to be divided by a made-up 21.
+async function syncDepositsFromApi(svc: T212Client, userId: string, account: string, t212: (p: string) => Promise<Response>, summary: T212Summary) {
+  const acctCcy = summary?.currency;
   if (acctCcy !== "USD" && acctCcy !== "CZK") return 0;
-  const { data: lastDep, error: lastErr } = await svc.from("deposits").select("flow_date").eq("user_id", userId).eq("broker", "T212").eq("broker_account", account).order("flow_date", { ascending: false }).limit(1);
-  if (lastErr) throw new Error(`deposits read failed: ${lastErr.message}`);
-  const cutoff = lastDep?.[0]?.flow_date ?? "2000-01-01";
-  const items: any[] = [];
-  const endpoint = "/equity/history/transactions";
-  let path: string | null = `${endpoint}?limit=50`;
-  for (let guard = 0; guard < 12 && path; guard++) {
-    const r = await fetchTransactionsPage(t212, path);
-    if (!r.ok) { console.warn(`sync-broker: transactions HTTP ${r.status} - deposits import stopped`); break; }
-    const j = await r.json();
-    const its = j.items ?? [];
-    items.push(...its);
-    if (its.some((x: any) => (x.dateTime ?? "").slice(0, 10) <= cutoff)) break;
-    path = t212NextPage(j.nextPagePath, endpoint);
+  const { data: connection, error: stateError } = await svc.from("broker_connections").select("cash_sync_state").eq("user_id", userId).eq("broker", "T212").single();
+  if (stateError) throw stateError;
+  const saved = connection?.cash_sync_state;
+  const state = saved?.account === account ? saved : null;
+  const cutoff = state?.cutoff ?? "2000-01-01";
+  const saveState = async (next: import("../_shared/t212.ts").T212CashPageState) => {
+    const { error } = await svc.from("broker_connections").update({ cash_sync_state: { ...next, account } }).eq("user_id", userId).eq("broker", "T212");
+    if (error) throw error;
+  };
+  let page;
+  try {
+    page = await collectT212CashPages((path) => fetchTransactionsPage(t212, path), {
+      cutoff, path: state?.path ?? "/equity/history/transactions?limit=50", items: state?.items ?? [],
+    });
+  } catch (error) {
+    const progress = (error as { progress?: import("../_shared/t212.ts").T212CashPageState }).progress;
+    if (progress) await saveState(progress);
+    throw error;
   }
-  // Currencies present at each exact timestamp (a multi-currency instant = conversion).
-  const tsCcy = new Map<string, Set<string>>();
-  for (const x of items) { if (!tsCcy.has(x.dateTime)) tsCcy.set(x.dateTime, new Set()); tsCcy.get(x.dateTime)!.add(x.currency); }
-  const flows = items.filter((x) => {
-    const day = (x.dateTime ?? "").slice(0, 10);
-    if (!day || day <= cutoff) return false;
-    if (x.currency !== acctCcy) return false;
-    if (x.type !== "DEPOSIT" && x.type !== "WITHDRAW") return false;
-    return (tsCcy.get(x.dateTime)?.size ?? 1) <= 1; // else a currency conversion leg
-  });
-  if (!flows.length) return 0;
+  if (page.path) { await saveState(page); throw new Error("Cash history incomplete; sync again to continue"); }
+  const items = page.items;
+  const finish = () => saveState({ cutoff: items.reduce((day: string, x) => String(x.dateTime ?? "").slice(0, 10) > day ? String(x.dateTime).slice(0, 10) : day, cutoff), path: null, items: [] });
+  const flows = t212ExternalCashFlows(items, acctCcy, cutoff);
+  if (!flows.length) { await finish(); return 0; }
   const fx = acctCcy === "USD" ? [] : await loadUsdFx(svc, acctCcy, flows.map((x) => String(x.dateTime).slice(0, 10)).sort()[0]);
-  const rows: any[] = [];
+  const rows: T212Deposit[] = [];
   for (const x of flows) {
     const day = String(x.dateTime).slice(0, 10);
     const rate = acctCcy === "USD" ? 1 : rateNear(fx, day);
-    if (!rate) { console.warn(`sync-broker: no USD${acctCcy} rate for ${day} - deposit skipped`); continue; }
+    if (!rate) throw new Error("Missing dated FX for deposit " + day + "; review required");
     const usd = Number(x.amount) / rate;
-    if (!isFinite(usd) || Math.abs(usd) < 2) continue; // interest / dust
-    rows.push({ user_id: userId, broker: "T212", broker_account: account, flow_date: day, amount_usd: usd, source: "api", ext_id: `t212:cashtx:${account}:${x.reference}` });
+    if (!isFinite(usd)) throw new Error("Invalid deposit amount");
+    if (usd === 0) continue;
+    rows.push({ user_id: userId, broker: "T212", broker_account: account, flow_date: day, amount_usd: x.type === "WITHDRAW" ? -Math.abs(usd) : Math.abs(usd), original_currency: acctCcy, original_amount: x.type === "WITHDRAW" ? -Math.abs(Number(x.amount)) : Math.abs(Number(x.amount)), source: "api", ext_id: t212CashId(account, x) });
   }
-  if (!rows.length) return 0;
-  const { data: existing, error: exErr } = await svc.from("deposits").select("ext_id").eq("user_id", userId).eq("broker", "T212").not("ext_id", "is", null);
-  if (exErr) throw new Error(`deposits read failed: ${exErr.message}`);
-  const seen = new Set((existing ?? []).map((d: any) => d.ext_id));
-  const fresh = rows.filter((r) => !seen.has(r.ext_id));
+  if (!rows.length) { await finish(); return 0; }
+  const stored: T212Deposit[] = [];
+  for (let from = 0; ; from += 1000) {
+    const { data, error } = await svc.from("deposits").select("id,ext_id,api_reference,source,broker_account,flow_date,amount_usd,original_currency,original_amount").eq("user_id", userId).eq("broker", "T212").order("id").range(from, from + 999);
+    if (error) throw error;
+    stored.push(...(data ?? []));
+    if ((data ?? []).length < 1000) break;
+  }
+  const { fresh, links } = matchT212CashStatements(rows, stored, account);
+  for (const link of links) {
+    const { data, error } = await svc.from("deposits").update({ api_reference: link.api_reference }).eq("user_id", userId).eq("id", link.id).is("api_reference", null).select("id");
+    if (error) throw error;
+    if (data?.length !== 1) throw new Error("Cash flow changed during sync; retry required");
+  }
   if (fresh.length) {
     const { error } = await svc.from("deposits").insert(fresh);
     if (error) throw new Error(`deposits insert failed: ${error.message}`);
   }
+  await finish();
   return fresh.length;
 }
 
@@ -158,17 +113,17 @@ async function syncDepositsFromApi(svc: any, userId: string, account: string, t2
 // Amounts come in the account currency (CZK) → converted to USD. Newest-first, so we stop
 // once a page is fully already-imported. The import RPC runs under app.bulk_import so the
 // dividend cash-trigger doesn't re-credit cash (the API cash balance already includes it).
-async function syncDividendsFromApi(svc: any, userId: string, account: string, t212: (p: string) => Promise<Response>, summary: any) {
+async function syncDividendsFromApi(svc: T212Client, userId: string, account: string, t212: (p: string) => Promise<Response>, summary: T212Summary) {
   // `amount` is in the account's primary currency (T212 HistoryDividendItem).
   const acctCcy = summary?.currency || "CZK";
   if (acctCcy !== "USD" && acctCcy !== "CZK") return 0;
   const { data: existing, error: exErr } = await svc.from("dividends").select("ext_id").eq("user_id", userId).eq("broker", "T212").not("ext_id", "is", null);
   if (exErr) throw new Error(`dividends read failed: ${exErr.message}`);
-  const seen = new Set((existing ?? []).map((d: any) => d.ext_id));
+  const seen = new Set((existing ?? []).map((d) => d.ext_id));
   const { data: aliasRows, error: aErr } = await svc.from("ticker_alias").select("alias,canonical");
   if (aErr) throw new Error(`ticker_alias read failed: ${aErr.message}`);
-  const alias = new Map((aliasRows ?? []).map((a: any) => [a.alias, a.canonical]));
-  const fresh: any[] = [];
+  const alias = new Map((aliasRows ?? []).map((a) => [a.alias, a.canonical]));
+  const fresh: T212Dividend[] = [];
   const endpoint = "/equity/history/dividends";
   let path: string | null = `${endpoint}?limit=50`;
   for (let g = 0; g < 25 && path; g++) {
@@ -190,7 +145,7 @@ async function syncDividendsFromApi(svc: any, userId: string, account: string, t
   // Each dividend at ITS payment day's USD rate, not today's.
   const days = fresh.map((it) => String(it.paidOn ?? "").slice(0, 10)).filter(Boolean).sort();
   const fx = acctCcy === "USD" || !days.length ? [] : await loadUsdFx(svc, acctCcy, days[0]);
-  const rows: any[] = [];
+  const rows: { ticker: string; ex_date: string; pay_date: string; amount_per_share: number; shares_held: number; total_amount_usd: number; ext_id: string }[] = [];
   const queued = new Set<string>();
   for (const it of fresh) {
     if (queued.has(it.ref)) continue; // the same item on two pages would fail the unique index
@@ -219,15 +174,15 @@ async function syncDividendsFromApi(svc: any, userId: string, account: string, t
 // THROWS when T212 does not answer with a portfolio. A failed call (429, 5xx) is not an
 // empty portfolio: reconciling against [] sells every position of the account to zero and
 // deletes it. Callers skip the reconcile instead, exactly like auto-sync does.
-async function fetchPortfolioHjson(svc: any, t212: (p: string) => Promise<Response>) {
+async function fetchPortfolioHjson(svc: T212Client, t212: (p: string) => Promise<Response>) {
   const pr = await t212("/equity/portfolio");
   if (!pr.ok) throw new Error(`Trading 212 /equity/portfolio HTTP ${pr.status}`);
-  const holdings: any[] = await pr.json();
+  const holdings: T212Holding[] = await pr.json();
   if (!Array.isArray(holdings)) throw new Error("Trading 212 /equity/portfolio: neočekávaná odpověď");
   const pBases = [...new Set(holdings.map((h) => stripT212(h.ticker)))];
   const { data: pAlias } = pBases.length ? await svc.from("ticker_alias").select("alias,canonical").in("alias", pBases) : { data: [] };
   const pMap = new Map<string, string>();
-  for (const r of (pAlias ?? []) as any[]) pMap.set(r.alias, r.canonical);
+  for (const r of (pAlias ?? [])) pMap.set(r.alias, r.canonical);
   return holdings.filter((h) => Number(h.quantity) > 0).map((h): T212PortfolioHolding => {
     const b = stripT212(h.ticker);
     return { ticker: pMap.get(b) ?? RENAME[b] ?? b, qty: Number(h.quantity), avg: Number(h.averagePrice), cur: Number(h.currentPrice), usdQuoted: /_US_EQ$/.test(String(h.ticker)) };
@@ -245,7 +200,7 @@ async function fetchPortfolioHjson(svc: any, t212: (p: string) => Promise<Respon
 // from statements, plus Revolut/XTB/manual buys of the same tickers. Reconciling against
 // the connected account's portfolio while counting all of them zeroed every ticker the
 // other account held and subtracted its shares from the shared ones.
-async function reconcileT212Holdings(svc: any, userId: string, account: string, hjson: T212PortfolioHolding[]) {
+async function reconcileT212Holdings(svc: T212Client, userId: string, account: string, hjson: T212PortfolioHolding[]) {
   // USD average cost (never a native GBX/EUR number as USD) + the ticker-rename guard (only
   // between tickers linked by alias/ISIN, never by equal quantity alone) - shared with
   // auto-sync, see prepareReconcileHoldings in _shared/t212.ts.
@@ -255,29 +210,6 @@ async function reconcileT212Holdings(svc: any, userId: string, account: string, 
     p_holdings: holdings, p_note: "Dorovnání podle Trading 212",
   });
   if (error) throw new Error(`reconcile_broker_account: ${error.message}`);
-}
-
-// Every non-cash row of this account that the history model needs (ext_id decides its kind,
-// the rest is the content key of the statement-duplicate guard). PAGED: PostgREST caps a
-// plain select at 1000 rows and a statement import alone can write ~2000.
-//
-// THROWS on a failed read. An empty result would look like a pure-API account, and the
-// first batch of a pure-API sync REPLACES the account's whole t212:* history — including
-// the statement rows a failed read did not see.
-async function loadAccountTrades(svc: any, userId: string, account: string): Promise<T212StoredTrade[]> {
-  const out: T212StoredTrade[] = [];
-  for (let from = 0; ; from += 1000) {
-    const { data, error } = await svc.from("transactions")
-      .select("id,ticker,side,shares,price_usd,executed_at,ext_id")
-      .eq("user_id", userId).eq("broker", "T212").eq("broker_account", account).neq("ticker", "CASH")
-      .order("executed_at", { ascending: true }).order("id", { ascending: true })
-      .range(from, from + 999);
-    if (error) throw new Error(`Nepodařilo se načíst uložené obchody: ${error.message}`);
-    const page = (data ?? []) as T212StoredTrade[];
-    out.push(...page);
-    if (page.length < 1000) break;
-  }
-  return out;
 }
 
 Deno.serve(async (req) => {
@@ -292,10 +224,11 @@ Deno.serve(async (req) => {
 
     const svc = createClient(url, Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!);
     const { data: keyRows } = await svc.rpc("get_broker_key", { p_user_id: userId, p_broker: "T212" });
-    const conn = (keyRows as any[])?.[0];
+    const conn = (keyRows as T212Key[])?.[0];
     if (!conn?.api_key) return json({ error: "Trading 212 není připojeno" }, 400);
 
-    const base = conn.environment === "demo" ? "https://demo.trading212.com/api/v0" : "https://live.trading212.com/api/v0";
+    if (conn.environment !== "live") return json({ error: "practice_account", code: "practice_account" });
+    const base = "https://live.trading212.com/api/v0";
     const basic = "Basic " + btoa(conn.api_key);
     const t212 = async (path: string) => {
       for (let i = 0; i < 6; i++) {
@@ -323,18 +256,34 @@ Deno.serve(async (req) => {
 
     // Store the authoritative account summary (true value/P&L/deposits source) and, crucially,
     // WHICH T212 account this key belongs to. Everything below is scoped to that account, so
-    // a second T212 account imported from statements is never touched by this sync. The key
-    // itself is "<accountId><secret>", which is the fallback when /account/info is throttled.
+    // a second T212 account imported from statements is never touched by this sync.
     const infoR = await t212("/equity/account/info");
     const info = infoR.ok ? await infoR.json() : null;
     // Fall back to the last known currency/account when /account/info is throttled (429), so
     // a rate-limited call can't drop the currency to null. The shared syncCashFromApi refuses
     // to guess USD, so a null currency would otherwise silently skip the cash mirror.
-    const { data: prevConn } = await svc.from("broker_connections").select("account_summary, account_id").eq("user_id", userId).eq("broker", "T212").maybeSingle();
-    const currency = info?.currencyCode ?? prevConn?.account_summary?.currency ?? null;
-    const account = String(info?.id ?? prevConn?.account_id ?? (/^\d+/.exec(conn.api_key)?.[0] ?? "")) || null;
+    const { data: prevConn, error: prevError } = await svc.from("broker_connections").select("account_summary, account_id, environment").eq("user_id", userId).eq("broker", "T212").maybeSingle();
+    if (prevError) throw prevError;
+    if (!prevConn || prevConn.environment !== conn.environment) return json({ error: "Connection changed; retry" }, 409);
+    // On first sync, the key prefix identifies the account even if info is throttled.
+    // A stored id takes precedence over that fallback; a returned id still goes through the switch guard.
+    const account = String(info?.id ?? prevConn.account_id ?? /^\d+/.exec(conn.api_key)?.[0] ?? "") || null;
+    const currency = info?.currencyCode ?? (account === prevConn.account_id ? prevConn.account_summary?.currency : null) ?? null;
+    const guard = t212AccountGuard(conn.environment, prevConn.account_id, account, body?.confirmAccount);
+    if (guard) return json({ error: guard, code: guard, account });
+    const switched = prevConn.account_id !== account;
+    if (switched) {
+      // The trigger clears the previous account's state before storing this account's summary.
+      const update = svc.from("broker_connections").update({ account_id: account }).eq("user_id", userId).eq("broker", "T212");
+      const { data: changed, error: switchError } = await (prevConn.account_id == null
+        ? update.is("account_id", null) : update.eq("account_id", prevConn.account_id)).select("id");
+      if (switchError) throw switchError;
+      if (changed?.length !== 1) return json({ error: "Connection changed; retry" }, 409);
+      conn.last_sync_cursor = null;
+    }
     const summary = { ...cashJson, currency, account, at: new Date().toISOString() };
-    await svc.from("broker_connections").update({ account_summary: summary, account_id: account }).eq("user_id", userId).eq("broker", "T212");
+    const { error: summaryError } = await svc.from("broker_connections").update({ account_summary: summary, account_id: account }).eq("user_id", userId).eq("broker", "T212");
+    if (summaryError) throw summaryError;
     if (!account) return json({ error: "Nepodařilo se zjistit číslo účtu Trading 212 — synchronizace zastavena, aby nepřepsala data jiného účtu." });
 
     if (body?.test) return json({ ok: true, test: true, cash: cashJson, account });
@@ -349,8 +298,8 @@ Deno.serve(async (req) => {
     // we cannot tell whose they are, and guessing is what corrupted the portfolio before.
     const { data: acctRows } = await svc.from("transactions")
       .select("broker_account").eq("user_id", userId).eq("broker", "T212").neq("ticker", "CASH");
-    const foreign = new Set((acctRows ?? []).map((r: any) => r.broker_account).filter((a: any) => a && a !== account));
-    const hasUntagged = (acctRows ?? []).some((r: any) => !r.broker_account);
+    const foreign = new Set((acctRows ?? []).map((r) => r.broker_account).filter((a) => a && a !== account));
+    const hasUntagged = (acctRows ?? []).some((r) => !r.broker_account);
     if (hasUntagged && foreign.size === 0) {
       await svc.from("transactions").update({ broker_account: account })
         .eq("user_id", userId).eq("broker", "T212").is("broker_account", null);
@@ -367,7 +316,7 @@ Deno.serve(async (req) => {
     // such trades fall back to the full API import. API fills (t212:ord:*) and reconcile
     // adjustments (t212:adj:*) never switch the mode and never move the deletion cutoff —
     // they did, and a manual sync then deleted every order an earlier sync had pulled.
-    const stored = await loadAccountTrades(svc, userId, account);
+    const stored = await loadT212AccountTrades(svc, userId, account);
     const plan = planT212History(stored, { resuming: !!conn.last_sync_cursor });
     const statementMode = plan.statementMode;
     // Defensive: drop API orders the statement covers (left by an older full sync, or by a
@@ -381,7 +330,7 @@ Deno.serve(async (req) => {
     }
 
     // Pull a batch of order pages within the time budget.
-    const raw: any[] = [];
+    const raw: T212RawFill[] = [];
     let firstOfThisCall = true;
     let done = false;
     while (Date.now() - started < TIME_BUDGET_MS) {
@@ -390,67 +339,20 @@ Deno.serve(async (req) => {
       firstOfThisCall = false;
       const j = await r.json();
       for (const it of (j.items ?? [])) {
-        if (it.order?.status !== "FILLED" || !it.fill) continue;
-        const q = Number(it.fill.quantity);
-        raw.push({
-          base: stripT212(it.order.ticker), isin: it.order.instrument?.isin ?? null, name: it.order.instrument?.name ?? null,
-          side: q < 0 || it.order.side === "SELL" ? "SELL" : "BUY",
-          shares: Math.abs(q), price_usd: Number(it.fill.price), fee_usd: 0,
-          inst_ccy: it.order.instrument?.currency ?? it.order.currency ?? null,
-          wallet_ccy: it.fill.walletImpact?.currency ?? null,
-          wallet_net: it.fill.walletImpact?.netValue != null ? Number(it.fill.walletImpact.netValue) : null,
-          executed_at: it.fill.filledAt ?? it.order.dateModified ?? it.order.createdAt,
-          ext_id: `t212:ord:${it.fill.id}`,
-        });
+        const fill = parseT212OrderItem(it);
+        if (fill) raw.push(fill);
       }
       // Statement mode: the order history is newest-first, so once a page reaches an
       // order we already have, everything beyond is a duplicate — stop paging instead of
       // pulling the whole (rate-limited) history.
-      const pageTimes = (j.items ?? []).map((it: any) => it.fill?.filledAt ?? it.order?.dateModified ?? it.order?.createdAt);
+      const pageTimes = (j.items ?? []).map(t212ItemTime);
       if (reachedPageStop(pageTimes, plan)) { done = true; break; }
       cursor = j.nextPagePath ? new URL(j.nextPagePath, base).searchParams.get("cursor") : null;
       if (!cursor) { done = true; break; }
     }
 
-    // Resolve every instrument's current ticker via ISIN (cached globally), then build rows.
-    const aliasMap = await resolveAliases(raw.map((x) => ({ base: x.base, isin: x.isin, name: x.name })), svc);
-    // fill.price is in the INSTRUMENT currency; only USD instruments can take it as USD.
-    // Everything else is priced from walletImpact (account currency) — see t212FillPriceUsd.
-    const nonUsd = raw.filter((x) => String(x.inst_ccy ?? "USD").toUpperCase() !== "USD");
-    let usdCzkOn: (d: string) => number | null = () => null;
-    if (nonUsd.length) {
-      const from = nonUsd.map((x) => String(x.executed_at).slice(0, 10)).sort()[0];
-      const fromWithMargin = new Date(Date.parse(from) - 14 * 86400000).toISOString().slice(0, 10);
-      const fx: { date: string; close: number }[] = [];
-      for (let f = 0; ; f += 1000) {
-        const { data, error } = await svc.from("price_history").select("date,close").eq("symbol", "USDCZK")
-          .gte("date", fromWithMargin).order("date", { ascending: true }).range(f, f + 999);
-        if (error) throw new Error(`USDCZK read failed: ${error.message}`);
-        fx.push(...((data ?? []) as any[]).map((r) => ({ date: r.date, close: Number(r.close) })));
-        if ((data ?? []).length < 1000) break;
-      }
-      usdCzkOn = (d: string) => { let best: number | null = null; for (const r of fx) { if (r.date <= d) best = r.close; else break; } return best; };
-    }
-    const rows: any[] = [];
-    const unpriced: { label: string; executed_at: string; ext_id: string }[] = [];
-    for (const x of raw) {
-      const ticker = aliasMap.get(x.base) ?? RENAME[x.base] ?? x.base;
-      const day = String(x.executed_at).slice(0, 10);
-      let close: number | null | undefined;
-      const closeUsdOn = () => close ?? null;
-      // Every non-USD fill gets the day's USD close as a fallback — also CZK/USD wallets,
-      // whose primary path can still miss (no netValue, no USD/CZK rate for that day).
-      if (String(x.inst_ccy ?? "USD").toUpperCase() !== "USD") {
-        const { data } = await svc.from("price_history").select("close").eq("symbol", ticker).lte("date", day).gt("close", 0).order("date", { ascending: false }).limit(1);
-        close = data?.[0]?.close != null ? Number(data[0].close) : null;
-      }
-      const priceUsd = t212FillPriceUsd(
-        { instrumentCurrency: x.inst_ccy, price: x.price_usd, quantity: x.shares, walletCurrency: x.wallet_ccy, walletNetValue: x.wallet_net },
-        usdCzkOn, closeUsdOn, day,
-      );
-      if (priceUsd == null) { unpriced.push({ label: `${ticker} ${day} (${x.inst_ccy})`, executed_at: x.executed_at, ext_id: x.ext_id }); continue; }
-      rows.push({ ticker, side: x.side, shares: x.shares, price_usd: priceUsd, fee_usd: x.fee_usd, executed_at: x.executed_at, ext_id: x.ext_id, note: null });
-    }
+    // Current ticker via ISIN (cached globally) and the USD price of every fill.
+    const { rows, unpriced } = await priceT212Fills(svc, raw);
     // A fill that cannot be priced in USD must STOP the sync rather than be skipped: once newer
     // orders are stored, the next run pages only down to them and the skipped trade would be
     // missing from FIFO and taxes for good. Nothing of this batch has been written yet.

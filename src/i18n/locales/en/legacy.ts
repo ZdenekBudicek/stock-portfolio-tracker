@@ -139,6 +139,7 @@ export default {
     "olderWarnings_other": "{{count}} warnings concern other years (switch the year)."
   },
   "dividendTracker": {
+    "deleteTicker": "Delete {{ticker}} dividend",
     "dividendsSynced": "Dividends synced",
     "dividends": "Dividends",
     "add": "Add",
@@ -193,6 +194,8 @@ export default {
     "activeCount_other": "{{count}} active holdings"
   },
   "transactionHistory": {
+    "previousPage": "Previous page",
+    "nextPage": "Next page",
     "transactionAdded": "Transaction added",
     "transactionUpdatedHoldingsRecalculated": "Transaction updated, holdings recalculated",
     "transactionDeletedHoldingsRecalculated": "Transaction deleted, holdings recalculated",
@@ -240,6 +243,7 @@ export default {
     "stockCount_other": "{{count}} stocks ·"
   },
   "watchlist": {
+    "removeTicker": "Remove {{ticker}} from watchlist",
     "watchlist": "Watchlist",
     "add": "Add",
     "addToWatchlist": "Add to watchlist",
@@ -252,6 +256,9 @@ export default {
     "target2": "Target"
   },
   "brokerConnect": {
+    "practiceBlocked": "Practice accounts cannot sync into your real portfolio. Connect a live account.",
+    "confirmSwitch": "This key belongs to another account ({{account}}). Switch to it? The previous account history will be preserved.",
+    "accountUnknown": "Could not verify the account. Try syncing again.",
     "enterBothApiKeyAndSecretKey": "Enter both API Key and Secret Key",
     "trading212Connected": "Trading 212 connected",
     "syncComplete": "Sync complete: {{v0}}",
@@ -427,6 +434,7 @@ export default {
     "shareQuantity": "Shares"
   },
   "splitsBanner": {
+    "dismissTicker": "Dismiss {{ticker}} split",
     "splitAddedForConfirmation": "Split added for confirmation",
     "addSplitManually": "Add split manually",
     "manualSplit": "Manual split",
@@ -443,6 +451,9 @@ export default {
     "detectedCount_other": "Detected {{count}} potential splits"
   },
   "yearlyGrowth": {
+    "saveGoal": "Save goal",
+    "cancelGoal": "Cancel goal edit",
+    "editGoal": "Edit goal",
     "czk": "CZK ••••",
     "czkM": "CZK {{v0}}M",
     "yearToDate": " (year to date)",

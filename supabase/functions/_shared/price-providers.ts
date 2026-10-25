@@ -1,36 +1,18 @@
-export type Quote = { price: number; prev: number; pct: number };
+import { finite, parseBinance, parseCoinGecko, parseFinnhubQuote, parseTwelveData, pctOf, type Quote } from "./price-parsers.ts";
 
-const finite = (x: unknown) => Number.isFinite(Number(x)) && Number(x) > 0;
-const pctOf = (price: number, prev: number) => (prev ? ((price - prev) / prev) * 100 : 0);
+// The provider-neutral parsers live in price-parsers.ts so the agent Edge function can import
+// them without this module's fetchers (Yahoo among them); re-exported for existing callers.
+export { parseBinance, parseCoinGecko, parseFinnhubQuote, parseTwelveData } from "./price-parsers.ts";
+export type { Quote } from "./price-parsers.ts";
 
 /* ----------------------------- pure parsers ----------------------------- */
 
-export function parseYahooQuotes(json: any): Map<string, Quote> {
+export function parseYahooQuotes(json: { quoteResponse?: { result?: { symbol: string; regularMarketPrice?: unknown; regularMarketPreviousClose?: unknown }[] } }): Map<string, Quote> {
   const out = new Map<string, Quote>();
   for (const r of json?.quoteResponse?.result ?? []) {
     const price = Number(r.regularMarketPrice);
     const prev = Number(r.regularMarketPreviousClose ?? r.regularMarketPrice);
     if (finite(price) && finite(prev)) out.set(r.symbol, { price, prev, pct: pctOf(price, prev) });
-  }
-  return out;
-}
-
-export function parseFinnhubQuote(symbol: string, j: any): Quote | null {
-  const price = Number(j?.c), prev = Number(j?.pc);
-  if (!finite(price) || !finite(prev)) return null;
-  const pct = Number.isFinite(Number(j?.dp)) ? Number(j.dp) : pctOf(price, prev);
-  return { price, prev, pct };
-}
-
-export function parseTwelveData(symbols: string[], json: any): Map<string, Quote> {
-  const out = new Map<string, Quote>();
-  const quotes: Record<string, any> = symbols.length === 1 ? { [symbols[0]]: json } : json;
-  for (const s of symbols) {
-    const q = quotes?.[s];
-    if (!q || q.code) continue;
-    const price = Number(q.close ?? q.price);
-    const prev = Number(q.previous_close);
-    if (finite(price) && finite(prev)) out.set(s, { price, prev, pct: pctOf(price, prev) });
   }
   return out;
 }
@@ -48,25 +30,6 @@ export function parseStooqCsv(text: string): Map<string, Quote> {
     if (!finite(close)) continue;
     const prev = finite(open) ? open : close;
     out.set(sym, { price: close, prev, pct: pctOf(close, prev) });
-  }
-  return out;
-}
-
-export function parseBinance(ticker: string, j: any): Quote | null {
-  const price = Number(j?.lastPrice), pct = Number(j?.priceChangePercent);
-  if (!finite(price)) return null;
-  const prev = finite(j?.prevClosePrice) ? Number(j.prevClosePrice) : (pct ? price / (1 + pct / 100) : price);
-  return { price, prev, pct: Number.isFinite(pct) ? pct : pctOf(price, prev) };
-}
-
-export function parseCoinGecko(tickerToId: Record<string, string>, json: any): Map<string, Quote> {
-  const out = new Map<string, Quote>();
-  for (const [ticker, id] of Object.entries(tickerToId)) {
-    const q = json?.[id];
-    if (q?.usd) {
-      const pct = q.usd_24h_change ?? 0;
-      out.set(ticker, { price: q.usd, prev: pct ? q.usd / (1 + pct / 100) : q.usd, pct });
-    }
   }
   return out;
 }
@@ -136,15 +99,15 @@ export async function fetchFinnhub(symbols: string[], apiKey: string, opts: Finn
 
 /* ----------------------------- PostgREST paging ----------------------------- */
 
-type PageResult = { data: any[] | null; error: any };
+type PageResult<T> = { data: T[] | null; error: { message?: string } | null };
 
 /**
  * Every row of a select. PostgREST caps one response at 1000 rows, so a plain select silently
  * drops the rest; pass a query with a deterministic ORDER BY (paging an unordered select can
  * skip or repeat rows). A failed read THROWS — it must never look like "no rows".
  */
-export async function fetchAllRows(label: string, page: (from: number, to: number) => PromiseLike<PageResult>, pageSize = 1000): Promise<any[]> {
-  const out: any[] = [];
+export async function fetchAllRows<T>(label: string, page: (from: number, to: number) => PromiseLike<PageResult<T>>, pageSize = 1000): Promise<T[]> {
+  const out: T[] = [];
   for (let f = 0; ; f += pageSize) {
     const { data, error } = await page(f, f + pageSize - 1);
     if (error) throw new Error(`read ${label} failed: ${error.message ?? error}`);
@@ -155,14 +118,14 @@ export async function fetchAllRows(label: string, page: (from: number, to: numbe
 }
 
 /** Rows for the given symbols, `.in("symbol", …)` in chunks (URL length) and fully paged. */
-export async function fetchRowsBySymbols(
+export async function fetchRowsBySymbols<T>(
   symbols: string[],
-  query: (chunk: string[], from: number, to: number) => PromiseLike<PageResult>,
+  query: (chunk: string[], from: number, to: number) => PromiseLike<PageResult<T>>,
   label: string,
   chunkSize = 100,
-): Promise<any[]> {
+): Promise<T[]> {
   const uniq = [...new Set(symbols)];
-  const out: any[] = [];
+  const out: T[] = [];
   for (let i = 0; i < uniq.length; i += chunkSize) {
     const chunk = uniq.slice(i, i + chunkSize);
     out.push(...await fetchAllRows(label, (f, t) => query(chunk, f, t)));
@@ -178,7 +141,7 @@ const isoDay = (ms: number) => new Date(ms).toISOString().slice(0, 10);
  * symbol; a symbol with nothing in that window gets one `limit(1)` query of its own. Never the
  * newest N rows globally, which drops symbols whose latest close is older than the others'.
  */
-export async function latestCloses(client: any, symbols: string[], opts: { windowDays?: number; now?: number } = {}): Promise<Map<string, { date: string; close: number }>> {
+export async function latestCloses(client: Pick<import("./t212-types.ts").T212Client, "from">, symbols: string[], opts: { windowDays?: number; now?: number } = {}): Promise<Map<string, { date: string; close: number }>> {
   const since = isoDay((opts.now ?? Date.now()) - (opts.windowDays ?? 14) * 86_400_000);
   const out = new Map<string, { date: string; close: number }>();
   const rows = await fetchRowsBySymbols(symbols, (chunk, f, t) => client.from("price_history").select("symbol,date,close")

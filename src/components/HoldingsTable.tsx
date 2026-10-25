@@ -4,7 +4,7 @@ import { useEffect, useMemo, useState } from 'react';
 import { ArrowUpDown, Loader2, Check, X, Pencil, Search, TrendingUp, TrendingDown, Wallet, Briefcase, DollarSign } from 'lucide-react';
 import { Link } from 'react-router-dom';
 import { useCurrency } from '@/contexts/CurrencyContext';
-import { useComputedPortfolio, summarizeHoldings, isCashPosition, type LivePosition } from '@/hooks/usePortfolio';
+import { useComputedPortfolio, isCashPosition, type LivePosition } from '@/hooks/usePortfolio';
 import { formatPct } from '@/data/portfolio';
 import { decimalsOf } from '@/lib/displayCurrency';
 import { supabase } from '@/integrations/supabase/client';
@@ -20,7 +20,8 @@ const HoldingsTable = () => {
   const [sortAsc, setSortAsc] = useState(false);
   const [query, setQuery] = useState('');
   const { formatAt, pick, currency, rate } = useCurrency();
-  const { positions, loading } = useComputedPortfolio();
+  const portfolio = useComputedPortfolio();
+  const { positions, loading } = portfolio;
   // Everything in the displayed currency. Local (koruny or the chosen one): cost at the
   // purchase-day rate, value at today's, so amount, % and colour all include the currency move
   // (matches T212); USD is the pure stock
@@ -94,11 +95,11 @@ const HoldingsTable = () => {
 
   // Totals of the positions. Cash has no cost and no return, so it stays out of Investováno
   // and the P/L % — it only adds to Hodnota.
-  const h = summarizeHoldings(positions);
-  const totalInvested = pick(h.invested, h.investedCzk);
-  const totalValue = positions.reduce((s, p) => s + pick(p.value, p.valueCzk), 0);
-  const totalProfit = pick(h.profit, h.profitCzk);
-  const totalProfitPct = pick(h.profitPct, h.profitPctCzk);
+  // Model totals include dust even though the shared display list hides it.
+  const totalInvested = pick(portfolio.totalInvested, portfolio.totalInvestedCzk);
+  const totalValue = pick(portfolio.totalValue, portfolio.totalValue * portfolio.usdLocal);
+  const totalProfit = pick(portfolio.unrealizedProfit, portfolio.unrealizedProfitCzk);
+  const totalProfitPct = pick(portfolio.totalProfitPct, portfolio.totalProfitPctCzk);
   const money = (v: number) => formatAt(v, v); // v is already in the displayed currency
 
   const { winners, losers, bestPct } = useMemo(() => {

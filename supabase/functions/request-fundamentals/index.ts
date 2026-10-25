@@ -9,19 +9,19 @@
 // and GITHUB_REPO ("owner/name"). Without them the function answers { configured: false }.
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2.45.0";
 import { cleanTickers, canonicalOf, planFundamentalsRequest } from "../_shared/fundamentalsRequests.js";
+import { allowedOrigins, corsHeadersFor } from "../_shared/cors.ts";
+import { smallJson } from "../_shared/requestBody.ts";
 
-const corsHeaders = {
-  "Access-Control-Allow-Origin": "*",
-  "Access-Control-Allow-Headers": "authorization, x-client-info, apikey, content-type",
-};
-const json = (body: unknown, status = 200) =>
-  new Response(JSON.stringify(body), { status, headers: { ...corsHeaders, "Content-Type": "application/json" } });
+// Browser access only from the app's origins (audit A6, _shared/cors.ts); server callers send no Origin.
+const jsonWith = (cors: Record<string, string>) => (body: unknown, status = 200) =>
+  new Response(JSON.stringify(body), { status, headers: { ...cors, "Content-Type": "application/json" } });
 
 /** Per user: at most this many companies reserved per hour (abuse guard, enforced in the DB). */
 const USER_HOURLY_LIMIT = 30;
 const WORKFLOW = "price-history.yml";
 
 Deno.serve(async (req) => {
+  const corsHeaders = corsHeadersFor(req, allowedOrigins(Deno.env.get("AGENT_ALLOWED_ORIGINS"))), json = jsonWith(corsHeaders);
   if (req.method === "OPTIONS") return new Response("ok", { headers: corsHeaders });
   if (req.method !== "POST") return json({ error: "method" }, 405);
   try {
@@ -32,8 +32,9 @@ Deno.serve(async (req) => {
     const user = auth?.user;
     if (!user) return json({ error: "auth" }, 401);
 
-    const body = await req.json().catch(() => ({}));
-    const tickers = cleanTickers(body?.tickers);
+    const body = await smallJson(req) as { tickers?: unknown } | null;
+    if (!body) return json({ error: "too_large", dispatched: [] }, 413);
+    const tickers = cleanTickers(body.tickers);
     if (tickers.length === 0) return json({ dispatched: [], known: [], recent: [], ignored: [] });
 
     const token = Deno.env.get("GITHUB_DISPATCH_TOKEN") ?? "";
@@ -74,8 +75,15 @@ Deno.serve(async (req) => {
     const go = plan.dispatch.filter((d) => got.has(d.symbol));
     if (go.length === 0) return json({ dispatched: [], ...base, recent: [...plan.recent, ...plan.dispatch.map((d) => d.symbol)] });
 
+    // One workflow run a call; all runs share a daily budget (reserve_shared_resource), so a stream of
+    // made-up symbols cannot keep starting jobs. Over budget the symbols are released for another day.
+    const unit = await svc.rpc("reserve_shared_resource", { p_resource: "github_dispatch", p_units: 1 });
+    if (unit.error || unit.data !== true) {
+      await svc.rpc("release_fundamentals_requests", { p_symbols: go.map((d) => d.symbol) });
+      return json({ error: "busy", dispatched: [], ...base }, 429);
+    }
     const res = await fetch(`https://api.github.com/repos/${repo}/actions/workflows/${WORKFLOW}/dispatches`, {
-      method: "POST",
+      method: "POST", signal: AbortSignal.timeout(10_000),
       headers: { Authorization: `Bearer ${token}`, Accept: "application/vnd.github+json", "X-GitHub-Api-Version": "2022-11-28", "User-Agent": "portfolio-tracker" },
       // The workers get the tickers as the user's data spells them; they resolve aliases themselves.
       body: JSON.stringify({ ref: "main", inputs: { symbols: go.map((d) => d.ticker).join(",") } }),

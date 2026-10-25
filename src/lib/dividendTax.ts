@@ -30,6 +30,9 @@ export interface DividendRecord {
   /** Optional exact figures, when a source provides them. */
   gross_amount_usd?: number | null;
   withholding_tax_usd?: number | null;
+  original_currency?: string | null;
+  gross_amount?: number | null;
+  withholding_tax?: number | null;
 }
 
 export type DividendBasis = "exact" | "gross" | "net";
@@ -97,14 +100,14 @@ export function dividendTaxRow(d: DividendRecord, fxMethod: FxMethod): DividendT
   const broker = brokerUp(d);
   const amount = dividendAmountUsd(d);
   let basis: DividendBasis, grossUsd: number, whtUsd: number;
-  if (d.gross_amount_usd != null) {
+  if (d.gross_amount_usd != null && d.withholding_tax_usd != null) {
     basis = "exact";
     grossUsd = Number(d.gross_amount_usd);
     whtUsd = Number(d.withholding_tax_usd ?? 0);
-  } else if (broker === "XTB") {
+  } else if (broker === "XTB" || d.gross_amount_usd != null) {
     basis = "gross";
-    grossUsd = amount;
-    whtUsd = amount * ASSUMED_WHT_RATE;
+    grossUsd = Number(d.gross_amount_usd ?? amount);
+    whtUsd = grossUsd * ASSUMED_WHT_RATE;
   } else {
     basis = "net";
     grossUsd = amount / (1 - ASSUMED_WHT_RATE);
@@ -115,7 +118,7 @@ export function dividendTaxRow(d: DividendRecord, fxMethod: FxMethod): DividendT
   const grossCzk = fx ? grossUsd * fx.rate : null;
   const whtCzk = fx ? whtUsd * fx.rate : null;
   return {
-    id: d.id, ticker: d.ticker, broker, payDate, basis, estimated: broker === "AUTO",
+    id: d.id, ticker: d.ticker, broker, payDate, basis, estimated: broker === "AUTO" || basis !== "exact",
     grossUsd, whtUsd, netUsd: grossUsd - whtUsd, fx, grossCzk, whtCzk,
     // Only a withholding the broker actually REPORTED is creditable. An assumed 15 % (net
     // amount grossed up, or an XTB gross with no tax line) may never have been withheld —
@@ -158,7 +161,7 @@ export function buildDividendReport(divs: DividendRecord[], year: number, fxMeth
   }
   const czTaxCzk = grossCzk * CZ_DIVIDEND_TAX_RATE;
   return {
-    year, rows, missingFx: [...missing].sort(), complete: missing.size === 0,
+    year, rows, missingFx: [...missing].sort(), complete: missing.size === 0 && rows.every((r) => r.basis === "exact" && !r.estimated),
     grossCzk, whtCzk, creditableCzk, assumedCreditCzk, czTaxCzk,
     topUpCzk: Math.max(0, czTaxCzk - creditableCzk),
     excessWhtCzk: Math.max(0, whtCzk - creditableCzk - assumedCreditCzk),

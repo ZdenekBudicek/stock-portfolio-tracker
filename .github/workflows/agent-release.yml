@@ -1,0 +1,122 @@
+name: Agent release
+
+on:
+  workflow_dispatch:
+    inputs:
+      sha:
+        description: Exact 40-character commit SHA to verify and release
+        required: true
+        type: string
+  workflow_call:
+    inputs:
+      sha:
+        required: true
+        type: string
+    secrets:
+      SUPABASE_ACCESS_TOKEN:
+        required: false
+
+permissions:
+  contents: read
+
+concurrency:
+  group: agent-production-release
+  cancel-in-progress: false
+
+# Deployment stays off until Zdeněk approves the concrete RELEASE-DIFF (docs/ai-assistant): then a
+# reviewed commit changes this literal and the production environment gets required reviewers.
+# A repository variable cannot enable this workflow. Even then the deploy job refuses to run
+# unless the release evidence (integration PASS + live eval of the same code) is GO for this SHA.
+env:
+  AGENT_DEPLOY_ENABLED: 'false'
+
+jobs:
+  verify:
+    runs-on: ubuntu-latest
+    outputs:
+      deploy-enabled: ${{ env.AGENT_DEPLOY_ENABLED }}
+    steps:
+      - name: Validate immutable revision
+        env:
+          RELEASE_SHA: ${{ inputs.sha }}
+        run: '[[ "$RELEASE_SHA" =~ ^[0-9a-f]{40}$ ]]'
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ inputs.sha }}
+      - name: Verify checkout
+        env:
+          RELEASE_SHA: ${{ inputs.sha }}
+        run: test "$(git rev-parse HEAD)" = "$RELEASE_SHA"
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '24'
+          cache: npm
+      - run: npm ci
+      - run: npm run check:agent-lib
+      - run: npx vitest run
+      - run: npx tsc --noEmit -p tsconfig.app.json
+      - run: npx deno check supabase/functions/agent/index.ts supabase/functions/agent/runtime_test.ts
+      - run: npx deno test --allow-net=127.0.0.1 supabase/functions/agent/runtime_test.ts
+
+  deploy:
+    needs: verify
+    if: ${{ needs.verify.outputs.deploy-enabled == 'true' }}
+    runs-on: ubuntu-latest
+    environment: production
+    permissions:
+      contents: read
+      deployments: write
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ inputs.sha }}
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '24'
+      - name: Release evidence gate (reads committed evidence only)
+        env:
+          RELEASE_SHA: ${{ inputs.sha }}
+        run: |
+          git fetch --no-tags --depth=200 origin "$RELEASE_SHA"
+          node scripts/agent-release-check.mjs --sha="$RELEASE_SHA"
+      - uses: supabase/setup-cli@v1
+        with:
+          version: latest
+      - name: Record exact deployment revision
+        id: deployment
+        uses: actions/github-script@v7
+        env:
+          RELEASE_SHA: ${{ inputs.sha }}
+        with:
+          script: |
+            const { data } = await github.rest.repos.createDeployment({
+              ...context.repo, ref: process.env.RELEASE_SHA, environment: 'trackora-agent',
+              auto_merge: false, required_contexts: [], description: 'Trackora agent calculation bundle'
+            });
+            core.setOutput('id', data.id);
+      - name: Deploy verified function
+        env:
+          SUPABASE_ACCESS_TOKEN: ${{ secrets.SUPABASE_ACCESS_TOKEN }}
+          PROJECT_REF: ${{ vars.SUPABASE_PROJECT_REF }}
+          RELEASE_SHA: ${{ inputs.sha }}
+        run: |
+          test "$AGENT_DEPLOY_ENABLED" = true
+          test -n "$PROJECT_REF"
+          test "$(git rev-parse HEAD)" = "$RELEASE_SHA"
+          supabase functions deploy agent --project-ref "$PROJECT_REF"
+      - name: Record deployment outcome
+        if: ${{ always() && steps.deployment.outputs.id != '' }}
+        uses: actions/github-script@v7
+        env:
+          DEPLOYMENT_ID: ${{ steps.deployment.outputs.id }}
+          DEPLOYMENT_STATE: ${{ job.status == 'success' && 'success' || 'failure' }}
+        with:
+          script: |
+            await github.rest.repos.createDeploymentStatus({
+              ...context.repo, deployment_id: Number(process.env.DEPLOYMENT_ID),
+              state: process.env.DEPLOYMENT_STATE, auto_inactive: process.env.DEPLOYMENT_STATE === 'success',
+              log_url: `${context.serverUrl}/${context.repo.owner}/${context.repo.repo}/actions/runs/${context.runId}`
+            });
+      - name: Publish successful version
+        if: ${{ success() }}
+        run: node -e 'const m=require("./supabase/functions/agent/_lib/manifest.json"); require("fs").appendFileSync(process.env.GITHUB_STEP_SUMMARY, "Deployed calculation version " + m.calculationVersion + " (CNB through " + m.cnbThrough + ")\n")'

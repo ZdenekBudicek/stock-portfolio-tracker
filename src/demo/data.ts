@@ -1,3 +1,4 @@
+/* eslint-disable @typescript-eslint/no-explicit-any -- in-memory stand-in for PostgREST rows: untyped JSON by design (demo build only) */
 import { demoFundamentals } from "./fundamentals";
 // Demo-mode data set. EVERYTHING in here is invented: tickers are real symbols so logos and
 // the TradingView embed work, but every share count, trade, price path, deposit and dividend
@@ -493,7 +494,7 @@ export function generateDemoData(now = new Date()): DemoData {
       price_cache: [],
       company_fundamentals: demoFundamentals(today),
       fundamentals_requests: [],
-      user_settings: [{ user_id: DEMO_USER_ID, tax_residence: "CZ", base_currency: "CZK", confirmed_at: "2025-01-01T09:00:00+00:00" }],
+      user_settings: [{ user_id: DEMO_USER_ID, tax_residence: "CZ", base_currency: "USD", confirmed_at: "2025-01-01T09:00:00+00:00" }],
     },
   };
 }

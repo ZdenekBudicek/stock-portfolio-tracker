@@ -1,0 +1,142 @@
+{
+  "schemaVersion": 1,
+  "calculationVersion": "23ec38b26937f99ce20f38c19cfce8ed9dd0f3f14ad046243300369fb21eab4b",
+  "inputHashes": {
+    "docs/ai-assistant/cpu-policy.json": "86f070ebb1f67c8ae28017b37e97343401a347c80929a876df6a80b553e78d89",
+    "node_modules/zod/index.d.cts": "5780b706cece027f0d4444fbb4e1af62dc51e19da7c3d3719f67b22b033859b9",
+    "node_modules/zod/index.js": "6419c4ac0e637ff08463083e31886d10354f74cbcc4e584400b2b837e39ac881",
+    "node_modules/zod/v3/ZodError.d.cts": "08b2fae7b0f553ad9f79faec864b179fc58bc172e295a70943e8585dd85f600c",
+    "node_modules/zod/v3/ZodError.js": "f5ac9e86b92e201d41e294d7aa35986a2aa28829e1bcc8ac25f7c8dce0674b99",
+    "node_modules/zod/v3/errors.d.cts": "e3498cf5e428e6c6b9e97bd88736f26d6cf147dedbfa5a8ad3ed8e05e059af8a",
+    "node_modules/zod/v3/errors.js": "d40831f478288d76e82bbbcc3b7e95c8513b6e76471f2d49a37c979bc57d492d",
+    "node_modules/zod/v3/external.d.cts": "a9ebb67d6bbead6044b43714b50dcb77b8f7541ffe803046fdec1714c1eba206",
+    "node_modules/zod/v3/external.js": "5d26d2e47e2352def36f89a3e8bf8581da22b7f857e07ef3114cd52cf4813445",
+    "node_modules/zod/v3/helpers/enumUtil.d.cts": "f672c876c1a04a223cf2023b3d91e8a52bb1544c576b81bf64a8fec82be9969c",
+    "node_modules/zod/v3/helpers/errorUtil.d.cts": "e4b03ddcf8563b1c0aee782a185286ed85a255ce8a30df8453aade2188bbc904",
+    "node_modules/zod/v3/helpers/errorUtil.js": "68589c0cf44c8b4ad19b77418f53caad2cd1dbc8d714f526e1876ebdee4828c5",
+    "node_modules/zod/v3/helpers/parseUtil.d.cts": "dba3f34531fd9b1b6e072928b6f885aa4d28dd6789cbd0e93563d43f4b62da53",
+    "node_modules/zod/v3/helpers/parseUtil.js": "b57484013bb360bac2e334d58fcd5f6cbfa63ffcc7d8ff3dbbb3380ca659b956",
+    "node_modules/zod/v3/helpers/partialUtil.d.cts": "2329d90062487e1eaca87b5e06abcbbeeecf80a82f65f949fd332cfcf824b87b",
+    "node_modules/zod/v3/helpers/typeAliases.d.cts": "d3cfde44f8089768ebb08098c96d01ca260b88bccf238d55eee93f1c620ff5a5",
+    "node_modules/zod/v3/helpers/typeAliases.js": "8e609bb71c20b858c77f0e9f90bb1319db8477b13f9f965f1a1e18524bf50881",
+    "node_modules/zod/v3/helpers/util.d.cts": "293eadad9dead44c6fd1db6de552663c33f215c55a1bfa2802a1bceed88ff0ec",
+    "node_modules/zod/v3/helpers/util.js": "906ef685e5853d496e293ee8f8a2bb8b1ed2d078a1bcdfedb2dfd61d75b6330c",
+    "node_modules/zod/v3/index.d.cts": "833e92c058d033cde3f29a6c7603f517001d1ddd8020bc94d2067a3bc69b2a8e",
+    "node_modules/zod/v3/locales/en.d.cts": "f12edf1672a94c578eca32216839604f1e1c16b40a1896198deabf99c882b340",
+    "node_modules/zod/v3/locales/en.js": "51a6dcc5d4bd52a64da127c012c6c963395c1d9a343ad75d4a8eca662fc8b205",
+    "node_modules/zod/v3/standard-schema.d.cts": "25b3f581e12ede11e5739f57a86e8668fbc0124f6649506def306cad2c59d262",
+    "node_modules/zod/v3/types.d.cts": "4fdb529707247a1a917a4626bfb6a293d52cd8ee57ccf03830ec91d39d606d6d",
+    "node_modules/zod/v3/types.js": "9763a2938f0e7f983363ef4bf6530e7583e3f2d54f8a4a6684efad58febc6e8e",
+    "package-lock.json": "3fd5a1091d842497475c5f18708b9305e24615968c84d55ed4f93c95a1fcfdba",
+    "package.json": "111d0ed6a3b2c1bddb93412e005330a64a0c38e9ff849b453060effcd0be6996",
+    "scripts/build-agent-lib.mjs": "7577762f9a32efec81b808a262e7a40809d1bb724f61cbd3655c1cbc9132861b",
+    "scripts/check-agent-lib.mjs": "1e2b13c6f0465be564a16636ab1f2aa38c7f8bae225a2820f21044deac2e4a00",
+    "src/data/cnbRates.json": "2836ebe181caf984890d825e7f5e2f6d3c4acc7a65c423126b04acece27240ff",
+    "src/data/cnbUsdCzk.json": "e4d71ebbfa281ab67972693fe3ad95d7b57227e492958a1d908de6da610e6179",
+    "src/lib/agentLib.ts": "4751440b06f21bda36f0e4ef1334c32fb3f8ba439f675a988dbe30a0aa104e5f",
+    "src/lib/allocationModel.ts": "70283c3b6992167206baf9bd3ac02df62ec411ec818625a6939f52f494c86dd0",
+    "src/lib/brokerSummary.ts": "66e209d9931012658be089da0005f601ac13c07ba396a4806e14527822f4e0e1",
+    "src/lib/calculationCache.ts": "381573823bd53dd845cf8c23030296c498c3dc79305cef6ca17e3ff06bc68017",
+    "src/lib/cnbRates.ts": "ea8b4a5c1c171b1f0c640c22abc1f851e03982796577f328ffc5ed0b1f4f24fe",
+    "src/lib/czTax.ts": "dc232602870004e18aa08ea97862b59d54ac9d98e03da34fbcbd32ab94b6513f",
+    "src/lib/czTaxModel.ts": "b2723814e775aeabcd656907641386dec8ac8e120a094103de5e2a15305b3832",
+    "src/lib/displayCurrency.ts": "322d3eb12ed5d2de164087d86e960bed96b8ca0c767a4d7fe3bae6b3a4c5a6cf",
+    "src/lib/dividendAnalytics.ts": "2e0b22341ea11ea695e9e5f067c6dc58ed73e147a4a1bdac04f57fcd182b849e",
+    "src/lib/dividendModel.ts": "5d141920b0f149447014b27bfb90eff07795160148700561b7d3f302033e3d83",
+    "src/lib/dividendTax.ts": "68062de51f7495dfcdfd63059a465832e6532a8305840aecdcc9d730ecf41653",
+    "src/lib/fairValue.ts": "2c5b519a5d99fa7a205163d35d87ff974897c82ae40beb79593d00203eb3039b",
+    "src/lib/fifo.ts": "a3c5374f0b476dde1cca78ec51a9839553687bd803fdbf00482aeb8677a694f9",
+    "src/lib/fxLookup.ts": "d2c4c70fa0802e29942fe90e415677fd1442856bccd42b47d5060ff5fca4d334",
+    "src/lib/instrumentRegistry.ts": "80ae89ab70a880fc4c109e555873a4d6fbea1661915a08f80501ac8174caef9a",
+    "src/lib/internationalTaxModel.ts": "d8d138e1a9501783efaa30ca2dd05fca6951520ed8a588859856dad45f9418a0",
+    "src/lib/netDeposits.ts": "c422f720bfbe36ef7f4256797c4581ce5a8cdcb72a8b27c897ff18b61a1aa18b",
+    "src/lib/performanceModel.ts": "b819d3f52075206aa7b7b73534f10e004c6db0338cae15a42f17d5e8e64765f6",
+    "src/lib/performanceQuality.ts": "4e6d663f7ce6ec177a75fdfee6ea147d2f58dc3a8620228545c09801c7f9c57d",
+    "src/lib/performanceSeries.ts": "18742d36a252960593fbd820b4409f92be919f816bd7693cce250a688b39451f",
+    "src/lib/portfolioModel.ts": "9178c3d2b48f4e03797a51aaa5a14542a04f9c944eec39e5466ffe28e5fb6ceb",
+    "src/lib/portfolioTypes.ts": "3dcaef64e15038f20a3feb02df3c970073d62eca1bf421fff326de2c4dc5f133",
+    "src/lib/realizedModel.ts": "6e2d95791fdfa53f18412c26cb1c274efcb4151dc4ff0a1f18ffb6580712bf58",
+    "src/lib/returns.ts": "8dca05c95330ace28faa2dcd5669ab97a6642761acc157c4552ab276fa3f3c3d",
+    "src/lib/saleModel.ts": "738a3d4730ad1a78427f605602cac3a8d0f97ac0ad44f5cf404b5eff9076d265",
+    "src/lib/saleSimulation.ts": "01c5913c3837292cc33950eaab7e3e7d8faa597bb6b39b0c369d34a0c554dac0",
+    "src/lib/sectors.ts": "df08883b36e9dcd4644eb39b1ed1f68163ab278f144d20d98e49db69a5683dd1",
+    "src/lib/snapshotFx.ts": "4aee9d6c243fea0351c526b4ad27007ff210ef69251cf4642bb1cad794a57afa",
+    "src/lib/tax/appInput.ts": "ee185147d72e23d621b777b47eda38c77f1294e11123fb96517bbaa6e8221fb3",
+    "src/lib/tax/common.ts": "1622178c5075a8d7908266ac24044b733fceed2042959b7f6923045c76e2daa3",
+    "src/lib/tax/de.ts": "ebe8d8255289898d39f7475c2f7aaf53fe2dd39010b2e2c42a459a1a5eef662b",
+    "src/lib/tax/engines.ts": "24278f756d4596576f3a9161dff7a785dde5cbe64d5fcde2a798d56a05d6d85a",
+    "src/lib/tax/fx.ts": "fc9f38c2a2369bbc51cd733c3a9687fd0d23f36c2c69c01fa1f8549b784c4b1f",
+    "src/lib/tax/gb.ts": "9b2dda7e985b4d22f49acafa2c2dca4d5b2bdb65fb9c38c224ef6b4de6c80b2f",
+    "src/lib/tax/jurisdictions.ts": "fd69562034e0343b1d10d8a568a3e5bc06183092dbeb7383a9395d4181a2fe9d",
+    "src/lib/tax/pl.ts": "cfd17c1fb47531b1501eeb875e5c7e93f26378ddc5545b397c43ce7eebc8dfc7",
+    "src/lib/tax/profile.ts": "2a0e914e6f89fcabbe44d51418a7e28f8ff4fcd532638419987572faca93dfbf",
+    "src/lib/tax/realized.ts": "37c5cbaf2e75bd8e2377d5a40c28c47f324397ed68c267e82bc0acfa1fdd9040",
+    "src/lib/tax/sk.ts": "3ece968bca6351dd972a9c87ab38a096b9b0108f6bb8ae8e274b95850f01a8f2",
+    "src/lib/tax/types.ts": "ae52271c8b6179771e16abe26981788fdf11a6e4c34826fba167d59fb5966b9c",
+    "src/lib/tax/us.ts": "a44627cb98db4abf636e18c737a271859dee1b43842425a597f80ea6779968c5",
+    "src/lib/tax/usRates.ts": "6d0da5d04f3a8f85a88c9ab031a42c888b50bc971b049f35279257b2270e25cc",
+    "src/lib/taxLots.ts": "c98f8af222a6cdd417b6708861c747d13cd583f7cfd0ddb0641002a9d4ba022e",
+    "src/lib/taxProfiles.ts": "cf75db021557e4f1f7a48bd65d907605deb2ecf5cda1fbf997604753df2535a6",
+    "src/lib/tickerProfileModel.ts": "9e4b5065f6857250e228e5b221fbaad6e7b747e1d99cf35fab89dd0e157006b1",
+    "src/lib/valuationSeries.ts": "0253fe37882fcf4ee8c89380116345d85352e8571e78df6d8e0de3aeba90c079",
+    "src/types/fundamentals.ts": "2f0a172f36f7603ac4925201a3ce32105e59d4b45b29947719f5a17925f5314b",
+    "supabase/functions/_shared/crypto.js": "5946d3e1bb0669bbedd79fc20b5c5631fc9a32b6733164f29d6eb5b6a4b54c0e",
+    "tsconfig.app.json": "6ccaa8905589bb009c65c2af987b1ad64ba5fd15d78d68857b38acada0af6f4c",
+    "build-config": "d48c6235cec331185535faa43fa0479dd8d28a7e6156909eaa0363f9baeadbfe"
+  },
+  "cnbThrough": "2026-10-23",
+  "cpuPolicy": {
+    "mode": "limited",
+    "maxTransactions": 5000,
+    "maxSnapshots": 3653,
+    "requestWorkMs": 600,
+    "costs": {
+      "fifo_real": {
+        "fixedMs": 1,
+        "per1000TransactionsMs": 3
+      },
+      "fifo_all": {
+        "fixedMs": 1,
+        "per1000TransactionsMs": 3
+      },
+      "portfolio": {
+        "fixedMs": 1,
+        "per1000TransactionsMs": 2,
+        "per1000SnapshotsMs": 0.5
+      },
+      "realized_year": {
+        "fixedMs": 0.5,
+        "per1000TransactionsMs": 0.5
+      },
+      "cz_tax": {
+        "fixedMs": 2,
+        "per1000TransactionsMs": 15
+      },
+      "cz_sale": {
+        "fixedMs": 1,
+        "per1000TransactionsMs": 6
+      },
+      "foreign_tax": {
+        "fixedMs": 5,
+        "per1000TransactionsMs": 820
+      },
+      "foreign_sale": {
+        "fixedMs": 5,
+        "per1000TransactionsMs": 70
+      },
+      "performance": {
+        "fixedMs": 2,
+        "per1000TransactionsMs": 1,
+        "per1000SnapshotsMs": 1.5
+      },
+      "dividend_forecast": {
+        "fixedMs": 1,
+        "per1000TransactionsMs": 0.5
+      },
+      "allocation": {
+        "fixedMs": 0.5,
+        "per1000TransactionsMs": 0.1
+      }
+    }
+  }
+}

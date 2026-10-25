@@ -71,7 +71,7 @@ export const Kpi = ({ label, value, sub, tone = 'neutral', size = 'md', classNam
 
 /** Segmented pill switch (period, mode, currency…). */
 export function Segmented<T extends string>({ value, options, onChange, className }: {
-  value: T; options: readonly { value: T; label: ReactNode }[]; onChange: (v: T) => void; className?: string;
+  value: T | null; options: readonly { value: T; label: ReactNode; disabled?: boolean }[]; onChange: (v: T) => void; className?: string;
 }) {
   return (
     <div className={cn('inline-flex items-center gap-1 rounded-full border border-white/10 bg-white/[0.04] p-1', className)}>
@@ -80,10 +80,12 @@ export function Segmented<T extends string>({ value, options, onChange, classNam
           key={o.value}
           type="button"
           aria-pressed={o.value === value}
+          disabled={o.disabled}
           onClick={() => onChange(o.value)}
           className={cn(
             'rounded-full px-3 py-1 text-xs font-medium transition-colors whitespace-nowrap',
             o.value === value ? 'bg-foreground text-background font-semibold' : 'text-muted-foreground hover:text-foreground',
+            o.disabled && 'pointer-events-none opacity-35',
           )}
         >
           {o.label}

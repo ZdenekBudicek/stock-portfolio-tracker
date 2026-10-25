@@ -17,10 +17,10 @@ describe("makeRateLookup (T212 CZK -> USD)", () => {
   it("never answers a 2023 date with a 2011 rate (the 1000-row cap bug)", () => {
     expect(fx("2023-09-13")).not.toBe(17.181);
   });
-  it("takes the first rate for a date before the series starts", () => {
-    expect(fx("2005-01-01")).toBe(17.181);
+  it("does not use a future rate", () => {
+    expect(fx("2005-01-01")).toBeNaN();
   });
-  it("falls back when the series is empty", () => {
-    expect(makeRateLookup([], 22)("2024-01-01")).toBe(22);
+  it("reports missing history", () => {
+    expect(makeRateLookup([])("2024-01-01")).toBeNaN();
   });
 });

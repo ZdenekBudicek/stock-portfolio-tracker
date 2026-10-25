@@ -1,5 +1,6 @@
 // App frame of the V2 design: aurora background (body), floating pill navigation, global
 // controls (language, currency, privacy, refresh, trade, alerts, account) and the routed page.
+import { Suspense } from 'react';
 import { NavLink, Outlet, Link, useNavigate } from 'react-router-dom';
 import { useQueryClient } from '@tanstack/react-query';
 import { useTranslation } from 'react-i18next';
@@ -21,6 +22,8 @@ import { useTaxResidence } from '@/hooks/useTaxResidence';
 import { TaxResidenceDialog } from '@/components/TaxResidence';
 import { BrandMark, BrandName } from '@/components/brand/BrandMark';
 import { useAutoRequestFundamentals } from '@/hooks/useFundamentalsRequests';
+import { AssistantSlot } from '@/components/assistant/AssistantButton';
+import { AssistantLauncher } from '@/components/assistant/AssistantLauncher';
 
 const NAV = [
   { to: '/', key: 'overview', end: true },
@@ -87,7 +90,7 @@ export default function AppShell() {
 
   return (
     <div className="min-h-screen">
-      <div className="mx-auto max-w-[1320px] px-4 sm:px-8 pt-5 pb-12">
+      <div className="mx-auto max-w-[1320px] px-4 sm:px-8 pt-5 pb-24">
         <header className="flex items-center justify-between gap-3 mb-6 sm:mb-8">
           <Brand />
 
@@ -117,6 +120,8 @@ export default function AppShell() {
             <button onClick={refresh} disabled={live.isFetching} className={cn(pill, 'px-2.5 hidden sm:inline-flex')} title={t('shell.refresh')} aria-label={t('shell.refresh')}>
               <RefreshCw className={cn('h-3.5 w-3.5', live.isFetching && 'animate-spin text-primary')} />
             </button>
+            {/* Assistant (only when VITE_ASSISTANT_ENABLED): button next to the bell, panel as a side sheet. */}
+            <AssistantSlot />
             <NavLink to="/upozorneni" className={({ isActive }) => cn(pill, 'relative px-2.5', isActive && 'bg-foreground text-background')} aria-label={t('shell.alertsCount', { count: urgent })}>
               <Bell className="h-3.5 w-3.5" />
               {urgent > 0 && (
@@ -156,9 +161,12 @@ export default function AppShell() {
         </header>
 
         {pendingSplits.length > 0 && <div className="mb-4"><SplitsBanner /></div>}
-        <Outlet />
+        {/* A lazily loaded page suspends here, so the frame and navigation stay on screen. */}
+        <Suspense fallback={null}><Outlet /></Suspense>
         <TaxResidenceDialog />
       </div>
+      {/* Floating "Ask AI" (only with the assistant on); the page keeps room below so it covers nothing at the end. */}
+      <AssistantLauncher />
     </div>
   );
 }

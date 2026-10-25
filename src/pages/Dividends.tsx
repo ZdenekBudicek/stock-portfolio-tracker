@@ -35,8 +35,8 @@ const Dividends = () => {
       return p ? {
         ticker, p,
         annual: czk ? convert(annual) : annual,
-        cost: czk ? Number((p as any).investedCzk) : p.invested,
-        value: czk ? Number((p as any).valueCzk) : p.value,
+        cost: czk ? Number(p.investedCzk) : p.invested,
+        value: czk ? Number(p.valueCzk) : p.value,
       } : null;
     })
     .filter((x): x is NonNullable<typeof x> => !!x && x.cost > 0 && x.value > 0)

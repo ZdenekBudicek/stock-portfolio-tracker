@@ -1,0 +1,691 @@
+{
+  "about": "Běh 31: what a question about one company asks for. `must`: aspects the reading has to find; `not`: aspects it must not add (the answer would show unasked sections); `years`: the horizon. Tickers are companies Trackora does not hold. Cases with set=heldout were written after the keyword stems were tuned and are never used to tune them: they measure how the reading generalises.",
+  "cases": [
+    {
+      "q": "Kde vidíš cenu akcie OKLO za 5 let? Dej mi pesimistický, pravděpodobný a optimistický scénář.",
+      "must": [
+        "scenarios"
+      ],
+      "not": [
+        "business",
+        "dividends",
+        "management"
+      ],
+      "years": 5
+    },
+    {
+      "q": "Co dělá firma HIMS a jak vydělává peníze?",
+      "must": [
+        "business"
+      ],
+      "not": [
+        "scenarios",
+        "dividends"
+      ]
+    },
+    {
+      "q": "Udělej mi podrobnou analýzu SOFI.",
+      "must": [
+        "business",
+        "financials",
+        "valuation",
+        "analysts",
+        "risks"
+      ]
+    },
+    {
+      "q": "Jaké má Joby Aviation hlavní rizika?",
+      "must": [
+        "risks"
+      ],
+      "not": [
+        "dividends",
+        "management"
+      ]
+    },
+    {
+      "q": "Co si o RDW myslí analytici a jaké mají cílové ceny?",
+      "must": [
+        "analysts"
+      ],
+      "not": [
+        "business",
+        "dividends"
+      ]
+    },
+    {
+      "q": "Je PLTR teď drahá, nebo levná? Jaké má ocenění?",
+      "must": [
+        "valuation"
+      ],
+      "not": [
+        "business",
+        "dividends",
+        "management"
+      ]
+    },
+    {
+      "q": "Jak je na tom ACHR finančně, kolik pálí hotovosti a má dluhy?",
+      "must": [
+        "financials"
+      ],
+      "not": [
+        "dividends",
+        "scenarios"
+      ]
+    },
+    {
+      "q": "Kdo vede firmu LUNR a prodávají insideři akcie?",
+      "must": [
+        "management"
+      ],
+      "not": [
+        "dividends",
+        "scenarios"
+      ]
+    },
+    {
+      "q": "Vyplácí TSM dividendu a jak vysoký je výnos?",
+      "must": [
+        "dividends"
+      ],
+      "not": [
+        "management",
+        "business"
+      ]
+    },
+    {
+      "q": "Jakou má SHOP konkurenční výhodu proti Amazonu?",
+      "must": [
+        "moat"
+      ],
+      "not": [
+        "dividends",
+        "scenarios"
+      ]
+    },
+    {
+      "q": "Co může v příštích měsících pohnout cenou akcie ASTS? Jaké jsou katalyzátory?",
+      "must": [
+        "catalysts"
+      ],
+      "not": [
+        "dividends",
+        "management"
+      ]
+    },
+    {
+      "q": "Proč DUOL za poslední týden tolik spadla?",
+      "must": [
+        "price_trend"
+      ],
+      "not": [
+        "dividends",
+        "management"
+      ]
+    },
+    {
+      "q": "Jaký je výhled odvětví, ve kterém podniká CELH?",
+      "must": [
+        "industry"
+      ],
+      "not": [
+        "dividends",
+        "management"
+      ]
+    },
+    {
+      "q": "Kde bude NVDA za deset let?",
+      "must": [
+        "scenarios"
+      ],
+      "not": [
+        "dividends",
+        "business"
+      ],
+      "years": 10
+    },
+    {
+      "q": "Má Intuitive Machines budoucnost?",
+      "must": [
+        "risks"
+      ],
+      "not": [
+        "dividends",
+        "management"
+      ]
+    },
+    {
+      "q": "Rozbor ELF: byznys, tržby a marže, ocenění a co čekají analytici.",
+      "must": [
+        "business",
+        "financials",
+        "valuation",
+        "analysts"
+      ]
+    },
+    {
+      "q": "Kolik má SOUN tržeb a je zisková?",
+      "must": [
+        "financials"
+      ],
+      "not": [
+        "dividends",
+        "management"
+      ]
+    },
+    {
+      "q": "Jaké jsou silné a slabé stránky firmy RKLB?",
+      "must": [
+        "risks"
+      ],
+      "not": [
+        "dividends",
+        "scenarios"
+      ]
+    },
+    {
+      "q": "Odhadni mi cílovou cenu IONQ za 3 roky.",
+      "must": [
+        "scenarios"
+      ],
+      "not": [
+        "business",
+        "dividends"
+      ],
+      "years": 3
+    },
+    {
+      "q": "Koupil CEO firmy OPEN v poslední době akcie?",
+      "must": [
+        "management"
+      ],
+      "not": [
+        "dividends",
+        "scenarios"
+      ]
+    },
+    {
+      "q": "Dělá MSFT zpětné odkupy akcií?",
+      "must": [
+        "dividends"
+      ],
+      "not": [
+        "management",
+        "scenarios"
+      ]
+    },
+    {
+      "q": "Jaký má BABA tržní podíl a kdo jsou její konkurenti?",
+      "must": [
+        "moat"
+      ],
+      "not": [
+        "dividends"
+      ]
+    },
+    {
+      "q": "Co čeká AMD na nejbližších výsledcích hospodaření?",
+      "must": [
+        "catalysts"
+      ],
+      "not": [
+        "dividends",
+        "management"
+      ]
+    },
+    {
+      "q": "Jak hodnotíš ocenění a marže firmy NET?",
+      "must": [
+        "valuation",
+        "financials"
+      ],
+      "not": [
+        "dividends",
+        "management"
+      ]
+    },
+    {
+      "q": "Ako vidíš akciu SOFI o päť rokov? Daj mi scenáre.",
+      "must": [
+        "scenarios"
+      ],
+      "not": [
+        "dividends",
+        "business"
+      ],
+      "years": 5
+    },
+    {
+      "q": "Čo robí firma RGTI a kto sú jej konkurenti?",
+      "must": [
+        "business",
+        "moat"
+      ],
+      "not": [
+        "dividends"
+      ]
+    },
+    {
+      "q": "Aké sú hlavné riziká investície do LCID?",
+      "must": [
+        "risks"
+      ],
+      "not": [
+        "dividends",
+        "management"
+      ]
+    },
+    {
+      "q": "Čo si o HOOD myslia analytici?",
+      "must": [
+        "analysts"
+      ],
+      "not": [
+        "dividends",
+        "business"
+      ]
+    },
+    {
+      "q": "Where do you see UBER's stock price in 5 years? Give me bear, base and bull cases.",
+      "must": [
+        "scenarios"
+      ],
+      "not": [
+        "dividends",
+        "business"
+      ],
+      "years": 5
+    },
+    {
+      "q": "What does Archer Aviation do?",
+      "must": [
+        "business"
+      ],
+      "not": [
+        "dividends",
+        "scenarios"
+      ]
+    },
+    {
+      "q": "What are the main risks for SNOW?",
+      "must": [
+        "risks"
+      ],
+      "not": [
+        "dividends",
+        "management"
+      ]
+    },
+    {
+      "q": "Is CRWD overvalued?",
+      "must": [
+        "valuation"
+      ],
+      "not": [
+        "dividends",
+        "management"
+      ]
+    },
+    {
+      "q": "How strong is AFRM's balance sheet and cash flow?",
+      "must": [
+        "financials"
+      ],
+      "not": [
+        "dividends"
+      ]
+    },
+    {
+      "q": "Does KO have a reliable dividend?",
+      "must": [
+        "dividends"
+      ],
+      "not": [
+        "management",
+        "scenarios"
+      ]
+    },
+    {
+      "q": "Who are the largest shareholders of TSLA and is management selling?",
+      "must": [
+        "management"
+      ],
+      "not": [
+        "dividends"
+      ]
+    },
+    {
+      "q": "What catalysts could move MSTR next quarter?",
+      "must": [
+        "catalysts"
+      ],
+      "not": [
+        "dividends",
+        "management"
+      ]
+    },
+    {
+      "q": "Give me a full analysis of ABNB.",
+      "must": [
+        "business",
+        "financials",
+        "valuation",
+        "analysts",
+        "risks"
+      ]
+    },
+    {
+      "q": "Why did SMCI drop today?",
+      "must": [
+        "price_trend"
+      ],
+      "not": [
+        "dividends",
+        "management"
+      ]
+    },
+    {
+      "q": "What's the outlook for the industry ENPH operates in?",
+      "must": [
+        "industry"
+      ],
+      "not": [
+        "dividends",
+        "management"
+      ]
+    },
+    {
+      "q": "Co si myslíš o firmě VOYG? Udělej podrobnou analýzu a řekni mi pravděpodobné scénáře na další 3 roky.",
+      "must": [
+        "business",
+        "scenarios",
+        "analysts",
+        "risks"
+      ],
+      "years": 3
+    },
+    {
+      "q": "Kde vidíš tu firmu za několik let? Dej mi odhad ceny akcie, pesimistický, pravděpodobný a optimistický scénář.",
+      "must": [
+        "scenarios"
+      ],
+      "not": [
+        "business",
+        "dividends",
+        "management"
+      ]
+    },
+    {
+      "q": "Je NU dobrá firma na dlouhodobé držení? Jaké má výhody a rizika?",
+      "must": [
+        "risks"
+      ],
+      "not": [
+        "dividends"
+      ]
+    },
+    {
+      "q": "Jaká je hodnota akcie AXON za pár let a co na to analytici?",
+      "must": [
+        "scenarios",
+        "analysts"
+      ],
+      "not": [
+        "dividends",
+        "management"
+      ]
+    },
+    {
+      "q": "Kdo založil firmu RXRX a kolik akcií vlastní vedení?",
+      "must": [
+        "management"
+      ],
+      "not": [
+        "dividends",
+        "scenarios"
+      ]
+    },
+    {
+      "q": "Jaké novinky a zakázky čekají firmu KTOS?",
+      "must": [
+        "catalysts"
+      ],
+      "not": [
+        "dividends",
+        "management"
+      ]
+    },
+    {
+      "q": "Vysvětli mi, čím se zabývá TEM a z čeho má tržby.",
+      "must": [
+        "business",
+        "financials"
+      ],
+      "not": [
+        "dividends",
+        "scenarios"
+      ]
+    },
+    {
+      "q": "Proč akcie APP poslední měsíc tolik rostou?",
+      "must": [
+        "price_trend"
+      ],
+      "not": [
+        "dividends",
+        "management"
+      ]
+    },
+    {
+      "q": "Jak velký dluh má CCL a zvládne ho splácet?",
+      "must": [
+        "financials"
+      ],
+      "not": [
+        "dividends",
+        "scenarios"
+      ]
+    },
+    {
+      "q": "Má smysl držet O kvůli dividendě? Jaký je výnos a je udržitelný?",
+      "must": [
+        "dividends"
+      ],
+      "not": [
+        "management",
+        "scenarios"
+      ]
+    },
+    {
+      "q": "Je AMZN podle P/E levnější než před rokem?",
+      "must": [
+        "valuation"
+      ],
+      "not": [
+        "dividends",
+        "management"
+      ]
+    },
+    {
+      "q": "Jak se daří sektoru, ve kterém je CEG, a jak si v něm stojí?",
+      "must": [
+        "industry"
+      ],
+      "not": [
+        "dividends"
+      ]
+    },
+    {
+      "q": "Za kolik by mohla být akcie ASTS za 2 roky?",
+      "must": [
+        "scenarios"
+      ],
+      "not": [
+        "business",
+        "dividends"
+      ],
+      "years": 2
+    },
+    {
+      "q": "Vydělává vůbec PATH nějaké peníze, nebo jen spaluje hotovost?",
+      "must": [
+        "financials"
+      ],
+      "not": [
+        "dividends",
+        "management"
+      ],
+      "set": "heldout"
+    },
+    {
+      "q": "Kolik by mohla stát akcie Rocket Lab v roce 2030?",
+      "must": [
+        "scenarios"
+      ],
+      "not": [
+        "dividends",
+        "management"
+      ],
+      "set": "heldout"
+    },
+    {
+      "q": "Proč by si někdo měl koupit spíš CRWV než konkurenci, v čem je lepší?",
+      "must": [
+        "moat"
+      ],
+      "not": [
+        "dividends"
+      ],
+      "set": "heldout"
+    },
+    {
+      "q": "Dostávají akcionáři HPQ nějaké peníze zpátky?",
+      "must": [
+        "dividends"
+      ],
+      "not": [
+        "scenarios"
+      ],
+      "set": "heldout"
+    },
+    {
+      "q": "Věří Wall Street firmě SOFI?",
+      "must": [
+        "analysts"
+      ],
+      "not": [
+        "dividends",
+        "management"
+      ],
+      "set": "heldout"
+    },
+    {
+      "q": "Čím se vlastně živí Oklo?",
+      "must": [
+        "business"
+      ],
+      "not": [
+        "dividends",
+        "scenarios"
+      ],
+      "set": "heldout"
+    },
+    {
+      "q": "Co by mohlo zabít byznys Duolinga?",
+      "must": [
+        "risks"
+      ],
+      "not": [
+        "dividends"
+      ],
+      "set": "heldout"
+    },
+    {
+      "q": "Je Palantir předražený?",
+      "must": [
+        "valuation"
+      ],
+      "not": [
+        "dividends",
+        "management"
+      ],
+      "set": "heldout"
+    },
+    {
+      "q": "Co se chystá u Joby v příštím čtvrtletí?",
+      "must": [
+        "catalysts"
+      ],
+      "not": [
+        "dividends",
+        "management"
+      ],
+      "set": "heldout"
+    },
+    {
+      "q": "Tahá Musk z Tesly peníze prodejem akcií?",
+      "must": [
+        "management"
+      ],
+      "not": [
+        "dividends"
+      ],
+      "set": "heldout"
+    },
+    {
+      "q": "How is the cloud security market doing for ZS?",
+      "must": [
+        "industry"
+      ],
+      "not": [
+        "dividends",
+        "management"
+      ],
+      "set": "heldout"
+    },
+    {
+      "q": "What could AST SpaceMobile be worth by 2030?",
+      "must": [
+        "scenarios"
+      ],
+      "not": [
+        "dividends",
+        "management"
+      ],
+      "set": "heldout"
+    },
+    {
+      "q": "Is NVDA's moat sustainable against custom chips?",
+      "must": [
+        "moat"
+      ],
+      "not": [
+        "dividends"
+      ],
+      "set": "heldout"
+    },
+    {
+      "q": "Why has HIMS been so volatile lately?",
+      "must": [
+        "price_trend"
+      ],
+      "not": [
+        "dividends",
+        "management"
+      ],
+      "set": "heldout"
+    },
+    {
+      "q": "Prečo je akcia RIVN taká lacná a oplatí sa?",
+      "must": [
+        "valuation"
+      ],
+      "not": [
+        "dividends",
+        "management"
+      ],
+      "set": "heldout"
+    }
+  ]
+}

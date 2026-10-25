@@ -45,26 +45,27 @@ Deno.serve(async (req) => {
     // Only the symbols held (+ the USD/CZK rate), chunked and fully paged — the whole
     // price_cache is capped at 1000 rows, and a dropped symbol fell back to cost basis.
     const cache = await fetchRowsBySymbols(
-      [...positions.filter((p: any) => p.type !== "Cash" && p.ticker !== "CASH").map((p: any) => p.ticker), "USDCZK"],
+      [...positions.filter((p) => p.type !== "Cash" && p.ticker !== "CASH").map((p) => p.ticker), "USDCZK"],
       (chunk, f, t) => supabase.from("price_cache").select("*").in("symbol", chunk).order("symbol", { ascending: true }).range(f, t),
       "price_cache",
     );
 
     if (!positions.length) throw new Error("Missing data");
 
-    const priceMap = new Map(cache.map((r: any) => [r.symbol, r]));
+    const priceMap = new Map(cache.map((r) => [r.symbol, r]));
     const fx = priceMap.get("USDCZK")?.price ?? 23.0;
     const today = new Date().toISOString().slice(0, 10);
 
     // Group by user_id
-    const byUser = new Map<string, any[]>();
+    const byUser = new Map<string, typeof positions>();
     for (const p of positions) {
       if (!p.user_id) continue;
       if (!byUser.has(p.user_id)) byUser.set(p.user_id, []);
       byUser.get(p.user_id)!.push(p);
     }
 
-    const results: any[] = [];
+    const results: { user_id: string; valueUsd: string }[] = [];
+    let failed = 0;
     for (const [user_id, ups] of byUser) {
       // HOLDINGS value only (exclude cash) — the same figure backfill-snapshots and the
       // nightly price worker reconstruct, and the same `positions` rows the live header is
@@ -74,8 +75,8 @@ Deno.serve(async (req) => {
       // on the proceeds looked like a crash. Past days carry NULL (never tracked); from here
       // on the chart can draw the whole portfolio.
       const cashUsd = ups
-        .filter((p: any) => p.type === "Cash" || p.ticker === "CASH")
-        .reduce((s: number, p: any) => s + Number(p.shares), 0);
+        .filter((p) => p.type === "Cash" || p.ticker === "CASH")
+        .reduce((s: number, p) => s + Number(p.shares), 0);
       let valueUsd = 0;
       for (const p of ups) {
         if (p.type === "Cash" || p.ticker === "CASH") continue;
@@ -102,19 +103,24 @@ Deno.serve(async (req) => {
         },
         { onConflict: "user_id,snapshot_date" },
       );
-      if (error) console.error("upsert err for", user_id, error.message);
+      if (error) {
+        console.error("upsert err for", user_id, error.message);
+        failed++;
+        continue;
+      }
       results.push({ user_id, valueUsd: valueUsd.toFixed(2) });
     }
 
     // Internal log only — do not leak per-user data in the HTTP response
     console.log("snapshot summary", { date: today, users: results });
-    return new Response(JSON.stringify({ success: true, date: today, count: results.length }), {
+    return new Response(JSON.stringify({ success: failed === 0, status: failed ? (results.length ? "partial" : "failed") : "success", date: today, count: results.length, failed }), {
+      status: failed ? 500 : 200,
       headers: { ...corsHeaders, "Content-Type": "application/json" },
     });
 
   } catch (e) {
     console.error("Snapshot error:", e);
-    return new Response(JSON.stringify({ error: (e as Error).message }), {
+    return new Response(JSON.stringify({ success: false, status: "failed", error: (e as Error).message }), {
       status: 500,
       headers: { ...corsHeaders, "Content-Type": "application/json" },
     });

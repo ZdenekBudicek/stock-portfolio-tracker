@@ -56,7 +56,7 @@ describe("computeNetDeposits / computeTradeFlows — merger cash and XTB gross d
   it("computeTradeFlows books merger cash as money out", async () => {
     const { computeTradeFlows } = await import("@/hooks/usePortfolio");
     const m = computeTradeFlows([
-      { id: "1", ticker: "AVLR", side: "SELL", shares: 0, price_usd: 374, fee_usd: 0, executed_at: "2022-10-20T05:12:52Z", note: null, ext_id: "revolut:20 Oct 2022:mergercash:374.000000" } as any,
+      { id: "1", ticker: "AVLR", side: "SELL", shares: 0, price_usd: 374, fee_usd: 0, executed_at: "2022-10-20T05:12:52Z", note: null, ext_id: "revolut:20 Oct 2022:mergercash:374.000000" } as import("@/hooks/usePortfolio").DbTransaction,
     ]);
     expect(m.get("2022-10-20")).toBe(-374);
   });

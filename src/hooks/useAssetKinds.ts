@@ -7,13 +7,14 @@ import { useMemo } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { supabase } from "@/integrations/supabase/client";
 import { fetchAllRows, usePositions } from "@/hooks/usePortfolio";
-import { kindResolverFrom, type AssetKindResolver } from "@/lib/czTax";
+import type { AssetKindResolver } from "@/lib/czTax";
+import { createKindResolver, type InstrumentRegistry } from "@/lib/instrumentRegistry";
 
 const REGISTRY_STALE_MS = 6 * 3600_000;
 
-export function useAssetKindResolver(): AssetKindResolver {
-  const { data: positions = [] } = usePositions();
-  const { data: registry } = useQuery({
+export function useInstrumentRegistry() {
+  const positionsQ = usePositions();
+  const registryQ = useQuery({
     queryKey: ["instrument-registry"],
     queryFn: async () => {
       const [aliases, profiles] = await Promise.all([
@@ -28,8 +29,12 @@ export function useAssetKindResolver(): AssetKindResolver {
     },
     staleTime: REGISTRY_STALE_MS,
   });
-  return useMemo(
-    () => kindResolverFrom({ positions, aliases: registry?.aliases, profiles: registry?.profiles }),
-    [positions, registry],
-  );
+  const registry = useMemo<InstrumentRegistry>(() => ({ positions: positionsQ.data ?? [],
+    aliases: registryQ.data?.aliases ?? [], profiles: registryQ.data?.profiles ?? [] }), [positionsQ.data, registryQ.data]);
+  return { registry, loading: positionsQ.isLoading || registryQ.isLoading, error: positionsQ.error || registryQ.error || null };
+}
+
+export function useAssetKindResolver(): AssetKindResolver {
+  const { registry } = useInstrumentRegistry();
+  return useMemo(() => createKindResolver(registry), [registry]);
 }

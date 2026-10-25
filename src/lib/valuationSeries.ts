@@ -57,7 +57,7 @@ export function splitFactors(series: FundamentalSeries): number[] {
   return series.periods.map((d) => m.get(d) ?? 1);
 }
 
-type Flow = 'revenue' | 'netIncome' | 'fcf' | 'ebitda';
+export type Flow = 'revenue' | 'netIncome' | 'fcf' | 'ebitda' | 'dividendsPaid';
 const FLOWS: Flow[] = ['revenue', 'netIncome', 'fcf', 'ebitda'];
 const flowAt = (s: FundamentalSeries, m: Flow, i: number): number | null => {
   if (m === 'fcf') {
@@ -89,15 +89,19 @@ function flowSteps(f: CompanyFundamentals, m: Flow): Step[] {
   return out.sort((x, y) => x.from.localeCompare(y.from));
 }
 
-/** Publication-dated balance-sheet values (shares on today's split basis, cash, debt). */
-function stockSteps(f: CompanyFundamentals, m: 'shares' | 'cash' | 'totalDebt'): Step[] {
+/** Balance-sheet items; 'shares' prefers diluted counts, 'basicShares' the period-end count. */
+export type Stock = 'shares' | 'basicShares' | 'cash' | 'totalDebt' | 'equity';
+const isShares = (m: Stock) => m === 'shares' || m === 'basicShares';
+
+/** Publication-dated balance-sheet values (shares on today's split basis, cash, debt, equity). */
+function stockSteps(f: CompanyFundamentals, m: Stock): Step[] {
   const factors = splitFactorsByDate(f);
   const out: Step[] = [];
   for (const [s, lag] of [[f.annual, ANNUAL_LAG_DAYS], [f.quarterly, QUARTER_LAG_DAYS]] as const) {
     s.periods.forEach((end, i) => {
-      const raw = m === 'shares' ? sharesAt(s, i) : val(s, m, i);
+      const raw = m === 'shares' ? sharesAt(s, i) : m === 'basicShares' ? val(s, 'sharesOutstanding', i) ?? sharesAt(s, i) : val(s, m, i);
       if (raw == null) return;
-      out.push({ from: addDays(end, lag), end, value: m === 'shares' ? raw * (factors.get(end) ?? 1) : raw });
+      out.push({ from: addDays(end, lag), end, value: isShares(m) ? raw * (factors.get(end) ?? 1) : raw });
     });
   }
   return out.sort((x, y) => x.from.localeCompare(y.from));
@@ -111,6 +115,18 @@ function asOf(steps: Step[], date: string): number | null {
     if (!best || s.end >= best.end) best = s;
   }
   return best?.value ?? null;
+}
+
+const latest = (steps: Step[]) => steps.reduce<Step | null>((b, s) => (!b || s.end >= b.end ? s : b), null);
+
+/** The latest trailing-twelve-month value of a flow (no publication lag — for "today"), with its period end. */
+export function latestFlow(f: CompanyFundamentals, m: Flow): { value: number; end: string } | null {
+  return latest(flowSteps(f, m));
+}
+
+/** The latest reported balance-sheet value, shares on today's split basis. */
+export function latestStock(f: CompanyFundamentals, m: Stock): { value: number; end: string } | null {
+  return latest(stockSteps(f, m));
 }
 
 const ratio = (num: number | null, den: number | null) => (num == null || den == null || den <= 0 || num <= 0 ? null : num / den);

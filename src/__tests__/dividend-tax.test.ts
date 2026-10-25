@@ -71,7 +71,7 @@ describe("dividend gross / withholding / credit", () => {
     expect(rep.creditableCzk).toBeCloseTo(0, 6);
     expect(rep.assumedCreditCzk).toBeCloseTo(expectedGross * 0.15, 6);
     expect(rep.topUpCzk).toBeCloseTo(expectedGross * 0.15, 6);
-    expect(rep.complete).toBe(true);
+    expect(rep.complete).toBe(false);
   });
 
   it("GFŘ unified rates reproduce the published values", () => {

@@ -18,15 +18,26 @@ public/realdata-*.json
 .env
 .env.*
 scripts/*
+!scripts/agent-local.ts
+!scripts/agent-test-edge.ts
+!scripts/agent-test-db.ts
+!scripts/inspect-agent-schema.sql
+.agent-db-test-lock/
+!scripts/bench-agent-cpu.mjs
+!scripts/bench-agent-paired.mjs
+!scripts/bench-agent-request.mjs
+!scripts/build-agent-lib.mjs
+!scripts/check-agent-lib.mjs
 !scripts/price-worker.mjs
 # Runs from .github/workflows/price-history.yml, so it has to be in the repo.
 !scripts/sector-worker.mjs
 # Refreshes the bundled ČNB rates (src/data/cnbUsdCzk.json) the tax report converts with.
 !scripts/update-cnb-rates.mjs
-# Company financials: nightly + on-demand workers (.github/workflows/price-history.yml).
-!scripts/fundamentals-worker.mjs
-!scripts/finish-fundamentals-requests.mjs
-!scripts/only-symbols.mjs
+# SEC EDGAR history for the fundamentals worker (also run from price-history.yml).
+!scripts/edgar-fundamentals.mjs
+# AI assistant analyst snapshots (analysts job of price-history.yml).
+!scripts/analyst-worker.mjs
+!scripts/analyst-snapshot.mjs
 audit/
 migration-data/
 
@@ -41,3 +52,17 @@ migration-data/
 *.sln
 *.sw?
 .claude/settings.local.json
+# AI assistant release evidence gate (Běh 11).
+!scripts/agent-release-check.mjs
+!scripts/agent-gateway-smoke.ts
+# Python eval environment (evals/README.md); never committed.
+evals/.venv/
+evals/.tmp*/
+evals/evals/
+__pycache__/
+.pytest_cache/
+*.egg-info/
+
+# Local Supabase runtime state (contains local keys)
+supabase/.temp/start-secrets/
+supabase/.branches/

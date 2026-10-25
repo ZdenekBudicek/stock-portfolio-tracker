@@ -10,6 +10,7 @@ const corsHeaders = {
 };
 
 const STALE_MS = 20 * 60 * 1000; // consider cache stale if older than 20 min
+const CLOSE_STALE_MS = 4 * 24 * 60 * 60 * 1000; // a carried close older than this is a frozen price
 const FX_STALE_MS = 3 * 24 * 60 * 60 * 1000; // EUR/GBP/PLN rows: fall back to ČNB beyond this
 
 Deno.serve(async (req) => {
@@ -33,15 +34,15 @@ Deno.serve(async (req) => {
     if (posErr) throw posErr;
 
     const tickers = Array.from(new Set([
-      ...(positions ?? []).map((p: any) => p.ticker),
-      ...(watch ?? []).map((w: any) => w.ticker),
+      ...(positions ?? []).map((p) => p.ticker),
+      ...(watch ?? []).map((w) => w.ticker),
     ])).filter((t: string) => t && t.toUpperCase() !== "CASH");
 
     // Only the rows this caller needs (the whole table is capped at 1000 rows by PostgREST, so
     // a growing cache silently lost symbols), chunked and fully paged.
     const cache = await fetchRowsBySymbols([...tickers, "USDCZK", "EURCZK", "GBPCZK", "PLNCZK"], (chunk, f, t) =>
       supabase.from("price_cache").select("*").in("symbol", chunk).order("symbol", { ascending: true }).range(f, t), "price_cache");
-    const cacheMap = new Map<string, any>((cache ?? []).map((r: any) => [r.symbol, r]));
+    const cacheMap = new Map<string, typeof cache[number]>((cache ?? []).map((r) => [r.symbol, r]));
 
     const now = Date.now();
     let stale = false;
@@ -50,7 +51,9 @@ Deno.serve(async (req) => {
       const r = cacheMap.get(t);
       if (r) {
         prices[t] = { price: Number(r.price), changePct: Number(r.change_pct ?? 0), prevClose: r.prev_close === null ? null : Number(r.prev_close) };
-        if (now - new Date(r.fetched_at).getTime() > STALE_MS) stale = true;
+        // A carried daily close (as_of, audit B6) is current while it is the latest close (a long weekend included);
+        // a live quote is current for 20 minutes.
+        if (r.as_of ? now - Date.parse(r.as_of) > CLOSE_STALE_MS : now - new Date(r.fetched_at).getTime() > STALE_MS) stale = true;
       } else {
         stale = true; // a held ticker has no cached price yet
       }
@@ -74,7 +77,7 @@ Deno.serve(async (req) => {
     }
 
     const fxRow = cacheMap.get("USDCZK");
-    const newestFetch = (cache ?? []).reduce((max: number, r: any) => Math.max(max, new Date(r.fetched_at).getTime()), 0);
+    const newestFetch = (cache ?? []).reduce((max: number, r) => Math.max(max, new Date(r.fetched_at).getTime()), 0);
 
     return new Response(
       JSON.stringify({
@@ -82,7 +85,7 @@ Deno.serve(async (req) => {
         usdCzk: fxRow ? Number(fxRow.price) : 23.0,
         // CZK per 1 EUR / GBP / PLN (display currencies); missing ones fall back to ČNB in the app.
         // A rate older than 3 days (weekends included) is left out: the app then uses the ČNB rate.
-        fxCzk: Object.fromEntries(["EUR", "GBP", "PLN"].map((c) => cacheMap.get(`${c}CZK`)).filter((r: any) => r && Number(r.price) > 0 && now - new Date(r.fetched_at).getTime() <= FX_STALE_MS).map((r: any) => [String(r.symbol).slice(0, 3), Number(r.price)])),
+        fxCzk: Object.fromEntries(["EUR", "GBP", "PLN"].map((c) => cacheMap.get(`${c}CZK`)).filter((r) => r && Number(r.price) > 0 && now - new Date(r.fetched_at).getTime() <= FX_STALE_MS).map((r) => [String(r.symbol).slice(0, 3), Number(r.price)])),
         fetchedAt: newestFetch ? new Date(newestFetch).toISOString() : new Date().toISOString(),
         stale,
         error: null,

@@ -10,11 +10,12 @@ import { Info } from 'lucide-react';
 import { useCurrency } from '@/contexts/CurrencyContext';
 import { useComputedPortfolio, useTransactions } from '@/hooks/usePortfolio';
 import { useDividends } from '@/hooks/useExtras';
+import { summarizePerformance } from '@/lib/performanceModel';
 import { usePerformanceSeries } from '@/hooks/usePerformanceSeries';
 import { todayPrague } from '@/hooks/useInsights';
 import PerformanceChart from '@/components/PerformanceChart';
 import { ChartTip, Kpi, PageTitle, Panel, Segmented, Footnote, Pill, Label } from '@/components/v2/ui';
-import { baseIndex, chain, dailyReturns, monthlyNetFlows, monthlyReturns, yearlyReturns } from '@/lib/returns';
+import { monthlyNetFlows, monthlyReturns, yearlyReturns } from '@/lib/returns';
 import { dividendPayDate, dividendTaxRow } from '@/lib/dividendTax';
 import { addDays, pragueDate } from '@/lib/czTax';
 import { fmtCzk, fmtDay, fmtMonthShort, fmtMonthYear, fmtNum, fmtPercent } from '@/i18n/format';
@@ -98,13 +99,13 @@ function CashFlow({ points, currency }: { points: Point[]; currency: DisplayCurr
   const data = useMemo(() => {
     const net = monthlyNetFlows(points);
     const div = new Map<string, number>(), fee = new Map<string, number>();
-    for (const d of divs as any[]) {
+    for (const d of divs) {
       if (d.status !== 'paid' || String(d.broker ?? '').toLowerCase() === 'auto') continue;
       const mo = dividendPayDate(d).slice(0, 7);
       // Net of withholding (XTB stores the gross amount).
       div.set(mo, (div.get(mo) ?? 0) + dividendTaxRow(d, 'cnb-daily').netUsd * k);
     }
-    for (const tx of txs as any[]) {
+    for (const tx of txs) {
       const f = Number(tx.fee_usd) || 0;
       if (!(f > 0) || tx.ticker === 'CASH') continue;
       const mo = pragueDate(tx.executed_at).slice(0, 7);
@@ -245,27 +246,18 @@ const Returns = () => {
   const { t } = useTranslation();
   const { currency, formatAt, pick } = useCurrency();
   const p = useComputedPortfolio();
-  const { points, quality } = usePerformanceSeries(currency);
+  const model = usePerformanceSeries(currency);
+  const { points, quality } = model;
   const [period, setPeriod] = useState<Period>('ALL');
   const today = todayPrague();
 
   const stats = useMemo(() => {
     if (points.length < 2) return null;
-    // The last point on/before the period start is the base of BOTH the % and the money.
-    const startIdx = baseIndex(points, periodStart(period, today, points[0].date));
-    const baseDate = points[startIdx].date;
-    const inRange = (d: string) => d > baseDate;
-    const twr = chain(dailyReturns(points).filter((d) => inRange(d.date)).map((d) => d.r));
-    const bench = points.filter((x) => x.benchVal != null).map((x) => ({ date: x.date, total: x.benchVal!, cumDep: x.cumDep }));
-    const benchTwr = bench.length > 1 ? chain(dailyReturns(bench).filter((d) => inRange(d.date)).map((d) => d.r)) : null;
-    const a = points[startIdx], b = points[points.length - 1];
-    const years = Math.max(1 / 365, (Date.parse(b.date) - Date.parse(a.date)) / (365.25 * 86400000));
-    // Only annualise a period of at least a year; a 3-month return "per year" says nothing.
-    const annual = years >= 1 ? Math.pow(1 + twr, 1 / years) - 1 : null;
-    const benchAnnual = benchTwr != null && years >= 1 ? Math.pow(1 + benchTwr, 1 / years) - 1 : null;
-    const profit = (b.total - a.total) - (b.cumDep - a.cumDep);
-    return { twr, benchTwr, annual, benchAnnual, profit, from: a.date, years };
-  }, [points, period, today]);
+    const summary = summarizePerformance(model, { from: periodStart(period, today, points[0].date), to: points[points.length - 1].date });
+    if (summary.profit == null) return null;
+    return { twr: summary.portfolioReturn, benchTwr: summary.benchmarkReturn, annual: summary.annualReturn,
+      benchAnnual: summary.benchmarkAnnualReturn, profit: summary.profit, from: summary.from, years: summary.years };
+  }, [model, points, period, today]);
 
   const total = pick(p.totalProfit, p.totalProfitCzk);
   const estimated = quality && quality.level !== 'ok';

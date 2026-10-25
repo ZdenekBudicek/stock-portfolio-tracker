@@ -13,6 +13,7 @@ import { useDividendModel, useTaxModel, todayPrague } from '@/hooks/useInsights'
 import { TickerLogo } from '@/components/TickerLogo';
 import { fmtDate, monthShort, relDays, earningsWhen } from '@/components/v2/widgets';
 import CompanyFinancials from '@/components/fundamentals/CompanyFinancials';
+import KeyStats from '@/components/fundamentals/KeyStats';
 import { FairValueForSymbol } from '@/components/fundamentals/FairValue';
 import { currentLang, currentLocale } from '@/i18n';
 import { fmtNum, fmtPercent } from '@/i18n/format';
@@ -23,6 +24,7 @@ import { formatPct, formatUsd } from '@/data/portfolio';
 import { cn } from '@/lib/utils';
 import { useJurisdiction } from '@/hooks/useTaxResidence';
 import { holdingProgress, holdingRuleFor } from '@/lib/tax/holdingRule';
+import { AssistantStockAsk } from '@/components/assistant/AssistantStockAsk';
 import { isCryptoHolding } from '../../supabase/functions/_shared/crypto.js';
 
 type Range = '1M' | '6M' | '1Y' | '5Y' | 'ALL';
@@ -182,7 +184,7 @@ const StockDetail = () => {
     return [...buys.values(), ...sells.values()].sort((a, b) => a.date.localeCompare(b.date));
   }, [tax.fifo, sym]);
 
-  const trades = useMemo(() => (txs as any[])
+  const trades = useMemo(() => (txs)
     .filter((t) => t.ticker === sym && isRealTradeTx(t) && Number(t.price_usd) > 0)
     .sort((a, b) => b.executed_at.localeCompare(a.executed_at)), [txs, sym]);
   const shownTrades = trades.filter((t) => tradeFilter === 'all' || t.side === tradeFilter);
@@ -214,6 +216,7 @@ const StockDetail = () => {
               <a href={`https://finance.yahoo.com/quote/${encodeURIComponent(sym)}`} target="_blank" rel="noopener noreferrer" className="inline-flex items-center gap-1 hover:text-foreground">Yahoo <ExternalLink className="h-3 w-3" /></a>
               <a href={`https://www.tradingview.com/symbols/${encodeURIComponent(sym)}/`} target="_blank" rel="noopener noreferrer" className="inline-flex items-center gap-1 hover:text-foreground">TradingView <ExternalLink className="h-3 w-3" /></a>
             </div>
+            <div className="mt-2.5"><AssistantStockAsk ticker={sym} /></div>
           </div>
         </div>
         {price != null && (
@@ -311,7 +314,8 @@ const StockDetail = () => {
         </Panel>
         )}
 
-        {!isCrypto && <CompanyFinancials symbol={sym} />}
+        {!isCrypto && <KeyStats symbol={sym} price={price} />}
+        {!isCrypto && <CompanyFinancials symbol={sym} name={name} />}
         {!isCrypto && <FairValueForSymbol symbol={sym} price={price} />}
 
         <Panel className="lg:col-span-12" title={t('stock.trades.title')} action={

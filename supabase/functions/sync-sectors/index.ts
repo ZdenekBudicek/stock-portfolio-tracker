@@ -13,6 +13,7 @@ import { createClient } from "https://esm.sh/@supabase/supabase-js@2.45.0";
 import { cryptoBase } from "../_shared/crypto.js";
 import { mapSector } from "../_shared/sectors.js";
 import { fetchFinnhubProfile } from "../_shared/profile-providers.ts";
+import { isSchedulerToken } from "../_shared/auth.ts";
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
@@ -75,6 +76,11 @@ Deno.serve(async (req) => {
     (new URL(req.url).searchParams.get("force") ?? "")
       .split(",").map((s) => s.trim().toUpperCase()).filter(Boolean),
   );
+  // Only the scheduler/operator may force (audit B8): it bypasses the backoff and spends the shared Finnhub
+  // quota, and its answer lists which tickers anyone holds. A signed-in app call runs the normal ranked pass.
+  if (forced.size && !isSchedulerToken(req.headers.get("Authorization"), [Deno.env.get("SUPABASE_SERVICE_ROLE_KEY"), Deno.env.get("CRON_SECRET")])) {
+    return reply({ ok: false, error: "force requires the scheduler key" }, 403);
+  }
 
   try {
     const errors: string[] = [];
@@ -92,8 +98,8 @@ Deno.serve(async (req) => {
     // the exact truncation bug the pagination exists to prevent. (Ordering makes paging
     // deterministic, not transactional: a row DELETED mid-scan still shifts later pages up.
     // Nothing deletes from these tables during a run, so that residual is theoretical.)
-    const fetchAll = async (label: string, make: () => any): Promise<any[]> => {
-      const out: any[] = [];
+    const fetchAll = async <T>(label: string, make: () => { range(from: number, to: number): PromiseLike<{ data: T[] | null; error: { message: string } | null }> }): Promise<T[]> => {
+      const out: T[] = [];
       for (let from = 0; ; from += 1000) {
         const { data, error } = await make().range(from, from + 999);
         if (error) { note(`${label}: ${error.message}`); break; }
@@ -132,13 +138,13 @@ Deno.serve(async (req) => {
     if (errors.length) return reply({ ok: false, stage: "read", errors });
 
     // 2. Resolve broker tickers to the canonical symbol so FB/IPOE/VACQ share one profile.
-    const isCash = (p: any) => p.ticker === "CASH" || String(p.type ?? "") === "Cash";
+    const isCash = (p: { ticker: string; type?: string }) => p.ticker === "CASH" || String(p.type ?? "") === "Cash";
     const all = Array.from(new Set([
-      ...positions.filter((p: any) => !isCash(p)).map((p: any) => p.ticker),
-      ...watch.map((w: any) => w.ticker),
+      ...positions.filter((p) => !isCash(p)).map((p) => p.ticker),
+      ...watch.map((w) => w.ticker),
     ])).filter((t: string) => t && t.toUpperCase() !== "CASH");
     const canonOf = new Map<string, string>(
-      aliases.map((a: any) => [String(a.alias ?? "").trim().toUpperCase(), String(a.canonical ?? "").trim().toUpperCase()]),
+      aliases.map((a) => [String(a.alias ?? "").trim().toUpperCase(), String(a.canonical ?? "").trim().toUpperCase()]),
     );
     // `||`, not `??`: ticker_alias.canonical is NOT NULL but nothing stops it holding "" or
     // whitespace, and `??` would pass that straight through — Finnhub queried for "" and a
@@ -147,8 +153,8 @@ Deno.serve(async (req) => {
     const up = (t: unknown) => String(t ?? "").trim().toUpperCase();
     const canon = (t: string) => canonOf.get(up(t)) || up(t);
     const canonical = Array.from(new Set(all.map((t: string) => canon(t))));
-    const prior = new Map<string, any>(
-      existing.map((r: any) => [String(r.ticker).toUpperCase(), r]),
+    const prior = new Map<string, typeof existing[number]>(
+      existing.map((r) => [String(r.ticker).toUpperCase(), r]),
     );
     // ?force=FB has to mean ?force=META, or the escape hatch misses exactly the rows the
     // alias table exists for.
@@ -186,7 +192,7 @@ Deno.serve(async (req) => {
       fetched_at: new Date().toISOString(),
     });
 
-    const write = async (label: string, q: any): Promise<number> => {
+    const write = async (label: string, q: PromiseLike<{ error: { message: string } | null; count: number | null }>): Promise<number> => {
       const { error, count } = await q;
       // Report the failure instead of swallowing it: a caller told "ok, 40 resolved" when
       // the table is untouched will not retry, and the same lookups burn the quota again.

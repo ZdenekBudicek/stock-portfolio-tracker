@@ -8,16 +8,16 @@ import { describe, it, expect, vi, beforeEach } from "vitest";
 import { apiFillsReplacedBefore, replacedByStatement, createDuplicateGuard, type ExistingTx } from "@/lib/statementDedup";
 
 type Row = Record<string, unknown>;
-let TX: Row[] = [];
+let TX: ExistingTx[] = [];
 
 vi.mock("pdfjs-dist", () => ({ GlobalWorkerOptions: {}, getDocument: () => ({ promise: Promise.resolve(null) }) }));
 vi.mock("pdfjs-dist/build/pdf.worker.min.mjs?url", () => ({ default: "" }));
 vi.mock("@/integrations/supabase/client", () => {
-  const table = (rows: () => Row[]) => {
-    const q: any = {
+  const table = (rows: () => ExistingTx[]) => {
+    const q = {
       select: () => q, eq: () => q, like: () => q, is: () => q, not: () => q,
       range: (from: number, to: number) => Promise.resolve({ data: rows().slice(from, to + 1), error: null }),
-      then: (res: any) => Promise.resolve({ data: rows().slice(0, 1000), error: null }).then(res),
+      then: (res) => Promise.resolve({ data: rows().slice(0, 1000), error: null }).then(res),
     };
     return q;
   };
@@ -80,7 +80,7 @@ describe("createDuplicateGuard", () => {
   it("does not count rows the import deletes as already stored", () => {
     const scope = { broker: "T212", account: ACCOUNT, adoptLegacy: false, replaceApiFillsBefore: "2026-07-01T00:00:00.000Z" };
     const guard = createDuplicateGuard([db("t212:ord:1", "2026-05-04T15:00:00+00:00", "NVDA")], scope);
-    expect(guard.tradeAlreadyStored(stmt("2026-05-04", "NVDA") as any)).toBe(false);
+    expect(guard.tradeAlreadyStored(stmt("2026-05-04", "NVDA") as import("@/lib/statements").NormalizedRow)).toBe(false);
   });
 });
 
@@ -97,8 +97,8 @@ describe("planImport — statement B after an API sync", () => {
   const statementB = () => [stmt("2026-04-02", "NVDA"), stmt("2026-05-20", "MSFT", { side: "SELL" }), stmt("2026-06-30", "NVDA")];
 
   it("inserts every overlapping trade instead of skipping it", async () => {
-    TX = history() as any;
-    const plan = await planImport(parsed(statementB()) as any);
+    TX = history();
+    const plan = await planImport(parsed(statementB()) as unknown as import("@/lib/statementImport").ParsedStatement);
     expect(plan.toInsertTrades.map((r) => r.ticker)).toEqual(["NVDA", "MSFT", "NVDA"]);
     expect(plan.alreadyImported).toBe(0);
     expect(plan.replaceApiFillsBefore).toBe("2026-07-01T00:00:00.000Z");
@@ -108,8 +108,8 @@ describe("planImport — statement B after an API sync", () => {
     // B ends on 30 June. The 2 July fill is not in B, so deleting it would lose it until the
     // next manual sync pulled it again.
     const july = db("t212:ord:1005", "2026-07-02T14:00:00+00:00", "AMD");
-    TX = [...history(), july] as any;
-    const plan = await planImport(parsed(statementB()) as any);
+    TX = [...history(), july];
+    const plan = await planImport(parsed(statementB()) as unknown as import("@/lib/statementImport").ParsedStatement);
     expect(plan.toInsertTrades).toHaveLength(3);
     expect(replacedByStatement(july, { broker: "T212", account: ACCOUNT, adoptLegacy: plan.adoptLegacy, replaceApiFillsBefore: plan.replaceApiFillsBefore })).toBe(false);
   });
@@ -118,8 +118,8 @@ describe("planImport — statement B after an API sync", () => {
     TX = [
       ...history().filter((t) => !String(t.ext_id).startsWith("t212:ord:")),
       ...statementB().map((r) => db(r.external_id, (r.executed_at as string).replace(".000Z", "+00:00"), r.ticker, { side: r.side })),
-    ] as any;
-    const plan = await planImport(parsed(statementB()) as any);
+    ];
+    const plan = await planImport(parsed(statementB()) as unknown as import("@/lib/statementImport").ParsedStatement);
     expect(plan.toInsertTrades).toHaveLength(0);
     expect(plan.alreadyImported).toBe(3);
   });
@@ -127,13 +127,13 @@ describe("planImport — statement B after an API sync", () => {
   it("reconciles to B's snapshot when only replaced API fills are newer than B", async () => {
     // The 30 June fill at 19:45 is later than B's noon timestamp but is deleted by the import,
     // so B is the newest data the account will hold.
-    TX = history() as any;
+    TX = history();
     const holdings = [{ external_id: "t212:pos:111:NVDA", broker: "T212", account: ACCOUNT, kind: "HOLDING", ticker: "NVDA", shares: 4, executed_at: "2026-06-30T12:00:00.000Z", label: "" }];
-    const plan = await planImport(parsed(statementB(), holdings) as any);
+    const plan = await planImport(parsed(statementB(), holdings) as unknown as import("@/lib/statementImport").ParsedStatement);
     expect(plan.reconcileTo).toHaveLength(1);
 
-    TX = [...history(), db("t212:ord:1005", "2026-07-02T14:00:00+00:00", "AMD")] as any;
-    const later = await planImport(parsed(statementB(), holdings) as any);
+    TX = [...history(), db("t212:ord:1005", "2026-07-02T14:00:00+00:00", "AMD")];
+    const later = await planImport(parsed(statementB(), holdings) as unknown as import("@/lib/statementImport").ParsedStatement);
     expect(later.reconcileTo).toHaveLength(0); // a kept fill is newer — B's snapshot is stale
   });
 });

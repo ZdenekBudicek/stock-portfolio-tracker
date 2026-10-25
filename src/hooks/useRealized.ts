@@ -3,15 +3,17 @@ import { useMemo } from "react";
 import { useTransactions } from "@/hooks/usePortfolio";
 import { useDividends } from "@/hooks/useExtras";
 import { useTaxResidence } from "@/hooks/useTaxResidence";
-import { isRealTradeTx, runFifo } from "@/lib/fifo";
-import { buildRealizedReport, realizedYears } from "@/lib/tax/realized";
+import { computeRealized } from "@/lib/realizedModel";
 
 export function useRealizedModel(year = new Date().getFullYear()) {
-  const { data: txs = [] } = useTransactions();
-  const { data: divs = [] } = useDividends();
+  const txsQ = useTransactions();
+  const divsQ = useDividends();
   const { baseCurrency } = useTaxResidence();
-  const fifo = useMemo(() => runFifo(txs.filter(isRealTradeTx) as any), [txs]);
-  const report = useMemo(() => buildRealizedReport(fifo.disposals, fifo.warnings, divs as any, year, baseCurrency), [fifo, divs, year, baseCurrency]);
-  const years = useMemo(() => realizedYears(fifo.disposals, divs as any), [fifo, divs]);
-  return { fifo, report, years, currency: baseCurrency };
+  const today = new Date().toISOString().slice(0, 10);
+  const model = useMemo(() => computeRealized({ transactions: txsQ.data ?? [], dividends: divsQ.data ?? [],
+    year, currency: baseCurrency, today }), [txsQ.data, divsQ.data, year, baseCurrency, today]);
+  const loading = txsQ.isLoading || divsQ.isLoading;
+  const error = txsQ.error || divsQ.error || null;
+  const report = loading || error ? { ...model.report, complete: false } : model.report;
+  return { ...model, report, loading, error };
 }

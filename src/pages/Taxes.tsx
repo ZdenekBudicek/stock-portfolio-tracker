@@ -10,9 +10,8 @@ import { TickerLogo } from '@/components/TickerLogo';
 import { fmtDate } from '@/components/v2/widgets';
 import { EmptyNote, Footnote, Kpi, Label, PageTitle, Panel, Pill } from '@/components/v2/ui';
 import { Input } from '@/components/ui/input';
-import { isRealTradeTx } from '@/lib/fifo';
 import { SALE_INCOME_LIMIT_CZK } from '@/lib/czTax';
-import { simulateSale } from '@/lib/saleSimulation';
+import { computeSaleModel, resolveSaleAccount } from '@/lib/saleModel';
 import { currentLang } from '@/i18n';
 import { fmtCzk, fmtNum, fmtPercent } from '@/i18n/format';
 import { formatMoney } from '@/lib/displayCurrency';
@@ -20,6 +19,7 @@ import { cn } from '@/lib/utils';
 import { proceedsBreakdown, type Bucket } from '@/lib/taxBreakdown';
 import { useTaxPrefs } from '@/hooks/useTaxPrefs';
 import { useTaxResidence } from '@/hooks/useTaxResidence';
+import { useAssistantTaxOverride } from '@/contexts/AssistantChatContext';
 import { RealizedGainsView } from '@/components/RealizedGains';
 import { InternationalTaxes } from '@/components/tax/InternationalTaxes';
 import type { Country } from '@/lib/tax/engines';
@@ -156,7 +156,7 @@ function Simulator({ model }: { model: TaxModel }) {
   const tickers = useMemo(() => [...new Set(model.lots.map((l) => l.ticker))].sort(), [model.lots]);
   const [ticker, setTicker] = useState<string>('');
   const sym = ticker || tickers[0] || '';
-  // FIFO runs per broker account: the user picks whose lots are sold (default: the most shares).
+  // Start with the largest holding; the selector keeps every account available.
   const accounts = useMemo(() => {
     const m = new Map<string, { key: string; broker: string; account: string; shares: number }>();
     for (const l of model.lots) if (l.ticker === sym) {
@@ -167,21 +167,33 @@ function Simulator({ model }: { model: TaxModel }) {
     return [...m.values()].sort((a, b) => b.shares - a.shares);
   }, [model.lots, sym]);
   const [accountKey, setAccountKey] = useState('');
-  const account = accounts.find((a) => a.key === accountKey) ?? accounts[0] ?? null;
+  const selected = accounts.find(a => a.key === accountKey) ?? accounts[0];
+  const scope = useMemo(() => resolveSaleAccount(sym, txs, selected), [sym, txs, selected]);
+  const account = scope.status === 'resolved'
+    ? accounts.find(a => a.broker === scope.broker && a.account === scope.account) ?? null : null;
   const price = positions.find((p) => p.ticker === sym)?.currentPrice ?? 0;
   const [sharesText, setSharesText] = useState('');
   const [priceText, setPriceText] = useState('');
-  const shares = Number(sharesText.replace(',', '.')) || Math.min(10, account?.shares ?? 0);
-  const salePrice = Number(priceText.replace(',', '.')) || price;
-  const real = useMemo(() => txs.filter(isRealTradeTx) as any[], [txs]);
-  const sim = useMemo(() => (account && shares > 0 && salePrice > 0
-    ? simulateSale(real, model.report, { ticker: sym, broker: account.broker, account: account.account, shares, priceUsd: salePrice, feeUsd: 0, at: new Date().toISOString(), saleFx: usdCzk }, model.settings, model.kindOf)
-    : null), [real, model.report, model.settings, model.kindOf, sym, account, shares, salePrice, usdCzk]);
+  const shares = sharesText.trim() === '' ? Math.min(10, account?.shares ?? 0) : Number(sharesText.replace(',', '.'));
+  const salePrice = priceText.trim() === '' ? price : Number(priceText.replace(',', '.'));
+  const at = useMemo(() => new Date().toISOString(), [sym, account, shares, salePrice, usdCzk]);
+  const simulation = useMemo(() => {
+    if (!account || model.loading) return null;
+    try {
+      const output = computeSaleModel({ jurisdiction: 'CZ', model, transactions: txs,
+        sale: { ticker: sym, broker: account.broker, account: account.account, shares, priceUsd: salePrice,
+          feeUsd: 0, at, saleFx: usdCzk } });
+      return output.jurisdiction === 'CZ' ? { result: output.result, error: false } : null;
+    } catch {
+      return { result: null, error: true };
+    }
+  }, [txs, model, sym, account, shares, salePrice, usdCzk, at]);
+  const sim = simulation?.result;
   const sh = (v: number) => fmtNum(v, 4);
 
   return (
     <Panel className="lg:col-span-5" glow="primary" title={t('taxes.sim.title')} action={<Pill tone="primary">{t('common.simulation')}</Pill>}>
-      {!account ? <EmptyNote>{t('taxes.sim.noLots')}</EmptyNote> : (
+      {accounts.length === 0 ? <EmptyNote>{t('taxes.sim.noLots')}</EmptyNote> : (
         <>
           <div className="grid grid-cols-[1.3fr_1fr_1fr] gap-2.5">
             <label className="text-xs text-muted-foreground">{t('taxes.sim.stock')}
@@ -193,7 +205,7 @@ function Simulator({ model }: { model: TaxModel }) {
               </div>
             </label>
             <label className="text-xs text-muted-foreground">{t('taxes.sim.shares')}
-              <Input inputMode="decimal" className="mt-1.5 h-10 rounded-xl num" placeholder={String(Math.min(10, Number(account.shares.toFixed(4))))} value={sharesText} onChange={(e) => setSharesText(e.target.value)} />
+              <Input inputMode="decimal" className="mt-1.5 h-10 rounded-xl num" placeholder={String(Math.min(10, Number((account?.shares ?? 0).toFixed(4))))} value={sharesText} onChange={(e) => setSharesText(e.target.value)} />
             </label>
             <label className="text-xs text-muted-foreground">{t('taxes.sim.price')}
               <Input inputMode="decimal" className="mt-1.5 h-10 rounded-xl num" placeholder={price.toFixed(2)} value={priceText} onChange={(e) => setPriceText(e.target.value)} />
@@ -201,12 +213,14 @@ function Simulator({ model }: { model: TaxModel }) {
           </div>
           {accounts.length > 1 && (
             <label className="mt-2.5 block text-xs text-muted-foreground">{t('taxes.sim.account')}
-              <select value={account?.key} onChange={(e) => setAccountKey(e.target.value)} className="mt-1.5 h-9 w-full rounded-xl border border-white/10 bg-white/[0.04] px-2.5 text-sm text-foreground outline-none">
+              <select value={account?.key ?? ''} onChange={(e) => setAccountKey(e.target.value)} className="mt-1.5 h-9 w-full rounded-xl border border-white/10 bg-white/[0.04] px-2.5 text-sm text-foreground outline-none">
+                <option value="" disabled className="bg-popover">{t('taxes.sim.chooseAccount')}</option>
                 {accounts.map((a) => <option key={a.key} value={a.key} className="bg-popover">{a.broker}{a.account ? ` · ${a.account}` : ''} — {t('taxes.sim.sharesN', { n: sh(a.shares) })}</option>)}
               </select>
             </label>
           )}
           {account && <div className="mt-1.5 text-[11px] text-muted-foreground">{t('taxes.sim.fromAccount', { account: `${account.broker}${account.account ? ` · ${account.account}` : ''}`, n: sh(account.shares) })}</div>}
+          {simulation?.error && <p className="mt-2 text-xs text-muted-foreground">{t('taxes.sim.invalid')}</p>}
           {sim && (
             <>
               <Label className="mt-4">{t('taxes.sim.lots')}</Label>
@@ -240,7 +254,7 @@ function Simulator({ model }: { model: TaxModel }) {
                     : `${sim.yearComplete ? '' : `${t('taxes.sim.approx')} `}${t('taxes.sim.base', { from: czk(model.report.taxBaseCzk), to: czk(sim.taxBaseAfterCzk) })}${sim.underLimitAfter ? ` · ${t('taxes.sim.stillUnder')}` : ''}${sim.capTaxedShareAfter > 0 ? ` · ${t('taxes.sim.capped', { pct: fmtPercent(sim.capTaxedShareAfter * 100, 1) })}` : ''}`}
                 </div>
               </div>
-              <p className="mt-2.5 text-[11px] text-muted-foreground">{t('taxes.sim.note', { rate: fmtNum(usdCzk, 3) })}</p>
+              <p className="mt-2.5 text-[11px] text-muted-foreground">{t('taxes.sim.note', { rate: fmtNum(usdCzk, 3), date: fmtDate(model.today) })}</p>
             </>
           )}
         </>
@@ -257,8 +271,10 @@ const CzTaxes = () => {
   // Start from the defaults chosen in Settings; switching here is for this look only.
   const [prefs] = useTaxPrefs();
   const [fxMethod, setFxMethod] = useState<FxMethod>(prefs.fxMethod);
-  const [limitIncludesExempt, setLimitIncludesExempt] = useState(prefs.limitIncludesExempt);
-  const settings = useMemo(() => ({ fxMethod, limitIncludesExempt }), [fxMethod, limitIncludesExempt]);
+  // The 100 000 Kč test always counts every sale of securities (audit B11).
+  const settings = useMemo(() => ({ fxMethod, limitIncludesExempt: true }), [fxMethod]);
+  // The assistant's next answer uses the settings shown here; leaving the page forgets them.
+  useAssistantTaxOverride(settings);
   const tax = useTaxModel(year, settings);
   // A simulated sale happens today, so it changes THIS year's report whatever year is shown.
   const taxNow = useTaxModel(Number(todayPrague().slice(0, 4)), settings);
@@ -278,6 +294,7 @@ const CzTaxes = () => {
   const limitText = czk(SALE_INCOME_LIMIT_CZK);
   // The bar is the securities limit; crypto has its own line below.
   const secOver = tax.limitState === 'over';
+  if (tax.loading || taxNow.loading) return <div className="h-48 animate-pulse rounded-3xl bg-white/[0.03]" />;
   return (
     <div>
       <PageTitle eyebrow={t('taxes.eyebrow')} title={t('taxes.title', { year: r.year })} right={<span className="text-xs text-muted-foreground">{t('taxes.switchHint')}</span>} />
@@ -287,6 +304,8 @@ const CzTaxes = () => {
           <div className="flex items-center justify-between"><Label className="text-warning/80">{t('taxes.est.title')}</Label><Pill tone="warning">{fmtPercent(15, 0)}</Pill></div>
           <div className="mt-2.5 text-5xl font-semibold tracking-[-0.045em] text-warning leading-none num">{czk(r.estTaxCzk)}<UsdHint czk={r.estTaxCzk} /></div>
           <div className="mt-2.5 text-xs text-muted-foreground">{t('taxes.est.sub', { gain: czk(r.taxable.gainCzk) })}</div>
+          {/* A sale without its day's rate has no CZK gain and is left out — say so here, not only deep in the report. */}
+          {r.missingFx.length > 0 && <div className="mt-2 text-xs text-warning">{t('taxes.est.missingFx', { dates: r.missingFx.map(fmtDate).join(', ') })}</div>}
           <div className="mt-5 grid grid-cols-2 gap-2.5">
             <div className="rounded-2xl bg-white/[0.05] p-3"><Kpi label={t('taxes.est.exemptGain')} value={czk(r.exempt.gainCzk)} tone="profit" size="sm" /></div>
             <div className="rounded-2xl bg-white/[0.05] p-3">
@@ -297,7 +316,7 @@ const CzTaxes = () => {
         </Panel>
 
         <Panel className="lg:col-span-7" title={t('taxes.limit.title', { limit: limitText })} action={tax.limitState === 'over' ? <Pill tone="loss">{t('taxes.limit.over')}{times >= 2 ? ` ${Math.floor(times)}×` : ''}</Pill> : tax.limitState === 'under' ? <Pill tone="profit">{t('overview.tax.under')}</Pill> : <Pill tone="warning">{t('overview.tax.unknown')}</Pill>}>
-          <div className="text-xs text-muted-foreground -mt-2">{t(tax.settings.limitIncludesExempt ? 'taxes.limit.ruleInclExempt' : 'taxes.limit.rule')}</div>
+          <div className="text-xs text-muted-foreground -mt-2">{t('taxes.limit.ruleInclExempt')}</div>
           <div className="mt-5 flex items-end gap-3 flex-wrap">
             <div className="text-4xl font-semibold tracking-[-0.04em] num">{czk(r.limitBaseCzk)}<UsdHint czk={r.limitBaseCzk} /></div>
             <div className="mb-1.5 text-xs text-muted-foreground">{t('taxes.limit.proceeds', { year: r.year })}{tax.limitState === 'unknown' ? ` · ${t('taxes.limit.cannotConfirm')}` : ''}</div>
@@ -383,7 +402,7 @@ const CzTaxes = () => {
 
         <Simulator model={taxNow} />
       </div>
-      <div className="mt-4"><TaxReport controls={{ year, setYear, fxMethod, setFxMethod, limitIncludesExempt, setLimitIncludesExempt }} /></div>
+      <div className="mt-4"><TaxReport controls={{ year, setYear, fxMethod, setFxMethod }} /></div>
       <Footnote>{t('taxes.footnote')}</Footnote>
     </div>
   );

@@ -222,7 +222,7 @@ export function useAlertText() {
   const usd = (v: unknown) => (hidden ? '$••••' : `$${fmtNum(Math.abs(Number(v) || 0), 0)}`);
   const czk = (v: unknown) => (hidden ? (currentLang() === 'en' ? 'CZK ••••' : '•••• Kč') : fmtCzk(Number(v) || 0));
   return (a: AlertItem): { title: string; detail: string } => {
-    const p = a.params as Record<string, any>;
+    const p = a.params as Record<string, string | number>;
     switch (a.code) {
       case 'data.pricesError': return { title: t('alerts.msg.pricesError.title'), detail: t('alerts.msg.pricesError.detail') };
       case 'data.pricesStale': return { title: t('alerts.msg.pricesStale.title'), detail: t('alerts.msg.pricesStale.detail') };

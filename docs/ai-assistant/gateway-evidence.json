@@ -1,0 +1,33 @@
+{
+  "schema_version": 1,
+  "kind": "supabase-functions-serve-smoke",
+  "runner": "scripts/agent-gateway-smoke.ts",
+  "sha": "da24c6052cac283f38cae45bfed107d9d1679681",
+  "calculation_version": "0ded268542ed55062f347236df42b7c10f9e5d86f29ce7f4c422be8d4f7ed5ed",
+  "base_url": "http://127.0.0.1:54321/functions/v1/agent",
+  "started_at": "2026-10-23T23:27:18.727Z",
+  "checks": {
+    "no_token_401": "PASS",
+    "forged_token_401": "PASS",
+    "user_a_chat_done": "PASS",
+    "user_a_thread_listed": "PASS",
+    "user_b_foreign_thread_404": "PASS",
+    "user_a_cleanup": "PASS"
+  },
+  "observations": {
+    "no_token_status": 401,
+    "forged_token_status": 401,
+    "chat_events": [
+      "meta",
+      "status",
+      "status",
+      "trace",
+      "answer",
+      "done"
+    ],
+    "chat_outcome": "fallback",
+    "thread_list_status": 200,
+    "foreign_thread_status": 404,
+    "cleanup_status": 204
+  }
+}

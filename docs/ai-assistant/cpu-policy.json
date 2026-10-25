@@ -1,0 +1,19 @@
+{
+  "mode": "limited",
+  "maxTransactions": 5000,
+  "maxSnapshots": 3653,
+  "requestWorkMs": 600,
+  "costs": {
+    "fifo_real": { "fixedMs": 1, "per1000TransactionsMs": 3 },
+    "fifo_all": { "fixedMs": 1, "per1000TransactionsMs": 3 },
+    "portfolio": { "fixedMs": 1, "per1000TransactionsMs": 2, "per1000SnapshotsMs": 0.5 },
+    "realized_year": { "fixedMs": 0.5, "per1000TransactionsMs": 0.5 },
+    "cz_tax": { "fixedMs": 2, "per1000TransactionsMs": 15 },
+    "cz_sale": { "fixedMs": 1, "per1000TransactionsMs": 6 },
+    "foreign_tax": { "fixedMs": 5, "per1000TransactionsMs": 820 },
+    "foreign_sale": { "fixedMs": 5, "per1000TransactionsMs": 70 },
+    "performance": { "fixedMs": 2, "per1000TransactionsMs": 1, "per1000SnapshotsMs": 1.5 },
+    "dividend_forecast": { "fixedMs": 1, "per1000TransactionsMs": 0.5 },
+    "allocation": { "fixedMs": 0.5, "per1000TransactionsMs": 0.1 }
+  }
+}

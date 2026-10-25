@@ -40,7 +40,7 @@ const ExportMenu = () => {
   const exportTransactions = () => {
     downloadCsv('transakce',
       [t('legacy.exportMenu.date'), t('legacy.exportMenu.ticker'), t('legacy.exportMenu.side'), t('legacy.exportMenu.shareQuantity'), t('legacy.exportMenu.priceUSD'), t('legacy.exportMenu.feeUSD'), t('legacy.exportMenu.broker')],
-      (txs as any[])
+      (txs)
         .filter((row) => { const e = String(row.ext_id ?? ''); return !e.includes(':adj:') && !e.includes(':pos:'); })
         .map((row) => [row.executed_at.slice(0, 10), row.ticker, row.side, row.shares, row.price_usd, row.fee_usd ?? 0, row.broker ?? '']));
   };
@@ -48,7 +48,7 @@ const ExportMenu = () => {
   const exportDividends = () => {
     downloadCsv('dividendy',
       [t('legacy.exportMenu.exDate'), t('legacy.exportMenu.payDate'), t('legacy.exportMenu.ticker'), t('legacy.exportMenu.uSDShare'), t('legacy.exportMenu.shares'), t('legacy.exportMenu.totalUSD'), t('legacy.exportMenu.status'), t('legacy.exportMenu.source')],
-      (divs as any[]).map((d) => [
+      (divs).map((d) => [
         d.ex_date, d.pay_date ?? '', d.ticker, d.amount_per_share, d.shares_held ?? '', d.total_amount_usd ?? '', d.status, d.broker ?? '',
       ]));
   };

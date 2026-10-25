@@ -1,0 +1,156 @@
+// Vitest Snapshot v1, https://vitest.dev/guide/snapshot.html
+
+exports[`performance characterization > preserves original CZK hook output 1`] = `
+{
+  "cashUsd": 20,
+  "hasBench": true,
+  "holdingsUsd": 110,
+  "points": [
+    {
+      "benchVal": 16,
+      "cumDep": 16,
+      "date": "2026-10-22",
+      "total": 96,
+    },
+    {
+      "benchVal": 18.900000000000002,
+      "cumDep": 16,
+      "date": "2026-10-23",
+      "total": 117,
+    },
+  ],
+  "quality": {
+    "cashTrackedFrom": "2026-10-22",
+    "extremeDays": [],
+    "level": "insufficient",
+    "reasons": [
+      "proxy-flows",
+      "short-history",
+    ],
+  },
+}
+`;
+
+exports[`performance characterization > preserves original EUR hook output 1`] = `
+{
+  "cashUsd": 20,
+  "hasBench": true,
+  "holdingsUsd": 110,
+  "points": [
+    {
+      "benchVal": 16,
+      "cumDep": 16,
+      "date": "2026-10-22",
+      "total": 96,
+    },
+    {
+      "benchVal": 18.900000000000002,
+      "cumDep": 16,
+      "date": "2026-10-23",
+      "total": 117,
+    },
+  ],
+  "quality": {
+    "cashTrackedFrom": "2026-10-22",
+    "extremeDays": [],
+    "level": "insufficient",
+    "reasons": [
+      "proxy-flows",
+      "short-history",
+    ],
+  },
+}
+`;
+
+exports[`performance characterization > preserves original GBP hook output 1`] = `
+{
+  "cashUsd": 20,
+  "hasBench": true,
+  "holdingsUsd": 110,
+  "points": [
+    {
+      "benchVal": 16,
+      "cumDep": 16,
+      "date": "2026-10-22",
+      "total": 96,
+    },
+    {
+      "benchVal": 18.900000000000002,
+      "cumDep": 16,
+      "date": "2026-10-23",
+      "total": 117,
+    },
+  ],
+  "quality": {
+    "cashTrackedFrom": "2026-10-22",
+    "extremeDays": [],
+    "level": "insufficient",
+    "reasons": [
+      "proxy-flows",
+      "short-history",
+    ],
+  },
+}
+`;
+
+exports[`performance characterization > preserves original PLN hook output 1`] = `
+{
+  "cashUsd": 20,
+  "hasBench": true,
+  "holdingsUsd": 110,
+  "points": [
+    {
+      "benchVal": 16,
+      "cumDep": 16,
+      "date": "2026-10-22",
+      "total": 96,
+    },
+    {
+      "benchVal": 18.900000000000002,
+      "cumDep": 16,
+      "date": "2026-10-23",
+      "total": 117,
+    },
+  ],
+  "quality": {
+    "cashTrackedFrom": "2026-10-22",
+    "extremeDays": [],
+    "level": "insufficient",
+    "reasons": [
+      "proxy-flows",
+      "short-history",
+    ],
+  },
+}
+`;
+
+exports[`performance characterization > preserves original USD hook output 1`] = `
+{
+  "cashUsd": 20,
+  "hasBench": true,
+  "holdingsUsd": 110,
+  "points": [
+    {
+      "benchVal": 20,
+      "cumDep": 20,
+      "date": "2026-10-22",
+      "total": 120,
+    },
+    {
+      "benchVal": 21,
+      "cumDep": 20,
+      "date": "2026-10-23",
+      "total": 130,
+    },
+  ],
+  "quality": {
+    "cashTrackedFrom": "2026-10-22",
+    "extremeDays": [],
+    "level": "insufficient",
+    "reasons": [
+      "proxy-flows",
+      "short-history",
+    ],
+  },
+}
+`;

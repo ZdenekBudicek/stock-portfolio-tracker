@@ -58,7 +58,8 @@ const CashAdjustDialog = () => {
       });
       setAmount(""); setNote(""); setDate(new Date().toISOString().slice(0, 16));
       setOpen(false);
-    } catch (e: any) {
+    } catch (error: unknown) {
+      const e = error as { message?: string } | null;
       toast({ title: t('legacy.cashAdjustDialog.error'), description: t('legacy.cashAdjustDialog.errorDetail', { message: e.message }), variant: "destructive" });
     }
   };
@@ -96,7 +97,7 @@ const CashAdjustDialog = () => {
             <label className="text-xs text-muted-foreground font-semibold uppercase tracking-wide">{t('legacy.cashAdjustDialog.amount')}</label>
             <div className="flex gap-2">
               <Input type="number" step="0.01" value={amount} onChange={(e) => setAmount(e.target.value)} placeholder="10000" className="flex-1" />
-              <select value={ccy} onChange={(e) => setCcy(e.target.value as any)} className="px-2 rounded-md border border-border bg-background text-sm">
+              <select value={ccy} onChange={(e) => setCcy(e.target.value as typeof ccy)} className="px-2 rounded-md border border-border bg-background text-sm">
                 <option value="USD">USD</option>
                 <option value="LOCAL">{local}</option>
               </select>

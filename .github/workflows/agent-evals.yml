@@ -1,0 +1,78 @@
+name: Agent evals
+
+# Started by hand only. Runs the Python eval harness against the loopback runner over the
+# synthetic fixtures, and the real-DB integration suites against the explicit trackora-test
+# project. Secrets come from the `agent-test` environment (test project and a separate Groq key),
+# never from production. Nothing here deploys, migrates or writes to production.
+on:
+  workflow_dispatch:
+    inputs:
+      mode:
+        description: fake (no model) or live (Groq, test key)
+        required: true
+        default: fake
+        type: choice
+        options: [fake, live]
+      pace_seconds:
+        description: live only - seconds between cases so the free Groq per-minute token limit recovers (ignored in fake mode)
+        required: true
+        default: '12'
+        type: string
+
+permissions:
+  contents: read
+
+concurrency:
+  group: agent-evals
+  cancel-in-progress: false
+
+jobs:
+  evals:
+    runs-on: ubuntu-latest
+    # 37 paced cases: 36 × 12 s pause + up to 50 s per question in the worst case.
+    timeout-minutes: 60
+    environment: agent-test
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '24'
+          cache: npm
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - run: npm ci
+      - run: python -m pip install -e "./evals[test]"
+      - run: python -m pytest evals/tests
+      - name: Start the loopback runner
+        env:
+          MODE: ${{ inputs.mode }}
+          GROQ_API_KEY: ${{ inputs.mode == 'live' && secrets.TEST_GROQ_API_KEY || '' }}
+        run: |
+          if [ "$MODE" = fake ]; then flag=--fake-llm; else flag=--fixture-agent; test -n "$GROQ_API_KEY"; fi
+          nohup node scripts/agent-local.ts --fixture-auth $flag --port=8787 > runner.log 2>&1 &
+          for i in $(seq 1 30); do curl -sf -o /dev/null -H 'Authorization: Bearer fixture-user-a' http://127.0.0.1:8787/agent/tools && break; sleep 1; done
+      - name: Run the eval
+        env:
+          MODE: ${{ inputs.mode }}
+          PACE: ${{ inputs.pace_seconds }}
+          # Presence only: the harness refuses a live run without it and never reads its value.
+          GROQ_API_KEY: ${{ inputs.mode == 'live' && secrets.TEST_GROQ_API_KEY || '' }}
+        run: python -m trackora_evals.run --base http://127.0.0.1:8787 --cases evals/cases/mvp.yaml --mode "$MODE" --pace-seconds "$PACE" --output "evals/reports/mvp-$MODE"
+      - name: Real DB, RLS and HTTP integration (trackora-test only)
+        env:
+          TEST_DB_URL: ${{ secrets.TEST_DB_URL }}
+          TEST_DB_ANON_KEY: ${{ secrets.TEST_DB_ANON_KEY }}
+          TEST_DB_SERVICE_KEY: ${{ secrets.TEST_DB_SERVICE_KEY }}
+          TEST_USER_A_EMAIL: ${{ secrets.TEST_USER_A_EMAIL }}
+          TEST_USER_A_PASSWORD: ${{ secrets.TEST_USER_A_PASSWORD }}
+          TEST_USER_B_EMAIL: ${{ secrets.TEST_USER_B_EMAIL }}
+          TEST_USER_B_PASSWORD: ${{ secrets.TEST_USER_B_PASSWORD }}
+        run: npx vitest run src/__tests__/agent-rls.integration.test.ts src/__tests__/agent-quota.integration.test.ts src/__tests__/agent-schema.integration.test.ts src/__tests__/agent-http.integration.test.ts --no-file-parallelism
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: agent-eval-${{ inputs.mode }}
+          path: |
+            evals/reports/mvp-${{ inputs.mode }}.json
+            evals/reports/mvp-${{ inputs.mode }}.md

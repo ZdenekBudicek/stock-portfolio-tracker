@@ -2,12 +2,12 @@ import { describe, expect, it } from 'vitest';
 import { fetchAllRows, fetchFinnhub, fetchRowsBySymbols, latestCloses } from '../../supabase/functions/_shared/price-providers';
 
 // Minimal PostgREST-like fake: filters + orders applied in memory, every response capped at 1000 rows.
-function fakeClient(tables: Record<string, any[]>, opts: { failOn?: string } = {}) {
+function fakeClient(tables: Record<string, Record<string, string | number>[]>, opts: { failOn?: string } = {}) {
   const calls: string[] = [];
   const client = {
     calls,
     from(table: string) {
-      const filters: ((r: any) => boolean)[] = [];
+      const filters: ((r) => boolean)[] = [];
       const orders: [string, boolean][] = [];
       let lim = Infinity;
       const run = (from = 0, to = Infinity) => {
@@ -21,12 +21,12 @@ function fakeClient(tables: Record<string, any[]>, opts: { failOn?: string } = {
         rows = rows.slice(from, Math.min(to + 1, from + 1000)).slice(0, lim);
         return Promise.resolve({ data: rows, error: null });
       };
-      const q: any = {
-        select: () => q,
-        in: (k: string, v: any[]) => { filters.push((r) => v.includes(r[k])); return q; },
-        eq: (k: string, v: any) => { filters.push((r) => r[k] === v); return q; },
-        gt: (k: string, v: any) => { filters.push((r) => r[k] > v); return q; },
-        gte: (k: string, v: any) => { filters.push((r) => r[k] >= v); return q; },
+      const q = {
+        select: (_columns?: string) => q,
+        in: (k: string, v: unknown[]) => { filters.push((r) => v.includes(r[k])); return q; },
+        eq: (k: string, v: string | number) => { filters.push((r) => r[k] === v); return q; },
+        gt: (k: string, v: string | number) => { filters.push((r) => r[k] > v); return q; },
+        gte: (k: string, v: string | number) => { filters.push((r) => r[k] >= v); return q; },
         order: (k: string, o: { ascending: boolean }) => { orders.push([k, o.ascending]); return q; },
         limit: (n: number) => { lim = n; return run(); },
         range: (f: number, t: number) => run(f, t),
@@ -56,13 +56,13 @@ describe('PostgREST paging helpers (audit D #23)', () => {
   });
 
   it('latestCloses keeps the latest close per symbol, even when other symbols have >1000 newer rows', async () => {
-    const rows: any[] = [];
+    const rows: { symbol: string; date: string; close: number }[] = [];
     for (let s = 0; s < 60; s++) for (let d = 0; d < 30; d++) rows.push({ symbol: `A${s}`, date: day(300 + d), close: 100 + d });
     rows.push({ symbol: 'OLD', date: day(10), close: 7 }, { symbol: 'OLD', date: day(5), close: 6 });
     rows.push({ symbol: 'Z', date: day(329), close: 0 }, { symbol: 'Z', date: day(328), close: 9 });
     const c = fakeClient({ price_history: rows });
     const now = Date.parse(day(330));
-    const m = await latestCloses(c, [...Array.from({ length: 60 }, (_, i) => `A${i}`), 'OLD', 'Z', 'NONE'], { now });
+    const m = await latestCloses(c as unknown as Parameters<typeof latestCloses>[0], [...Array.from({ length: 60 }, (_, i) => `A${i}`), 'OLD', 'Z', 'NONE'], { now });
     expect(m.get('A0')).toEqual({ date: day(329), close: 129 });
     expect(m.get('A59')).toEqual({ date: day(329), close: 129 });
     expect(m.get('OLD')).toEqual({ date: day(10), close: 7 }); // outside the window -> own query
@@ -72,7 +72,7 @@ describe('PostgREST paging helpers (audit D #23)', () => {
 });
 
 describe('fetchFinnhub pacing (audit D scalability)', () => {
-  const ok = (c: number) => ({ status: 200, json: async () => ({ c, pc: c, dp: 0 }) }) as any;
+  const ok = (c: number) => ({ status: 200, json: async () => ({ c, pc: c, dp: 0 }) }) as Response;
 
   it('spaces calls and stops at maxCalls', async () => {
     let t = 0;
@@ -80,7 +80,7 @@ describe('fetchFinnhub pacing (audit D scalability)', () => {
     const out = await fetchFinnhub(['A', 'B', 'C', 'D'], 'k', {
       maxCalls: 3, minIntervalMs: 1100, now: () => t,
       sleepImpl: async (ms) => { t += ms; },
-      fetchImpl: (async () => { starts.push(t); t += 100; return ok(10); }) as any,
+      fetchImpl: (async () => { starts.push(t); t += 100; return ok(10); }) as typeof fetch,
     });
     expect([...out.keys()]).toEqual(['A', 'B', 'C']);
     expect(starts).toEqual([0, 1100, 2200]);
@@ -91,7 +91,7 @@ describe('fetchFinnhub pacing (audit D scalability)', () => {
     let n = 0;
     const out = await fetchFinnhub(['A', 'B', 'C'], 'k', {
       attempted,
-      fetchImpl: (async () => (++n === 2 ? ({ status: 429, json: async () => ({}) }) : ok(5))) as any,
+      fetchImpl: (async () => (++n === 2 ? ({ status: 429, json: async () => ({}) }) : ok(5))) as typeof fetch,
     });
     expect([...out.keys()]).toEqual(['A']);
     expect([...attempted]).toEqual(['A']);
@@ -102,7 +102,7 @@ describe('fetchFinnhub pacing (audit D scalability)', () => {
     let t = 0;
     const out = await fetchFinnhub(['A', 'B', 'C'], 'k', {
       deadline: 1500, minIntervalMs: 1000, now: () => t, sleepImpl: async (ms) => { t += ms; },
-      fetchImpl: (async () => ok(1)) as any,
+      fetchImpl: (async () => ok(1)) as typeof fetch,
     });
     expect([...out.keys()]).toEqual(['A', 'B']);
   });

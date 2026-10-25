@@ -1,9 +1,11 @@
 import { useMemo } from "react";
 import { Cell, Pie, PieChart, ResponsiveContainer, Tooltip } from "recharts";
 import { Layers } from "lucide-react";
-import { useComputedPortfolio, usePositions, isCashPosition } from "@/hooks/usePortfolio";
-import { useTickerProfiles, resolveSector } from "@/hooks/useTickerProfiles";
+import { useComputedPortfolio, usePositions } from "@/hooks/usePortfolio";
+import { useTickerProfiles } from "@/hooks/useTickerProfiles";
 import { useCurrency } from "@/contexts/CurrencyContext";
+
+import { computeAllocationModel } from "@/lib/allocationModel";
 
 const PALETTE = ["#3b82f6", "#8b5cf6", "#ec4899", "#f59e0b", "#10b981", "#06b6d4", "#ef4444", "#84cc16", "#a855f7", "#f97316"];
 
@@ -17,28 +19,8 @@ const SectorAllocation = () => {
   const { positions } = useComputedPortfolio();
   const { format } = useCurrency();
 
-  // Manual overrides only. The autofill trigger that used to stuff this column from the
-  // hardcoded map is dropped in 20260809100000_ticker_profiles.sql, so a non-empty value
-  // here is a human's deliberate choice and outranks the API.
-  const manualSectors = useMemo(
-    () => new Map(dbPositions.map((p) => [p.ticker.toUpperCase(), p.sector])),
-    [dbPositions],
-  );
-
-  // Shares of the INVESTED money: cash is not a sector and is not drawn, so it must not sit
-  // in the denominator either — with it there the percentages added up to less than 100 %.
-  const data = useMemo(() => {
-    const groups = new Map<string, number>();
-    for (const p of positions) {
-      if (isCashPosition(p)) continue;
-      const sector = resolveSector(p.ticker, manualSectors.get(p.ticker.toUpperCase()), profiles);
-      groups.set(sector, (groups.get(sector) || 0) + p.value);
-    }
-    const invested = [...groups.values()].reduce((a, b) => a + b, 0);
-    return Array.from(groups.entries())
-      .map(([name, value]) => ({ name, value, pct: invested > 0 ? (value / invested) * 100 : 0 }))
-      .sort((a, b) => b.value - a.value);
-  }, [positions, manualSectors, profiles]);
+  const data = useMemo(() => computeAllocationModel({ positions, dbPositions,
+    profiles: profiles ?? new Map(), quoteCurrencies: {} }).sectors, [positions, dbPositions, profiles]);
 
   return (
     <div className="rounded-2xl border border-border bg-card/60 backdrop-blur p-5 animate-fade-in-up">
@@ -59,7 +41,7 @@ const SectorAllocation = () => {
                 </Pie>
                 <Tooltip
                   contentStyle={{ background: "hsl(var(--card))", border: "1px solid hsl(var(--border))", borderRadius: 8, fontSize: 12 }}
-                  formatter={(v: any, _n, p: any) => [`${format(v)} (${p.payload.pct.toFixed(1)}%)`, p.payload.name]}
+                  formatter={(v: number, _n, p: { payload?: { pct: number; name: string } }) => [`${format(v)} (${p.payload.pct.toFixed(1)}%)`, p.payload.name]}
                 />
               </PieChart>
             </ResponsiveContainer>

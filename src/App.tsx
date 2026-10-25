@@ -1,3 +1,4 @@
+import { lazy, Suspense, type ReactNode } from "react";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { BrowserRouter, HashRouter, Route, Routes } from "react-router-dom";
 import ScrollToTop from '@/components/ScrollToTop';
@@ -10,25 +11,36 @@ import ProtectedRoute from "@/components/ProtectedRoute";
 import "@/i18n";
 import LanguageProvider from "@/i18n/LanguageProvider";
 import AppShell from "@/components/shell/AppShell";
+import { AssistantChatProvider } from "@/contexts/AssistantChatContext";
+import { assistantConfig } from "@/lib/assistantTransport";
 import Index from "./pages/Index.tsx";
-import NotFound from "./pages/NotFound.tsx";
-import StockDetail from "./pages/StockDetail.tsx";
 import Auth from "./pages/Auth.tsx";
-import ResetPassword from "./pages/ResetPassword.tsx";
-import Positions from "./pages/Positions.tsx";
-import Returns from "./pages/Returns.tsx";
-import History from "./pages/History.tsx";
-import Dividends from "./pages/Dividends.tsx";
-import Taxes from "./pages/Taxes.tsx";
-import Alerts from "./pages/Alerts.tsx";
-import Accounts from "./pages/Accounts.tsx";
-import Settings from "./pages/Settings.tsx";
+
+// The overview and sign-in load with the app; every other page is its own chunk (audit B15: one 3 MB entry).
+const NotFound = lazy(() => import("./pages/NotFound.tsx"));
+const StockDetail = lazy(() => import("./pages/StockDetail.tsx"));
+const ResetPassword = lazy(() => import("./pages/ResetPassword.tsx"));
+const Positions = lazy(() => import("./pages/Positions.tsx"));
+const Returns = lazy(() => import("./pages/Returns.tsx"));
+const History = lazy(() => import("./pages/History.tsx"));
+const Dividends = lazy(() => import("./pages/Dividends.tsx"));
+const Taxes = lazy(() => import("./pages/Taxes.tsx"));
+const Alerts = lazy(() => import("./pages/Alerts.tsx"));
+const Accounts = lazy(() => import("./pages/Accounts.tsx"));
+const Settings = lazy(() => import("./pages/Settings.tsx"));
 
 import { IS_DEMO } from "@/lib/demo";
 import DemoBanner from "@/demo/DemoBanner";
 
 const queryClient = new QueryClient();
+
+// The demo build is static files under a sub-path (no server rewrites), so it routes by hash.
 const Router = IS_DEMO ? HashRouter : BrowserRouter;
+
+// The assistant mounts unless the build sets VITE_ASSISTANT_ENABLED=false; then nothing of it does.
+const assistantEnabled = assistantConfig().enabled;
+const AssistantGate = ({ children }: { children: ReactNode }) =>
+  assistantEnabled ? <AssistantChatProvider>{children}</AssistantChatProvider> : <>{children}</>;
 
 const App = () => (
   <QueryClientProvider client={queryClient}>
@@ -36,12 +48,14 @@ const App = () => (
       <ScrollToTop />
       <AuthProvider>
         <CurrencyProvider>
-          {/* Inside Auth/Currency: a language switch remounts the UI but keeps the session and currency. */}
+          {/* Inside Auth/Currency: a language switch remounts the UI but keeps the session, currency and chat. */}
+          <AssistantGate>
           <LanguageProvider>
           <TooltipProvider>
             <Toaster />
             <Sonner />
             {IS_DEMO && <DemoBanner />}
+            <Suspense fallback={null}>
             <Routes>
               <Route path="/auth" element={<Auth />} />
               <Route path="/reset-password" element={<ResetPassword />} />
@@ -59,8 +73,10 @@ const App = () => (
               </Route>
               <Route path="*" element={<NotFound />} />
             </Routes>
+            </Suspense>
           </TooltipProvider>
           </LanguageProvider>
+          </AssistantGate>
         </CurrencyProvider>
       </AuthProvider>
     </Router>

@@ -30,7 +30,7 @@ const validDate = (s) => typeof s === 'string' && /^\d{4}-\d{2}-\d{2}$/.test(s)
  * @param {unknown} json
  * @param {string} symbol canonical application symbol (not necessarily Yahoo's symbol)
  * @param {string} fetchedAt
- * @returns {import('../../../src/types/fundamentals').CompanyFundamentals}
+ * @returns {import('../../../src/types/fundamentals.ts').CompanyFundamentals}
  */
 export function normalizeYahooFundamentals(json, symbol, fetchedAt = '1970-01-01T00:00:00.000Z') {
   const result = json?.timeseries?.result;

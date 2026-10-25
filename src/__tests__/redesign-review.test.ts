@@ -31,26 +31,26 @@ describe("returns — review fixes", () => {
 describe("dividendAnalytics — review fixes", () => {
   const today = "2026-10-18";
   it("a projection marked paid after its ex-date still counts until its pay date", () => {
-    const divs: any[] = [{ ticker: "GOOGL", ex_date: "2026-10-10", pay_date: "2026-10-27", amount_per_share: 0.2, shares_held: 50, total_amount_usd: 10, status: "paid", broker: "auto" }];
+    const divs = [{ ticker: "GOOGL", ex_date: "2026-10-10", pay_date: "2026-10-27", amount_per_share: 0.2, shares_held: 50, total_amount_usd: 10, status: "paid", broker: "auto" }] as import("@/lib/dividendTax").DividendRecord[];
     expect(remainingThisMonth(divs, today).map((i) => i.amountUsd)).toEqual([10]);
   });
 
   it("nothing held → no projections (an empty set is a filter, not 'no filter')", () => {
-    const divs: any[] = [{ ticker: "META", ex_date: "2026-12-01", pay_date: "2026-12-20", amount_per_share: 1, shares_held: 10, total_amount_usd: 10, status: "upcoming", broker: "auto" }];
+    const divs = [{ ticker: "META", ex_date: "2026-12-01", pay_date: "2026-12-20", amount_per_share: 1, shares_held: 10, total_amount_usd: 10, status: "upcoming", broker: "auto" }] as import("@/hooks/useExtras").DbDividendRow[];
     expect(dividendForecast(divs, today, new Set()).every((m) => m.items.length === 0)).toBe(true);
     expect(dividendForecast(divs, today).some((m) => m.items.length === 1)).toBe(true);
   });
 
   it("this month's payouts of one stock on two brokers merge", () => {
-    const divs: any[] = [
+    const divs = [
       { ticker: "META", ex_date: "2026-10-20", pay_date: "2026-10-28", amount_per_share: 1, shares_held: 20, total_amount_usd: 20, status: "upcoming", broker: "auto" },
       { ticker: "META", ex_date: "2026-10-20", pay_date: "2026-10-28", amount_per_share: 1, shares_held: 30, total_amount_usd: 30, status: "upcoming", broker: "auto" },
-    ];
+    ] as import("@/hooks/useExtras").DbDividendRow[];
     expect(remainingThisMonth(divs, today)).toEqual([{ ticker: "META", payDate: "2026-10-28", amountUsd: 50, kind: "estimate" }]);
   });
 
   it("XTB stores gross: received counts the net amount", () => {
-    const divs: any[] = [{ ticker: "KO", ex_date: "2026-06-01", pay_date: "2026-06-15", amount_per_share: 1, shares_held: 100, total_amount_usd: 100, status: "paid", broker: "XTB", ext_id: "xtb:div:1" }];
+    const divs = [{ ticker: "KO", ex_date: "2026-06-01", pay_date: "2026-06-15", amount_per_share: 1, shares_held: 100, total_amount_usd: 100, status: "paid", broker: "XTB", ext_id: "xtb:div:1" }] as import("@/hooks/useExtras").DbDividendRow[];
     expect(receivedLast12m(divs, today).total).toBeCloseTo(85);
   });
 });

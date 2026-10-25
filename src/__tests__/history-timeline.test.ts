@@ -6,7 +6,7 @@ import { createHoldingsTimeline, eachDay } from "../../supabase/functions/_share
 const ev = (ticker: string, day: string, signed: number) => ({ ticker, day, signed });
 
 /** Convenience: walk the timeline and read one ticker's share count on each day. */
-const series = (tl: any, ticker: string, days: string[]) =>
+const series = (tl: ReturnType<typeof createHoldingsTimeline>, ticker: string, days: string[]) =>
   days.map((d) => tl.advanceTo(d).get(ticker) ?? 0);
 
 describe("createHoldingsTimeline", () => {

@@ -1,6 +1,8 @@
+import type { T212Client, T212Summary, T212Key, T212Holding, T212Dividend, T212Deposit, T212OrderItem } from "../_shared/t212-types.ts";
 // Scheduled background sync: keeps every connected T212 account fresh without the user
 // pressing "Obnovit". For each broker connection it pulls the account summary (header
-// numbers), mirrors free cash, and reconciles positions to the live portfolio.
+// numbers), mirrors free cash, appends the order fills newer than the stored history, and
+// reconciles positions to the live portfolio.
 //
 // CRITICAL: this must use the SAME account-scoped reconcile as sync-broker
 // (public.reconcile_broker_account). An earlier version carried its own copy of the old
@@ -12,8 +14,10 @@
 // Scheduler-only (pg_cron, see _shared/auth.ts). It decrypts EVERY user's T212 key and
 // rewrites every account's adjustments, so a valid JWT is not enough: the anon key is public
 // and anyone can sign up. The response carries counts only — never user ids or accounts.
+import { t212AccountGuard } from "../_shared/t212-account.ts";
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2.45.0";
-import { syncCashFromApi, prepareReconcileHoldings, type T212PortfolioHolding } from "../_shared/t212.ts";
+import { syncCashFromApi, prepareReconcileHoldings, loadT212AccountTrades, planT212Append, reachedAppendStop, selectT212Appends, parseT212OrderItem, t212ItemTime, priceT212Fills, blockingUnpricedFills, T212_RENAME as RENAME, stripT212, type T212RawFill, type T212PortfolioHolding } from "../_shared/t212.ts";
+import { fetchAllRows } from "../_shared/price-providers.ts";
 import { isSchedulerToken } from "../_shared/auth.ts";
 
 const corsHeaders = {
@@ -21,14 +25,22 @@ const corsHeaders = {
   "Access-Control-Allow-Headers": "authorization, x-client-info, apikey, content-type",
 };
 const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
-const RENAME: Record<string, string> = { IPOE: "SOFI", VACQ: "RKLB", FB: "META", FBA: "META" };
-const stripT212 = (t: string) => t.replace(/_US_EQ$/, "").replace(/_EQ$/, "").toUpperCase();
+// Order pages per account per run. A normal night is one page (50 fills); more than this is
+// a backlog for the manual sync, which pages the whole history with a cursor.
+const MAX_ORDER_PAGES = 6;
+// Stop starting new appends past this point of the run (the function limit is 150 s).
+const APPEND_BUDGET_MS = 90_000;
+// Stop starting new accounts past this point: one account (reads, reconcile, sector sync after the loop) must still fit.
+const ACCOUNTS_BUDGET_MS = 105_000;
+// One account's T212 requests, retries and waits together, and an absolute end for them all (the function limit is
+// 150 s): an account answering 429 again and again cannot hold the run or the accounts after it.
+const ACCOUNT_BUDGET_MS = 35_000, REQUESTS_END_MS = 130_000;
 
 // Reconcile ONE T212 account to its live portfolio, via the shared account-scoped RPC.
 // USD average cost + the ticker-rename guard come from the shared prepareReconcileHoldings,
 // the same code sync-broker uses, so a manual sync and this background sync are
 // interchangeable.
-async function reconcileAccount(svc: any, userId: string, account: string, hjson: T212PortfolioHolding[]) {
+async function reconcileAccount(svc: T212Client, userId: string, account: string, hjson: T212PortfolioHolding[]) {
   const holdings = await prepareReconcileHoldings(svc, userId, account, hjson);
   const { error } = await svc.rpc("reconcile_broker_account", {
     p_user_id: userId, p_broker: "T212", p_account: account,
@@ -37,9 +49,48 @@ async function reconcileAccount(svc: any, userId: string, account: string, hjson
   if (error) throw new Error(`reconcile_broker_account: ${error.message}`);
 }
 
+/**
+ * Append the fills newer than the account's stored history (see planT212Append). Writes
+ * nothing unless paging reached the newest stored trade and every new fill has a USD price —
+ * a partial append would leave a hole the next run could not see. Returns how many fills
+ * were stored, or why none were.
+ */
+async function appendNewOrders(
+  svc: T212Client, userId: string, account: string, resuming: boolean, t212: (p: string) => Promise<Response>,
+): Promise<{ appended: number } | { skip: string }> {
+  const stored = await loadT212AccountTrades(svc, userId, account);
+  const plan = planT212Append(stored, { resuming });
+  if (plan.skip || !plan.stopAt) return { skip: plan.skip ?? "no stop" };
+  const raw: T212RawFill[] = [];
+  let path: string | null = "/equity/history/orders?limit=50";
+  let reached = false;
+  for (let page = 0; page < MAX_ORDER_PAGES && path; page++) {
+    const r = await t212(path);
+    if (!r.ok) return { skip: `orders HTTP ${r.status}` };
+    const j = await r.json();
+    const items: T212OrderItem[] = j.items ?? [];
+    for (const it of items) { const fill = parseT212OrderItem(it); if (fill) raw.push(fill); }
+    if (reachedAppendStop(items.map(t212ItemTime), plan.stopAt)) { reached = true; break; }
+    const cursor = j.nextPagePath ? new URL(j.nextPagePath, "https://x").searchParams.get("cursor") : null;
+    if (!cursor) { reached = true; break; } // the whole history fits on these pages
+    path = `/equity/history/orders?cursor=${encodeURIComponent(cursor)}&limit=50`;
+  }
+  if (!reached) return { skip: `more than ${MAX_ORDER_PAGES} pages of new orders — left to the manual sync` };
+  const { rows, unpriced } = await priceT212Fills(svc, raw);
+  const blocking = blockingUnpricedFills(unpriced, stored, plan.history, false);
+  if (blocking.length) return { skip: `no USD price for ${blocking.slice(0, 5).map((u) => u.label).join(", ")}` };
+  const toInsert = selectT212Appends(rows, stored, plan);
+  if (!toInsert.length) return { appended: 0 };
+  // Append only (p_replace=false); the RPC skips an ext_id that is already stored.
+  const { error } = await svc.rpc("import_broker_transactions", { p_user_id: userId, p_broker: "T212", p_rows: toInsert, p_replace: false, p_recalc: true, p_account: account });
+  if (error) throw new Error(`import_broker_transactions: ${error.message}`);
+  return { appended: toInsert.length };
+}
+
 // Per-user outcomes go to the function log (visible to the project owner only); the HTTP
 // response says how many, nothing about whom.
-const tally = (results: any[]) => ({
+type SyncResult = { userId: string; ok?: boolean; skip?: string; error?: string; account?: string; orders?: { appended: number } | { skip: string }; positions?: number | string };
+const tally = (results: SyncResult[]) => ({
   users: results.length,
   synced: results.filter((r) => r.ok).length,
   skipped: results.filter((r) => r.skip).length,
@@ -53,29 +104,37 @@ Deno.serve(async (req) => {
     return new Response(JSON.stringify({ error: "Unauthorized" }), { status: 401, headers: { ...corsHeaders, "Content-Type": "application/json" } });
   }
   const svc = createClient(Deno.env.get("SUPABASE_URL")!, serviceKey);
-  const results: any[] = [];
+  const started = Date.now();
+  const results: SyncResult[] = [];
   try {
-    const { data: conns } = await svc.from("broker_connections").select("user_id, environment").eq("broker", "T212");
-    for (const conn of (conns ?? []) as any[]) {
+    // Least recently synced first (audit B16): when the wall-time budget ends the run early, the accounts it did not
+    // reach are the first ones next time instead of always the same tail.
+    const conns = await fetchAllRows("connections", (from, to) => svc.from("broker_connections").select("user_id, environment, last_sync_cursor, last_sync_at")
+      .eq("broker", "T212").order("last_sync_at", { ascending: true, nullsFirst: true }).order("user_id").range(from, to));
+    for (const conn of (conns ?? [])) {
       const userId = conn.user_id;
+      if (Date.now() - started > ACCOUNTS_BUDGET_MS) { results.push({ userId, skip: "run time budget spent; next run" }); continue; }
       try {
         const { data: keyRows } = await svc.rpc("get_broker_key", { p_user_id: userId, p_broker: "T212" });
-        const key = (keyRows as any[])?.[0]?.api_key;
+        const key = (keyRows as T212Key[])?.[0]?.api_key;
         if (!key) { results.push({ userId, skip: "no key" }); continue; }
-        const base = (keyRows as any[])?.[0]?.environment === "demo" ? "https://demo.trading212.com/api/v0" : "https://live.trading212.com/api/v0";
+        if ((keyRows as T212Key[])?.[0]?.environment !== "live") { results.push({ userId, skip: "practice_account" }); continue; }
+        const base = "https://live.trading212.com/api/v0";
         const basic = "Basic " + btoa(key);
+        const deadline = Math.min(started + REQUESTS_END_MS, Date.now() + ACCOUNT_BUDGET_MS);
+        const left = () => deadline - Date.now();
         const t212 = async (path: string) => {
           for (let i = 0; i < 5; i++) {
-            const r = await fetch(`${base}${path}`, { headers: { Authorization: basic, Accept: "application/json" } });
-            if (r.status === 429) { await sleep(2000); continue; }
+            if (left() < 1000) throw new Error("account time budget spent");
+            const r = await fetch(`${base}${path}`, { headers: { Authorization: basic, Accept: "application/json" }, signal: AbortSignal.timeout(Math.min(15_000, left())) });
+            if (r.status === 429) { await sleep(Math.min(2000, Math.max(0, left() - 1000))); continue; }
             await sleep(300);
             return r;
           }
           return new Response("", { status: 429 });
         };
 
-        // 1) account summary + WHICH account this key belongs to (fallback: leading digits
-        //    of the key). Everything below is scoped to this account.
+        // 1) account summary + WHICH account this key belongs to. Everything below is scoped to this account.
         const cashR = await t212("/equity/account/cash");
         if (!cashR.ok) { results.push({ userId, error: `cash HTTP ${cashR.status}` }); continue; }
         const cashJson = await cashR.json();
@@ -84,11 +143,24 @@ Deno.serve(async (req) => {
         // Fall back to the last known currency/account when info is throttled, so a 429 can't
         // drop the currency to null (which would either skip the cash mirror or, before the
         // shared fix, multiply cash ~21x) or lose the account id.
-        const { data: prev } = await svc.from("broker_connections").select("account_summary, account_id").eq("user_id", userId).eq("broker", "T212").maybeSingle();
+        const { data: prev, error: prevError } = await svc.from("broker_connections").select("account_summary, account_id, environment").eq("user_id", userId).eq("broker", "T212").maybeSingle();
+        if (prevError) throw prevError;
+        if (!prev || prev.environment !== "live") { results.push({ userId, skip: "connection changed" }); continue; }
         const currency = info?.currencyCode ?? prev?.account_summary?.currency ?? null;
-        const account = String(info?.id ?? prev?.account_id ?? (/^\d+/.exec(key)?.[0] ?? "")) || null;
+        // Use the key prefix only on first sync when info is throttled and no id is stored.
+        const account = String(info?.id ?? prev.account_id ?? /^\d+/.exec(key)?.[0] ?? "") || null;
+        const guard = t212AccountGuard(prev.environment, prev.account_id, account);
+        if (guard) { results.push({ userId, skip: guard }); continue; }
+        if (prev.account_id !== account) {
+          const { data: changed, error: accountError } = await svc.from("broker_connections").update({ account_id: account })
+            .eq("user_id", userId).eq("broker", "T212").is("account_id", null).select("id");
+          if (accountError) throw accountError;
+          if (changed?.length !== 1) { results.push({ userId, skip: "connection changed" }); continue; }
+          conn.last_sync_cursor = null;
+        }
         const summary = { ...cashJson, currency, account, at: new Date().toISOString() };
-        await svc.from("broker_connections").update({ account_summary: summary, account_id: account, last_sync_at: new Date().toISOString() }).eq("user_id", userId).eq("broker", "T212");
+        const { error: summaryError } = await svc.from("broker_connections").update({ account_summary: summary, account_id: account, last_sync_at: new Date().toISOString() }).eq("user_id", userId).eq("broker", "T212");
+        if (summaryError) throw summaryError;
         if (!account) { results.push({ userId, skip: "no account id" }); continue; }
 
         // 2) free cash mirror. Best-effort (a cash failure must not stop the reconcile), but
@@ -100,8 +172,8 @@ Deno.serve(async (req) => {
         //    we skip, exactly like sync-broker, rather than guess where they belong.
         const { data: acctRows } = await svc.from("transactions")
           .select("broker_account").eq("user_id", userId).eq("broker", "T212").neq("ticker", "CASH");
-        const foreign = new Set((acctRows ?? []).map((r: any) => r.broker_account).filter((a: any) => a && a !== account));
-        const hasUntagged = (acctRows ?? []).some((r: any) => !r.broker_account);
+        const foreign = new Set((acctRows ?? []).map((r) => r.broker_account).filter((a) => a && a !== account));
+        const hasUntagged = (acctRows ?? []).some((r) => !r.broker_account);
         if (hasUntagged && foreign.size === 0) {
           await svc.from("transactions").update({ broker_account: account })
             .eq("user_id", userId).eq("broker", "T212").is("broker_account", null);
@@ -110,22 +182,32 @@ Deno.serve(async (req) => {
           continue;
         }
 
-        // 4) positions reconcile to the live portfolio (alias-mapped tickers)
+        // 4) new order fills (a sale and re-buy leave the share count unchanged, so the
+        //    reconcile below alone never recorded them). Before the reconcile, so its
+        //    adjustment is computed against the real trades. Best-effort: a failure here
+        //    leaves the reconcile to correct the counts, as before, and is logged.
+        let orders: { appended: number } | { skip: string } = { skip: "time budget spent" };
+        if (Date.now() - started < APPEND_BUDGET_MS) {
+          try { orders = await appendNewOrders(svc, userId, account, !!conn.last_sync_cursor, t212); }
+          catch (e) { orders = { skip: `failed: ${(e as Error).message}` }; }
+        }
+
+        // 5) positions reconcile to the live portfolio (alias-mapped tickers)
         const pr = await t212("/equity/portfolio");
         if (pr.ok) {
-          const holdings: any[] = await pr.json();
+          const holdings: T212Holding[] = await pr.json();
           const pBases = [...new Set(holdings.map((h) => stripT212(h.ticker)))];
           const { data: pAlias } = pBases.length ? await svc.from("ticker_alias").select("alias,canonical").in("alias", pBases) : { data: [] };
           const pMap = new Map<string, string>();
-          for (const r of (pAlias ?? []) as any[]) pMap.set(r.alias, r.canonical);
+          for (const r of (pAlias ?? [])) pMap.set(r.alias, r.canonical);
           const hjson = holdings.filter((h) => Number(h.quantity) > 0).map((h) => {
             const b = stripT212(h.ticker);
             return { ticker: pMap.get(b) ?? RENAME[b] ?? b, qty: Number(h.quantity), avg: Number(h.averagePrice), cur: Number(h.currentPrice), usdQuoted: /_US_EQ$/.test(String(h.ticker)) };
           });
           await reconcileAccount(svc, userId, account, hjson);
-          results.push({ userId, ok: true, account, positions: hjson.length });
+          results.push({ userId, ok: true, account, orders, positions: hjson.length });
         } else {
-          results.push({ userId, ok: true, account, positions: "portfolio skipped (" + pr.status + ")" });
+          results.push({ userId, ok: true, account, orders, positions: "portfolio skipped (" + pr.status + ")" });
         }
         await sleep(1500); // spread the per-user API load
       } catch (e) {

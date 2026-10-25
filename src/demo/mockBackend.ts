@@ -1,3 +1,4 @@
+/* eslint-disable @typescript-eslint/no-explicit-any -- in-memory stand-in for PostgREST rows: untyped JSON by design (demo build only) */
 // In-memory stand-in for the Supabase backend, used only in the demo build (vite --mode demo).
 // It is handed to createClient() as `global.fetch`, so every hook and component keeps calling
 // supabase.from()/rpc()/functions.invoke()/auth exactly as in production — the requests just
@@ -9,6 +10,8 @@ import { DEMO_EMAIL, DEMO_USER_ID, generateDemoData, type DemoData } from "./dat
 let db: DemoData | null = null;
 const state = { brokerConnected: true, lastSync: new Date(Date.now() - 42 * 60_000).toISOString() };
 const getDb = () => (db ??= generateDemoData());
+/** The demo's in-memory data set (also read by the demo assistant, so its answers match the screens). */
+export const demoDb = getDb;
 
 /* ───────── auth ───────── */
 

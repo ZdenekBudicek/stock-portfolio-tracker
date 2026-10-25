@@ -1,0 +1,6 @@
+{
+  "projectName": "trackora-test",
+  "projectRef": null,
+  "fixtureEmails": ["agent-a@trackora-test.invalid", "agent-b@trackora-test.invalid"],
+  "loopbackOrigins": ["http://127.0.0.1:54321", "http://localhost:54321"]
+}

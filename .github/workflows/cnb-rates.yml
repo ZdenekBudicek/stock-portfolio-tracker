@@ -1,0 +1,108 @@
+name: ČNB rates
+
+# Keeps src/data/cnbUsdCzk.json and src/data/cnbRates.json current. The Czech tax report
+# converts every sale at the ČNB rate of ITS day and never guesses a missing one: a sale
+# after the last date in the file had no CZK amount and was left out of the estimated tax
+# (seen: a loss-harvest sale did not lower the tax at all). The files used to be refreshed
+# only by hand, so they went stale within days.
+#
+# ČNB publishes each business day after 14:30 Prague time; this runs after that on weekdays
+# and commits only when a new rate came out. The commit to main redeploys the app.
+on:
+  schedule:
+    - cron: "15 14 * * 1-5" # 14:15 UTC = 15:15 / 16:15 Prague
+  workflow_dispatch:
+
+permissions:
+  contents: write
+  deployments: write
+
+concurrency:
+  group: cnb-rates
+  cancel-in-progress: false
+
+jobs:
+  refresh:
+    if: ${{ vars.ENABLE_PORTFOLIO_WORKERS == 'true' }}
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    outputs:
+      changed: ${{ steps.changed.outputs.changed }}
+      sha: ${{ steps.commit.outputs.sha }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "24"
+      # From last year: in early January the new year has no rate yet, and December's rates
+      # (the GFŘ unified rate) can still be corrected.
+      - name: Download rates
+        run: node scripts/update-cnb-rates.mjs $(( $(date -u +%Y) - 1 ))
+      - name: Detect changed rates
+        id: changed
+        run: |
+          if git diff --quiet -- src/data/cnbUsdCzk.json src/data/cnbRates.json; then
+            echo "changed=false" >> "$GITHUB_OUTPUT"
+          else
+            echo "changed=true" >> "$GITHUB_OUTPUT"
+          fi
+      - name: Commit when changed
+        id: commit
+        if: steps.changed.outputs.changed == 'true'
+        run: |
+          last=$(node -e "console.log(require('./src/data/cnbUsdCzk.json').to)")
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add src/data/cnbUsdCzk.json src/data/cnbRates.json
+          git commit -m "chore(tax): ČNB rates to ${last}"
+          git push
+          echo "sha=$(git rev-parse HEAD)" >> "$GITHUB_OUTPUT"
+
+  build-agent:
+    needs: refresh
+    if: needs.refresh.outputs.changed == 'true'
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    outputs:
+      sha: ${{ steps.commit.outputs.sha }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ needs.refresh.outputs.sha }}
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '24'
+          cache: npm
+      - name: Build and verify matching calculation bundle
+        run: |
+          npm ci
+          npm run build:agent-lib
+          npm run check:agent-lib
+          npx vitest run
+          npx tsc --noEmit -p tsconfig.app.json
+          npx deno check supabase/functions/agent/index.ts supabase/functions/agent/runtime_test.ts
+          npx deno test --allow-net=127.0.0.1 supabase/functions/agent/runtime_test.ts
+      - name: Commit bundle independently of rates
+        id: commit
+        env:
+          TARGET_BRANCH: ${{ github.ref_name }}
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add supabase/functions/agent/_lib/trackora-lib.js supabase/functions/agent/_lib/trackora-lib.d.ts supabase/functions/agent/_lib/manifest.json
+          git commit -m "chore(agent): rebuild calculation bundle for ČNB rates"
+          git push origin "HEAD:refs/heads/$TARGET_BRANCH"
+          echo "sha=$(git rev-parse HEAD)" >> "$GITHUB_OUTPUT"
+
+  release-agent:
+    needs: build-agent
+    uses: ./.github/workflows/agent-release.yml
+    permissions:
+      contents: read
+      deployments: write
+    with:
+      sha: ${{ needs.build-agent.outputs.sha }}
+    secrets:
+      SUPABASE_ACCESS_TOKEN: ${{ secrets.SUPABASE_ACCESS_TOKEN }}

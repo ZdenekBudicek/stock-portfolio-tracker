@@ -50,9 +50,9 @@ describe('fundamentals worker', () => {
   });
 
   it('paginates reads, throttles Yahoo, upserts successes and patches only error fields on failure', async () => {
-    const calls: { url: string; options: any }[] = [];
+    const calls: { url: string; options: Omit<RequestInit, "body" | "headers"> & { body?: string; headers?: Record<string, string> } }[] = [];
     const sleep = vi.fn(async () => {});
-    const fetchFn = vi.fn(async (url: string, options: any) => {
+    const fetchFn = vi.fn(async (url: string, options: Omit<RequestInit, "body" | "headers"> & { body?: string; headers?: Record<string, string> }) => {
       calls.push({ url, options });
       if (url.includes('query2.finance.yahoo.com')) {
         expect(options.headers).toEqual({ 'User-Agent': 'Mozilla/5.0', Accept: 'application/json' });
@@ -70,6 +70,7 @@ describe('fundamentals worker', () => {
         { symbol: 'FAIL', fetched_at: '2025-01-01T00:00:00Z' },
       ]);
       if (url.includes('/earnings_calendar?')) return reply([]);
+      if (url.includes('/fundamentals_requests?')) return reply([]);
       throw new Error('Unexpected request');
     });
     const result = await runFundamentalsWorker({ url: 'https://db.example', key: 'test-only', fetchFn, now: NOW, sleep, log: () => {} });
@@ -95,11 +96,28 @@ describe('fundamentals worker', () => {
   it('fails closed on DB read errors without making writes or Yahoo requests', async () => {
     const fetchFn = vi.fn(async () => reply(null, 503));
     await expect(runFundamentalsWorker({ url: 'https://db.example', key: 'test-only', fetchFn })).rejects.toThrow('HTTP 503');
-    expect(fetchFn).toHaveBeenCalledTimes(5);
+    expect(fetchFn).toHaveBeenCalledTimes(6);
+  });
+
+  it('keeps refreshing companies someone asked about in the last 90 days, not older ones', async () => {
+    const calls: string[] = [];
+    const fetchFn = vi.fn(async (url: string, options: Omit<RequestInit, "body" | "headers"> & { body?: string; headers?: Record<string, string> }) => {
+      calls.push(url);
+      if (url.includes('query2.finance.yahoo.com')) return reply(valid);
+      if (options.method) return reply(null, 204);
+      if (url.includes('/fundamentals_requests?')) return reply([
+        { symbol: 'ASKED', requested_at: new Date(NOW - 10 * 86_400_000).toISOString() },
+        { symbol: 'OLDASK', requested_at: new Date(NOW - 100 * 86_400_000).toISOString() },
+      ]);
+      return reply([]);
+    });
+    expect(await runFundamentalsWorker({ url: 'https://db.example', key: 'test-only', fetchFn, now: NOW, sleep: async () => {}, log: () => {} }))
+      .toEqual({ updated: 1, failed: 0, skipped: 0 });
+    expect(calls.filter((u) => u.includes('query2.finance.yahoo.com/')).map((u) => new URL(u).pathname.split('/').pop())).toEqual(['ASKED']);
   });
 
   it('surfaces failed writes instead of reporting a successful refresh', async () => {
-    const fetchFn = vi.fn(async (url: string, options: any) => {
+    const fetchFn = vi.fn(async (url: string, options: Omit<RequestInit, "body" | "headers"> & { body?: string; headers?: Record<string, string> }) => {
       if (options.method) return reply(null, 403);
       if (url.includes('query2.finance.yahoo.com')) return reply(valid);
       return reply(url.includes('/positions?') ? [{ ticker: 'META', shares: 1 }] : []);
@@ -108,8 +126,8 @@ describe('fundamentals worker', () => {
   });
 
   it('fetches only the requested symbols on demand, fresh or not', async () => {
-    const calls: { url: string; options: any }[] = [];
-    const fetchFn = vi.fn(async (url: string, options: any) => {
+    const calls: { url: string; options: Omit<RequestInit, "body" | "headers"> & { body?: string; headers?: Record<string, string> } }[] = [];
+    const fetchFn = vi.fn(async (url: string, options: Omit<RequestInit, "body" | "headers"> & { body?: string; headers?: Record<string, string> }) => {
       calls.push({ url, options });
       if (url.includes('query2.finance.yahoo.com')) return reply(valid);
       if (options.method) return reply(null, 204);
@@ -119,7 +137,7 @@ describe('fundamentals worker', () => {
     const result = await runFundamentalsWorker({ url: 'https://db.example', key: 'test-only', fetchFn, now: NOW, sleep: async () => {}, log: () => {}, only: ['fb'] });
     expect(result).toEqual({ updated: 1, failed: 0, skipped: 0 }); // fresh, but requested
     // The request is closed by the workflow's last step, after prices too — not here.
-    expect(calls.some((c) => c.url.includes('/fundamentals_requests?'))).toBe(false);
+    expect(calls.some((c) => c.url.includes('/fundamentals_requests') && c.options.method)).toBe(false);
     expect(calls.filter((c) => c.url.includes('query2.finance.yahoo.com/')).map((c) => c.url)).toEqual([expect.stringContaining('/META?')]);
   });
 });
@@ -154,5 +172,61 @@ describe('fundamentalsDue', () => {
     // results today → give Yahoo the day; results long ago → window over
     expect(fundamentalsDue({ fetched_at: at(10), status: 'ok', qperiods: [] }, day(0), NOW)).toBe(false);
     expect(fundamentalsDue({ fetched_at: at(25), status: 'ok', qperiods: [] }, day(22), NOW)).toBe(false);
+  });
+});
+
+describe('fundamentals worker with SEC history', () => {
+  const yahoo = { timeseries: { result: [{ annualTotalRevenue: [
+    { asOfDate: '2024-12-31', currencyCode: 'USD', reportedValue: { raw: 200 } },
+    { asOfDate: '2025-12-31', currencyCode: 'USD', reportedValue: { raw: 220 } },
+  ] }] } };
+  const secFacts = { facts: { 'us-gaap': { Revenues: { units: { USD: [
+    { start: '2015-01-01', end: '2015-12-31', val: 100, filed: '2016-02-01' },
+    { start: '2024-01-01', end: '2024-12-31', val: 201, filed: '2025-02-01' },
+    { start: '2025-01-01', end: '2025-12-31', val: 219, filed: '2026-02-01' },
+  ] } } } } };
+  const run = async ({ sec = 'ok', ua = 'PortfolioTracker test@example.com', force = false, stored = null as unknown } = {}) => {
+    const calls: { url: string; options: Omit<RequestInit, "body" | "headers"> & { body?: string; headers?: Record<string, string> } }[] = [];
+    const fetchFn = vi.fn(async (url: string, options: Omit<RequestInit, "body" | "headers"> & { body?: string; headers?: Record<string, string> }) => {
+      calls.push({ url, options });
+      if (url.includes('/v8/finance/chart/')) return reply({ chart: { result: [{ events: {} }] } });
+      if (url.includes('query2.finance.yahoo.com')) return reply(yahoo);
+      if (url.includes('company_tickers.json')) return reply({ 0: { cik_str: 320193, ticker: 'AAPL' } });
+      if (url.includes('data.sec.gov')) return sec === 'ok' ? reply(secFacts) : reply(null, 503);
+      if (options.method) return reply(null, 204);
+      if (url.includes('/positions?')) return reply([{ ticker: 'AAPL', shares: 1 }, { ticker: 'SAP.DE', shares: 1 }]);
+      if (url.includes('/company_fundamentals?select=data')) return reply(stored ? [{ data: stored }] : []);
+      if (url.includes('/company_fundamentals?')) return reply([
+        { symbol: 'AAPL', fetched_at: new Date(NOW - 1000).toISOString(), status: 'ok' },
+      ]);
+      return reply([]);
+    });
+    const summary = await runFundamentalsWorker({ url: 'https://db.example', key: 'test-only', fetchFn, now: NOW, sleep: async () => {}, log: () => {}, secUserAgent: ua, force });
+    const saved = Object.fromEntries(calls.filter((c) => c.options.method === 'POST').map((c) => [JSON.parse(c.options.body).symbol, JSON.parse(c.options.body).data]));
+    return { summary, calls, saved };
+  };
+
+  it('adds older SEC periods under Yahoo, with the contact User-Agent the SEC requires', async () => {
+    const { summary, calls, saved } = await run({ force: true });
+    expect(summary).toEqual({ updated: 2, failed: 0, skipped: 0 }); // fresh, but forced
+    expect(saved.AAPL.annual).toMatchObject({ periods: ['2015-12-31', '2024-12-31', '2025-12-31'], values: { revenue: [100, 200, 220] } });
+    expect(saved['SAP.DE'].annual.periods).toEqual(['2024-12-31', '2025-12-31']); // not an SEC filer
+    const sec = calls.filter((c) => /sec\.gov/.test(c.url));
+    expect(sec.map((c) => c.url)).toEqual(['https://www.sec.gov/files/company_tickers.json', 'https://data.sec.gov/api/xbrl/companyfacts/CIK0000320193.json']);
+    expect(sec.every((c) => c.options.headers['User-Agent'] === 'PortfolioTracker test@example.com')).toBe(true);
+  });
+
+  it('keeps the stored history when the SEC is down and never fails the symbol for it', async () => {
+    const stored = { symbol: 'AAPL', currency: 'USD', fetchedAt: 'x', status: 'ok', annual: { periods: ['2016-12-31', '2024-12-31'], values: { revenue: [150, 200] } }, quarterly: { periods: [], values: {} } };
+    const { summary, saved } = await run({ force: true, sec: 'down', stored });
+    expect(summary.failed).toBe(0);
+    expect(saved.AAPL.annual).toMatchObject({ periods: ['2016-12-31', '2024-12-31', '2025-12-31'], values: { revenue: [150, 200, 220] } });
+  });
+
+  it('without SEC_USER_AGENT asks only Yahoo, and without force skips what is not due', async () => {
+    const plain = await run({ ua: '', force: true });
+    expect(plain.calls.some((c) => /sec\.gov|\/v8\/finance\/chart\//.test(c.url))).toBe(false);
+    expect(plain.saved.AAPL.annual.periods).toEqual(['2024-12-31', '2025-12-31']);
+    expect((await run()).summary).toEqual({ updated: 1, failed: 0, skipped: 1 });
   });
 });

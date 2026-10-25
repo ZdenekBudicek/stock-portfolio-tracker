@@ -44,7 +44,7 @@ const MonthComparison = () => {
     // Roční zhodnocení — the snapshots being compared are holdings-only, so the baseline
     // has to be holdings-only too.
     const flowByMonth = new Map<string, number>();
-    for (const [date, usd] of computeTradeFlows(txs as any)) {
+    for (const [date, usd] of computeTradeFlows(txs)) {
       const m = date.slice(0, 7);
       flowByMonth.set(m, (flowByMonth.get(m) ?? 0) + (czk ? usd * fxAt(date) : usd));
     }

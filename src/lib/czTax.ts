@@ -115,7 +115,10 @@ export function cappedKinds(year: number): AssetKind[] {
 
 export interface TaxSettings {
   fxMethod: FxMethod;
-  /** Count time-test-exempt proceeds towards the 100 000 Kč limit. */
+  /**
+   * @deprecated Ignored (audit B11): the 100 000 Kč value test counts every sale of securities, time-test-exempt
+   * ones included (§ 4 odst. 1 písm. w) ZDP). Kept so stored preferences and the assistant protocol stay readable.
+   */
   limitIncludesExempt: boolean;
 }
 
@@ -379,9 +382,9 @@ export function summarizeSalesYear(
       if (r.proceedsCzk != null) {
         proceedsCzk += r.proceedsCzk;
         if (r.exempt) proceedsExemptLotsCzk += r.proceedsCzk;
-        // The 100 000 Kč value test is separate from the 40 mil. Kč cap: only sales inside the
-        // regime count, time-test-exempt lots (capped or not) only with the setting.
-        if (r.exemptionsApply && (settings.limitIncludesExempt || !r.exempt)) limitBaseCzk += r.proceedsCzk;
+        // The 100 000 Kč value test is separate from the 40 mil. Kč cap: every sale inside the regime
+        // counts, time-test-exempt lots (capped or not) included — the two exemptions do not combine.
+        if (r.exemptionsApply) limitBaseCzk += r.proceedsCzk;
       }
       if (r.gainCzk == null) continue;
       const expenses = r.costCzk! + r.sellFeeCzk!;

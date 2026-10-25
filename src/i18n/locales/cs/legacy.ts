@@ -151,6 +151,7 @@ export default {
     "olderWarnings_other": "{{count}} upozornění se týká jiných let (přepni rok)."
   },
   "dividendTracker": {
+    "deleteTicker": "Smazat dividendu {{ticker}}",
     "dividendsSynced": "Dividendy synchronizovány",
     "dividends": "Dividendy",
     "add": "Přidat",
@@ -209,6 +210,8 @@ export default {
     "activeCount_other": "{{count}} aktivních pozic"
   },
   "transactionHistory": {
+    "previousPage": "Předchozí stránka",
+    "nextPage": "Další stránka",
     "transactionAdded": "Transakce přidána",
     "transactionUpdatedHoldingsRecalculated": "Transakce upravena, pozice přepočítány",
     "transactionDeletedHoldingsRecalculated": "Transakce smazána, pozice přepočítány",
@@ -260,6 +263,7 @@ export default {
     "stockCount_other": "{{count}} akcií ·"
   },
   "watchlist": {
+    "removeTicker": "Odebrat {{ticker}} ze sledovaných",
     "watchlist": "Watchlist",
     "add": "Přidat",
     "addToWatchlist": "Přidat na watchlist",
@@ -272,6 +276,9 @@ export default {
     "target2": "Cíl"
   },
   "brokerConnect": {
+    "practiceBlocked": "Cvičný účet se do skutečného portfolia nesynchronizuje. Připoj živý účet.",
+    "confirmSwitch": "Klíč patří jinému účtu ({{account}}). Chceš na něj přepnout? Historie předchozího účtu zůstane zachovaná.",
+    "accountUnknown": "Účet se nepodařilo ověřit. Zkus synchronizaci znovu.",
     "enterBothApiKeyAndSecretKey": "Vlož API Key i Secret Key",
     "trading212Connected": "Trading 212 připojeno",
     "syncComplete": "Sync hotový: {{v0}}",
@@ -479,6 +486,7 @@ export default {
     "shareQuantity": "Kusy"
   },
   "splitsBanner": {
+    "dismissTicker": "Zamítnout split {{ticker}}",
     "splitAddedForConfirmation": "Split přidán k potvrzení",
     "addSplitManually": "Přidat split ručně",
     "manualSplit": "Manuální split",
@@ -497,6 +505,9 @@ export default {
     "detectedCount_other": "Detekováno {{count}} možných splitů"
   },
   "yearlyGrowth": {
+    "saveGoal": "Uložit cíl",
+    "cancelGoal": "Zrušit úpravu cíle",
+    "editGoal": "Upravit cíl",
     "czk": "•••• Kč",
     "czkM": "{{v0}}M Kč",
     "yearToDate": " (průběžně)",

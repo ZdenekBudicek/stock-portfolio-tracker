@@ -7,7 +7,7 @@ const usProfile = parseTaxProfile({
   otherOrdinaryTaxableIncome: 50_000, otherMagi: 70_000, otherNetInvestmentIncome: 0,
   shortTermLossCarry: 0, longTermLossCarry: 0, foreignTaxCreditLimit: 0,
 });
-const tx = (id: string, side: 'BUY' | 'SELL', shares: number, price: number, at: string, extra: Record<string, unknown> = {}): any =>
+const tx = (id: string, side: 'BUY' | 'SELL', shares: number, price: number, at: string, extra: Partial<import("@/hooks/usePortfolio").DbTransaction> = {}) =>
   ({ id, ticker: 'AAPL', side, shares, price_usd: price, executed_at: at, broker: 'T212', broker_account: '1', ...extra });
 
 describe('buildTaxInput', () => {

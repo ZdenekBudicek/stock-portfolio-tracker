@@ -63,8 +63,8 @@ describe('net deposits in another local currency', () => {
   it('converts a koruna T212 account at today\'s cross rate and USD flows at their day\'s USD→local', () => {
     const k = 1 / 25; // EUR per CZK today
     const out = computeNetDeposits({
-      txs: [{ ticker: 'CASH', side: 'BUY', shares: 1, price_usd: 100, executed_at: '2024-06-03T10:00:00Z', broker: 'manual', broker_account: null }] as any,
-      t212: { total: 30000, ppl: 2000, result: 3000, currency: 'CZK', account: 'A' } as any,
+      txs: [{ ticker: 'CASH', side: 'BUY', shares: 1, price_usd: 100, executed_at: '2024-06-03T10:00:00Z', broker: 'manual', broker_account: null }] as import("@/hooks/usePortfolio").DbTransaction[],
+      t212: { total: 30000, ppl: 2000, result: 3000, currency: 'CZK', account: 'A' } as import("@/lib/brokerSummary").BrokerSummary,
       usdCzk: 24, localPerCzk: k,
       fxAt: () => 0.92, // USD→EUR on the flow's day
     });

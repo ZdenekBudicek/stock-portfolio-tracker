@@ -1,0 +1,108 @@
+// Vitest Snapshot v1, https://vitest.dev/guide/snapshot.html
+
+exports[`preserves original dividend hook output with recorded and projected payments 1`] = `
+{
+  "annual": Map {
+    "SYN" => 85,
+  },
+  "annualTotal": 85,
+  "forecast": [
+    {
+      "amountUsd": 85,
+      "declared": false,
+      "items": [
+        {
+          "amountUsd": 85,
+          "kind": "estimate",
+          "payDate": "2026-11-15",
+          "ticker": "SYN",
+        },
+      ],
+      "month": "2026-11",
+    },
+    {
+      "amountUsd": 0,
+      "declared": false,
+      "items": [],
+      "month": "2026-12",
+    },
+    {
+      "amountUsd": 0,
+      "declared": false,
+      "items": [],
+      "month": "2027-01",
+    },
+    {
+      "amountUsd": 0,
+      "declared": false,
+      "items": [],
+      "month": "2027-02",
+    },
+    {
+      "amountUsd": 0,
+      "declared": false,
+      "items": [],
+      "month": "2027-03",
+    },
+    {
+      "amountUsd": 0,
+      "declared": false,
+      "items": [],
+      "month": "2027-04",
+    },
+    {
+      "amountUsd": 0,
+      "declared": false,
+      "items": [],
+      "month": "2027-05",
+    },
+    {
+      "amountUsd": 0,
+      "declared": false,
+      "items": [],
+      "month": "2027-06",
+    },
+    {
+      "amountUsd": 0,
+      "declared": false,
+      "items": [],
+      "month": "2027-07",
+    },
+    {
+      "amountUsd": 0,
+      "declared": false,
+      "items": [],
+      "month": "2027-08",
+    },
+    {
+      "amountUsd": 0,
+      "declared": false,
+      "items": [],
+      "month": "2027-09",
+    },
+    {
+      "amountUsd": 0,
+      "declared": false,
+      "items": [],
+      "month": "2027-10",
+    },
+  ],
+  "next": {
+    "amountUsd": 85,
+    "kind": "estimate",
+    "payDate": "2026-11-15",
+    "ticker": "SYN",
+  },
+  "received": {
+    "byTicker": [
+      {
+        "amountUsd": 85,
+        "ticker": "SYN",
+      },
+    ],
+    "total": 85,
+  },
+  "rest": [],
+  "today": "2026-10-23",
+}
+`;

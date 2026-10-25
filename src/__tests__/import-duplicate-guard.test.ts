@@ -16,10 +16,10 @@ vi.mock("pdfjs-dist", () => ({ GlobalWorkerOptions: {}, getDocument: () => ({ pr
 vi.mock("pdfjs-dist/build/pdf.worker.min.mjs?url", () => ({ default: "" }));
 vi.mock("@/integrations/supabase/client", () => {
   const table = (rows: () => Row[]) => {
-    const q: any = {
+    const q = {
       select: () => q, eq: () => q, like: () => q, is: () => q, not: () => q,
       range: (from: number, to: number) => Promise.resolve({ data: rows().slice(from, to + 1), error: null }),
-      then: (res: any) => Promise.resolve({ data: rows().slice(0, 1000), error: null }).then(res),
+      then: (res) => Promise.resolve({ data: rows().slice(0, 1000), error: null }).then(res),
     };
     return q;
   };
@@ -58,7 +58,7 @@ describe("Revolut external_id", () => {
   });
 });
 
-const parsed = (rows: any[]) => ({ broker: "Revolut" as const, account: "12345678", mode: "trades" as const, rows, holdings: [] });
+const parsed = (rows: unknown[]) => ({ broker: "Revolut" as const, account: "12345678", mode: "trades" as const, rows, holdings: [] });
 const trade = (o: Row = {}) => ({
   external_id: "revolut:23 Feb 2026 18:42:29:trade:TSLA:SELL:25.000000", broker: "Revolut", account: "12345678",
   kind: "TRADE", ticker: "TSLA", side: "SELL", shares: 25, price_usd: 395.64,
@@ -74,7 +74,7 @@ beforeEach(() => { TX = []; });
 describe("planImport duplicate guard", () => {
   it("skips a trade already stored under a DIFFERENT ext_id", async () => {
     TX = [stored()];
-    const plan = await planImport(parsed([trade()]) as any);
+    const plan = await planImport(parsed([trade()]) as import("@/lib/statementImport").ParsedStatement);
     expect(plan.toInsertTrades).toHaveLength(0);
     expect(plan.alreadyImported).toBe(1);
   });
@@ -83,7 +83,7 @@ describe("planImport duplicate guard", () => {
     // Two real fills of the same size — the database holds one, the file lists two, so
     // exactly one more must land. Presence-based matching would have dropped it.
     TX = [stored()];
-    const plan = await planImport(parsed([trade(), trade({ external_id: "revolut:other:trade" })]) as any);
+    const plan = await planImport(parsed([trade(), trade({ external_id: "revolut:other:trade" })]) as import("@/lib/statementImport").ParsedStatement);
     expect(plan.toInsertTrades).toHaveLength(1);
     expect(plan.alreadyImported).toBe(1);
   });
@@ -92,13 +92,13 @@ describe("planImport duplicate guard", () => {
     // The :adj: row cancelling the duplicate must not itself count as "already imported",
     // or a genuine re-import would silently drop a real trade.
     TX = [stored({ ext_id: "revolut:adj:12345678:TSLA", side: "BUY" })];
-    const plan = await planImport(parsed([trade()]) as any);
+    const plan = await planImport(parsed([trade()]) as import("@/lib/statementImport").ParsedStatement);
     expect(plan.toInsertTrades).toHaveLength(1);
   });
 
   it("keeps the same trade at a different account of the same broker", async () => {
     TX = [stored({ broker_account: "99999999" })];
-    const plan = await planImport(parsed([trade()]) as any);
+    const plan = await planImport(parsed([trade()]) as import("@/lib/statementImport").ParsedStatement);
     expect(plan.toInsertTrades).toHaveLength(1);
   });
 });

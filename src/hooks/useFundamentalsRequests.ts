@@ -45,6 +45,18 @@ export async function requestFundamentals(tickers: string[]): Promise<RequestAns
   return data as RequestAnswer;
 }
 
+export type LiveOutcome = 'stored' | 'loaded' | 'unavailable';
+export interface LiveAnswer { symbol?: string; fundamentals?: LiveOutcome; analysts?: LiveOutcome; reason?: string; error?: string }
+
+/** Ocenění v3: statements (SEC) and analyst consensus (Nasdaq) fetched while the user waits (company-data edge
+ * function, ~1–4 s); a company listed abroad is handed to the GitHub run. Errors resolve to null. */
+export async function fetchCompanyData(ticker: string): Promise<LiveAnswer | null> {
+  // The public demo has no backend: nothing is fetched there.
+  if (import.meta.env.MODE === 'demo') return null;
+  const { data, error } = await supabase.functions.invoke('company-data', { body: { ticker: ticker.trim() } });
+  return error ? null : data as LiveAnswer;
+}
+
 /** Symbols with stored statements (just the keys, paged — never capped at one page). */
 export function useKnownFundamentals() {
   return useQuery({
@@ -69,8 +81,8 @@ export function useAutoRequestFundamentals() {
     const guard = readGuard();
     const now = Date.now();
     const candidates = [
-      ...positions.filter((p: any) => Number(p.shares) > 0 && p.ticker !== 'CASH' && p.type !== 'Cash' && !isCryptoHolding(p.ticker, p.type)).map((p: any) => String(p.ticker)),
-      ...watchlist.map((w: any) => String(w.ticker)),
+      ...positions.filter((p) => Number(p.shares) > 0 && p.ticker !== 'CASH' && p.type !== 'Cash' && !isCryptoHolding(p.ticker, p.type)).map((p) => String(p.ticker)),
+      ...watchlist.map((w) => String(w.ticker)),
     ];
     const missing = [...new Set(candidates)].filter((t) => !known.has(t.toUpperCase()) && !((guard[t] ?? 0) > now));
     if (missing.length === 0) return;

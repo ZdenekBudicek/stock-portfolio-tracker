@@ -14,7 +14,7 @@ vi.mock("pdfjs-dist/build/pdf.worker.min.mjs?url", () => ({ default: "" }));
 // Minimal PostgREST stand-in: enough of the builder chain for planImport's reads.
 vi.mock("@/integrations/supabase/client", () => {
   const table = (rows: () => Row[]) => {
-    const q: any = {
+    const q = {
       select: () => q,
       eq: () => q,
       like: () => q,
@@ -23,7 +23,7 @@ vi.mock("@/integrations/supabase/client", () => {
       range: (from: number, to: number) => Promise.resolve({ data: rows().slice(from, to + 1), error: null }),
       // No .range() => PostgREST's db-max-rows cap. Modelling it is the point of the
       // pagination test: without it an unpaged read looks like it returns everything.
-      then: (res: any) => Promise.resolve({ data: rows().slice(0, 1000), error: null }).then(res),
+      then: (res) => Promise.resolve({ data: rows().slice(0, 1000), error: null }).then(res),
     };
     return q;
   };
@@ -38,7 +38,7 @@ vi.mock("@/integrations/supabase/client", () => {
 
 const { planImport } = await import("@/lib/statementImport");
 
-const parsed = (rows: any[], holdings: any[], account?: string) => ({
+const parsed = (rows: unknown[], holdings: unknown[], account?: string) => ({
   broker: "Revolut" as const, account, mode: "trades" as const, rows, holdings,
 });
 const trade = (o: Row = {}) => ({
@@ -59,7 +59,7 @@ describe("planImport account scope", () => {
       { id: "1", ticker: "RKLB", side: "BUY", shares: 59.95612322, executed_at: "2026-05-01T00:00:00+00:00", broker: "Revolut", broker_account: null, ext_id: "revolut:old:trade" },
       { id: "2", ticker: "NU", side: "BUY", shares: 10, executed_at: "2026-05-01T00:00:00+00:00", broker: "Revolut", broker_account: "99999999", ext_id: "revolut:other:trade" },
     ];
-    const plan = await planImport(parsed([trade()], [holding()], "12345678") as any);
+    const plan = await planImport(parsed([trade()], [holding()], "12345678") as import("@/lib/statementImport").ParsedStatement);
     expect(plan.legacyUnassigned).toBe(1);
     expect(plan.adoptLegacy).toBe(false);     // ambiguous — cannot claim them
     expect(plan.reconcileTo).toHaveLength(0); // …so no reconciliation at all
@@ -70,7 +70,7 @@ describe("planImport account scope", () => {
     TX = [
       { id: "1", ticker: "RKLB", side: "BUY", shares: 59.95612322, executed_at: "2026-05-01T00:00:00+00:00", broker: "Revolut", broker_account: null, ext_id: "revolut:old:trade" },
     ];
-    const plan = await planImport(parsed([trade()], [holding()], "12345678") as any);
+    const plan = await planImport(parsed([trade()], [holding()], "12345678") as import("@/lib/statementImport").ParsedStatement);
     expect(plan.adoptLegacy).toBe(true);
     expect(plan.reconcileTo).toHaveLength(1);
     expect(plan.blockedReconcile).toBe(false);
@@ -80,7 +80,7 @@ describe("planImport account scope", () => {
     TX = [
       { id: "1", ticker: "RKLB", side: "BUY", shares: 59.95612322, executed_at: "2026-05-01T00:00:00+00:00", broker: "Revolut", broker_account: "12345678", ext_id: "revolut:old:trade" },
     ];
-    const plan = await planImport(parsed([trade()], [holding()], "12345678") as any);
+    const plan = await planImport(parsed([trade()], [holding()], "12345678") as import("@/lib/statementImport").ParsedStatement);
     expect(plan.legacyUnassigned).toBe(0);
     expect(plan.adoptLegacy).toBe(false);
     expect(plan.reconcileTo).toHaveLength(1);
@@ -90,7 +90,7 @@ describe("planImport account scope", () => {
     TX = [
       { id: "1", ticker: "RKLB", side: "BUY", shares: 1, executed_at: "2026-12-01T00:00:00+00:00", broker: "Revolut", broker_account: "12345678", ext_id: "revolut:newer:trade" },
     ];
-    const plan = await planImport(parsed([trade()], [holding()], "12345678") as any);
+    const plan = await planImport(parsed([trade()], [holding()], "12345678") as import("@/lib/statementImport").ParsedStatement);
     expect(plan.reconcileTo).toHaveLength(0);
   });
 
@@ -99,7 +99,7 @@ describe("planImport account scope", () => {
     // missed it, so an already-imported trade looked new.
     TX = Array.from({ length: 1200 }, (_, i) => ({ id: `t${i}`, ticker: "NU", side: "BUY", shares: 1, executed_at: "2026-01-01T00:00:00+00:00", broker: "T212", broker_account: "1234567", ext_id: `t212:act:${i}` }));
     TX.push({ id: "rev", ticker: "RKLB", side: "BUY", shares: 59.95612322, executed_at: "2026-05-01T00:00:00+00:00", broker: "Revolut", broker_account: "12345678", ext_id: "revolut:x:trade" });
-    const plan = await planImport(parsed([trade()], [], "12345678") as any);
+    const plan = await planImport(parsed([trade()], [], "12345678") as import("@/lib/statementImport").ParsedStatement);
     expect(plan.alreadyImported).toBe(1);
     expect(plan.toInsertTrades).toHaveLength(0);
   });

@@ -36,7 +36,8 @@ const DividendTracker = () => {
       toast.success(t('legacy.dividendTracker.dividendsSynced'));
       qc.invalidateQueries({ queryKey: ["dividends"] });
       qc.invalidateQueries({ queryKey: ["earnings"] });
-    } catch (e: any) {
+    } catch (error: unknown) {
+      const e = error as { message?: string } | null;
       toast.error(e.message ? t('legacy.dividendTracker.errorDetail', { message: e.message }) : t('legacy.dividendTracker.syncFailed'));
     } finally {
       setSyncing(false);
@@ -45,7 +46,7 @@ const DividendTracker = () => {
 
   // Only tickers the user has ever held (so we never show dividends of stocks they never owned).
   const everHeld = useMemo(
-    () => new Set((txs as any[]).filter((row) => row.ticker !== "CASH").map((row) => row.ticker.toUpperCase())),
+    () => new Set((txs).filter((row) => row.ticker !== "CASH").map((row) => row.ticker.toUpperCase())),
     [txs],
   );
 
@@ -89,11 +90,11 @@ const DividendTracker = () => {
       const y = dt.getFullYear(), m = dt.getMonth();
       if (!byYear.has(y)) byYear.set(y, new Map());
       const mm = byYear.get(y)!;
-      if (!mm.has(m)) mm.set(m, [] as any);
+      if (!mm.has(m)) mm.set(m, []);
       mm.get(m)!.push(d);
     }
     const mergeItems = (items: typeof divs) => {
-      const map = new Map<string, any>();
+      const map = new Map<string, { ids: string[]; ticker: string; ex_date: string; status: string; amt: number; shares: number; _maxA: number }>();
       for (const d of items) {
         const key = norm(d.ticker);
         const a = amtOf(d), sh = Number(d.shares_held ?? 0);
@@ -155,7 +156,7 @@ const DividendTracker = () => {
                   <div><label className="text-[10px] uppercase text-muted-foreground font-bold">{t('legacy.dividendTracker.payDate')}</label><Input type="date" value={f.pay_date} onChange={(e) => setF({ ...f, pay_date: e.target.value })} /></div>
                 </div>
                 <Input placeholder={t('legacy.dividendTracker.usdPerShare')} type="number" step="0.0001" value={f.amount_per_share} onChange={(e) => setF({ ...f, amount_per_share: e.target.value })} />
-                <select className="border border-input rounded-md h-10 px-2 bg-background text-sm" value={f.status} onChange={(e) => setF({ ...f, status: e.target.value as any })}>
+                <select className="border border-input rounded-md h-10 px-2 bg-background text-sm" value={f.status} onChange={(e) => setF({ ...f, status: e.target.value as typeof f.status })}>
                   <option value="upcoming">{t('legacy.dividendTracker.upcoming')}</option><option value="paid">{t('legacy.dividendTracker.paid')}</option>
                 </select>
                 <Button onClick={submit}>{t('legacy.dividendTracker.save')}</Button>
@@ -218,7 +219,7 @@ const DividendTracker = () => {
                                 <span className={`px-1.5 py-0.5 rounded text-[9px] font-bold uppercase ${paid ? "bg-profit/20 text-profit" : "bg-info/20 text-info"}`}>
                                   {paid ? t('legacy.dividendTracker.paid') : t('legacy.dividendTracker.planned')}
                                 </span>
-                                <button onClick={() => d.ids.forEach((id: string) => del.mutate(id))} className="text-muted-foreground/50 hover:text-loss"><Trash2 className="w-3 h-3" /></button>
+                                <button aria-label={t('legacy.dividendTracker.deleteTicker', { ticker: d.ticker })} onClick={() => d.ids.forEach((id: string) => del.mutate(id))} className="text-muted-foreground/50 hover:text-loss"><Trash2 className="w-3 h-3" /></button>
                               </div>
                             );
                           })}

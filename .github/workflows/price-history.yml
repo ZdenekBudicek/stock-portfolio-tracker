@@ -12,6 +12,11 @@ on:
         description: "Only these companies (comma separated): fetch statements and price history now. Empty = full nightly run."
         required: false
         default: ""
+      refresh_all:
+        description: "Refresh the statements of every company now, due or not (e.g. once after adding the SEC history)."
+        type: boolean
+        required: false
+        default: false
 
 jobs:
   backfill:
@@ -77,7 +82,35 @@ jobs:
         env:
           SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
           SUPABASE_SERVICE_KEY: ${{ secrets.SUPABASE_SERVICE_KEY }}
+          SEC_USER_AGENT: ${{ secrets.SEC_USER_AGENT }} # "Name email" — the SEC requires a contact
+          FUNDAMENTALS_FORCE: ${{ inputs.refresh_all && '1' || '' }}
         run: node scripts/fundamentals-worker.mjs
+
+  # AI assistant and valuation analyst snapshots (Yahoo quoteSummary targets, recommendations and the
+  # consensus estimates of earningsTrend), separate from the fundamentals queue and its due rules — see
+  # analystsDue in scripts/analyst-snapshot.mjs. The agent's Edge function only reads analyst_snapshots;
+  # Yahoo is called from here only. Enabled 2026-10-24 (Ocenění v2, approved by the owner).
+  analysts:
+    if: ${{ vars.ENABLE_PORTFOLIO_WORKERS == 'true' && !inputs.symbols }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    concurrency:
+      group: analyst-snapshots
+      cancel-in-progress: false
+    env:
+      AGENT_MARKET_ENABLED: "true"
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "24"
+      - name: Run analyst worker
+        env:
+          SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
+          SUPABASE_SERVICE_KEY: ${{ secrets.SUPABASE_SERVICE_KEY }}
+        run: |
+          test "$AGENT_MARKET_ENABLED" = true
+          node scripts/analyst-worker.mjs
 
   # A company someone just added and nobody had data for (request-fundamentals edge function):
   # its statements and price history now instead of waiting for the night. The symbols reach
@@ -104,6 +137,7 @@ jobs:
         env:
           SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
           SUPABASE_SERVICE_KEY: ${{ secrets.SUPABASE_SERVICE_KEY }}
+          SEC_USER_AGENT: ${{ secrets.SEC_USER_AGENT }}
           ONLY_SYMBOLS: ${{ inputs.symbols }}
         run: node scripts/fundamentals-worker.mjs
       - name: Fetch price history
@@ -114,6 +148,16 @@ jobs:
           TWELVE_DATA_KEY: ${{ secrets.TWELVE_DATA_KEY }}
           ONLY_SYMBOLS: ${{ inputs.symbols }}
         run: node scripts/price-worker.mjs
+      # Analyst consensus for the valuation (Ocenění v2) the same day; a Yahoo failure never blocks the request.
+      - name: Fetch analyst estimates
+        if: ${{ !cancelled() && steps.validate.outcome == 'success' }}
+        continue-on-error: true
+        env:
+          SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
+          SUPABASE_SERVICE_KEY: ${{ secrets.SUPABASE_SERVICE_KEY }}
+          AGENT_MARKET_ENABLED: "true"
+          ONLY_SYMBOLS: ${{ inputs.symbols }}
+        run: node scripts/analyst-worker.mjs
       # Only now (statements AND prices attempted) does the app see the request as finished.
       - name: Finish requests
         if: ${{ !cancelled() && steps.validate.outcome == 'success' }}

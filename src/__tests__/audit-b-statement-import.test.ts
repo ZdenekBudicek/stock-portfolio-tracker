@@ -2,12 +2,16 @@
 // Runs planImport + executeImport against an in-memory PostgREST stand-in that really applies
 // the filters (eq/like/is/lt/gte/in), so a delete or update that reaches too far shows up.
 import { describe, it, expect, vi, beforeEach } from "vitest";
-import { parseRevolutHoldings, parseRevolutText, parseT212Activity, type NormalizedRow } from "@/lib/statements";
+import { parseRevolutHoldings, parseRevolutText, parseT212Activity, parseXtbTrades, type NormalizedRow } from "@/lib/statements";
 import { createDuplicateGuard, planHoldingsSnapshot, type ExistingTx } from "@/lib/statementDedup";
 
-type Row = Record<string, any>;
+type Row = Record<string, unknown>;
 const DB: Record<string, Row[]> = { transactions: [], deposits: [], dividends: [] };
 let nextId = 0;
+let failTable: string | null = null;
+let failReplacement = false;
+const rpcCalls: string[] = [];
+const seedBatches: number[] = [];
 
 vi.mock("pdfjs-dist", () => ({ GlobalWorkerOptions: {}, getDocument: () => ({ promise: Promise.resolve(null) }) }));
 vi.mock("pdfjs-dist/build/pdf.worker.min.mjs?url", () => ({ default: "" }));
@@ -15,10 +19,11 @@ vi.mock("@/integrations/supabase/client", () => {
   const ms = (s: unknown) => new Date(String(s)).getTime();
   const table = (name: string) => {
     const filters: ((r: Row) => boolean)[] = [];
-    let op: { type: "select" | "delete" | "update" | "insert" | "upsert"; payload?: any } = { type: "select" };
+    let op: { type: "select" | "delete" | "update" | "insert" | "upsert"; payload?: Row | Row[] } = { type: "select" };
     const rows = () => (DB[name] ??= []);
     const match = () => rows().filter((r) => filters.every((f) => f(r)));
     const exec = () => {
+      if (name === failTable && op.type !== "select") return { data: null, error: { message: "write rejected" } };
       if (op.type === "select") return { data: match(), error: null };
       if (op.type === "delete") { const hit = new Set(match()); DB[name] = rows().filter((r) => !hit.has(r)); return { data: null, error: null }; }
       if (op.type === "update") { for (const r of match()) Object.assign(r, op.payload); return { data: null, error: null }; }
@@ -32,7 +37,7 @@ vi.mock("@/integrations/supabase/client", () => {
       }
       return { data: added, error: null };
     };
-    const q: any = {
+    const q = {
       select: () => q,
       eq: (c: string, v: unknown) => (filters.push((r) => r[c] === v), q),
       neq: (c: string, v: unknown) => (filters.push((r) => r[c] !== v), q),
@@ -51,7 +56,7 @@ vi.mock("@/integrations/supabase/client", () => {
       insert: (p: Row | Row[]) => ((op = { type: "insert", payload: p }), q),
       upsert: (p: Row[]) => ((op = { type: "upsert", payload: p }), q),
       range: (from: number, to: number) => Promise.resolve({ data: match().slice(from, to + 1), error: null }),
-      then: (res: any, rej: any) => Promise.resolve(exec()).then(res, rej),
+      then: (res: (value: ReturnType<typeof exec>) => unknown, rej: (reason: unknown) => unknown) => Promise.resolve(exec()).then(res, rej),
     };
     return q;
   };
@@ -59,16 +64,44 @@ vi.mock("@/integrations/supabase/client", () => {
     supabase: {
       from: (name: string) => table(name),
       auth: { getUser: async () => ({ data: { user: { id: "u1" } } }) },
-      rpc: async () => ({ data: 0, error: null }),
+      rpc: async (name: string, args: { p_account: string; p_from: string; p_before: string; p_rows: Row[] }) => {
+        rpcCalls.push(name);
+        if (name === "seed_ticker_aliases") seedBatches.push(args.p_rows.length);
+        if (name !== "replace_statement_trades") return { data: 0, error: null };
+        if (failReplacement) return { data: null, error: { message: "replacement rejected" } };
+        const keep = DB.transactions.filter((r) => !(r.user_id === "u1" && r.broker === "T212"
+          && (r.broker_account ?? null) === args.p_account && (r.ext_id as string)?.startsWith("t212:ord:")
+          && ms(r.executed_at) >= ms(args.p_from) && ms(r.executed_at) < ms(args.p_before)));
+        const fresh = args.p_rows.filter((r: Row) => !keep.some((old) => old.user_id === "u1" && old.broker === "T212" && old.ext_id === r.ext_id));
+        DB.transactions = [...keep, ...fresh];
+        return { data: { inserted: fresh.length, corrected: 0 }, error: null };
+      },
     },
   };
 });
 
-const { planImport, executeImport, t212PriceUsd } = await import("@/lib/statementImport");
+const { planImport, executeImport, t212PriceUsd, convertT212, parseStatementFile, MAX_STATEMENT_BYTES } = await import("@/lib/statementImport");
 
-beforeEach(() => { DB.transactions = []; DB.deposits = []; DB.dividends = []; nextId = 0; });
+beforeEach(() => { DB.transactions = []; DB.deposits = []; DB.dividends = []; nextId = 0; failTable = null; failReplacement = false; rpcCalls.length = 0; seedBatches.length = 0; });
 
 const tx = (o: Row): Row => ({ id: `s${++nextId}`, user_id: "u1", side: "BUY", shares: 1, broker_account: null, t212_id: null, ...o });
+
+it("C1 reimports a European XTB trade over the legacy ticker without creating a second holding", async () => {
+  const rows = parseXtbTrades([
+    ["Account number", "12345"], ["Account currency", "CZK"],
+    ["Type", "Ticker", "Instrument", "Time", "Amount", "ID", "Comment"],
+    ["Stock purchase", "SAP.DE", "SAP", 45719, -2500, "reexported", "OPEN BUY 1 @ 100"],
+    ["Stock purchase", "SAP.DE", "SAP", 45720, -2500, "new", "OPEN BUY 1 @ 100"],
+  ]);
+  DB.transactions = [tx({ ticker: "SAP", broker: "XTB", broker_account: "12345", ext_id: "legacy",
+    executed_at: rows[0].executed_at, price_usd: rows[0].price_usd })];
+  const parsed = { broker: "XTB" as const, account: "12345", mode: "trades" as const, rows, holdings: [] };
+  const plan = await planImport(parsed);
+  expect(plan.toInsertTrades.map(r => r.external_id)).toEqual(["xtb:ord:new"]);
+  await executeImport(plan);
+  expect(DB.transactions.map(r => r.ticker)).toEqual(["SAP", "SAP"]);
+  expect((await planImport(parsed)).toInsertTrades).toEqual([]);
+});
 
 // ── #3 T212: a shorter statement must not delete API fills outside its period ─────────────
 describe("T212 statement replaces only the API fills of its own period", () => {
@@ -100,6 +133,49 @@ describe("T212 statement replaces only the API fills of its own period", () => {
     expect(again.toInsertTrades).toHaveLength(0);
     expect(again.alreadyImported).toBe(2);
   });
+
+  it("keeps API fills and skips reconciliation when the atomic replacement fails", async () => {
+    DB.transactions = [tx({ ticker: "NVDA", broker: "T212", broker_account: "111", ext_id: "t212:ord:2", executed_at: "2026-06-02T15:30:00Z" })];
+    const before = structuredClone(DB.transactions);
+    const plan = await planImport({ broker: "T212", account: "111", mode: "trades", rows: june(), holdings: [] });
+    plan.reconcileTo = [{ ...june()[0], kind: "HOLDING" }];
+    failReplacement = true;
+    await expect(executeImport(plan)).rejects.toMatchObject({ message: "replacement rejected" });
+    expect(DB.transactions).toEqual(before);
+    expect(rpcCalls).not.toContain("reconcile_broker_account");
+  });
+
+  it.each(["transactions", "deposits", "dividends"])("stops before reconciliation on a failed %s write", async (table) => {
+    const base = { ...june()[0], broker: "XTB" as const };
+    const rows: NormalizedRow[] = [base, { ...base, kind: "DEPOSIT", external_id: "deposit", amount_usd: 1 }, { ...base, kind: "DIVIDEND", external_id: "dividend", amount_usd: 1 }];
+    const plan = await planImport({ broker: "XTB", mode: "trades", rows, holdings: [] });
+    plan.reconcileTo = [{ ...base, kind: "HOLDING" }];
+    failTable = table;
+    await expect(executeImport(plan)).rejects.toMatchObject({ message: "write rejected" });
+    expect(rpcCalls).not.toContain("reconcile_broker_account");
+  });
+});
+
+it("B9 rejects oversized workbooks before allocating or parsing their contents", async () => {
+  const arrayBuffer = vi.fn();
+  await expect(parseStatementFile({ name: "large.xlsx", size: MAX_STATEMENT_BYTES + 1, arrayBuffer } as unknown as File)).rejects.toThrow(/10 MiB/);
+  expect(arrayBuffer).not.toHaveBeenCalled();
+});
+
+it("B4 persists original gross and actual withholding", async () => {
+  const row: NormalizedRow = { broker: "XTB", kind: "DIVIDEND", external_id: "actual-dividend", ticker: "AAPL", executed_at: "2025-03-03T12:00:00Z", label: "", amount_usd: 10, gross_amount_usd: 10, withholding_tax_usd: 3, original_currency: "CZK", gross_amount: 230, withholding_tax: 69 };
+  await executeImport(await planImport({ broker: "XTB", mode: "trades", rows: [row], holdings: [] }));
+  expect(DB.dividends[0]).toMatchObject({ gross_amount_usd: 10, withholding_tax_usd: 3, original_currency: "CZK", gross_amount: 230, withholding_tax: 69 });
+  await executeImport(await planImport({ broker: "XTB", mode: "trades", rows: [{ ...row, withholding_tax_usd: 2 }], holdings: [] }));
+  expect(DB.dividends).toHaveLength(1);
+  expect(DB.dividends[0].withholding_tax_usd).toBe(2);
+});
+
+it("B5 marks missing dated FX for review and prevents incomplete T212 replacement", async () => {
+  const row: NormalizedRow = { broker: "T212", kind: "TRADE", external_id: "t212:act:missing", ticker: "SAP", executed_at: "2040-01-01T12:00:00Z", label: "SAP", ccy: "EUR", price_ccy: 100, shares: 1, side: "BUY", czk: 2500 };
+  const converted = await convertT212([row]);
+  expect(converted[0]).toMatchObject({ kind: "SKIP", needs_review: true });
+  await expect(planImport({ broker: "T212", mode: "trades", rows: converted, holdings: [] })).rejects.toThrow();
 });
 
 // ── #4 Revolut holdings mode is scoped to the statement's account ──────────────────────────
@@ -234,4 +310,19 @@ describe("Revolut fallback price (value / quantity)", () => {
     expect(r.price_usd).toBeCloseTo(100, 6);
     expect(r.shares! * r.price_usd! - r.fee_usd!).toBeCloseTo(999, 6);
   });
+});
+
+it("seeds shared aliases in batches of 500 from every traded instrument, also on a re-import (codex review)", async () => {
+  const rows: NormalizedRow[] = Array.from({ length: 501 }, (_, i) => ({
+    external_id: `xtb:ord:${i}`, broker: "XTB", account: "777", kind: "TRADE", ticker: `T${i}`, side: "BUY", shares: 1, price_usd: 10, fee_usd: 0,
+    executed_at: "2026-03-02T12:00:00.000Z", label: "", isin: `US${String(i).padStart(9, "0")}0`,
+  }));
+  const parsed = { broker: "XTB" as const, account: "777", mode: "trades" as const, rows, holdings: [] };
+  await executeImport(await planImport(parsed));
+  expect(seedBatches).toEqual([500, 1]);
+  seedBatches.length = 0;
+  const again = await planImport(parsed);
+  expect(again.toInsertTrades).toEqual([]);
+  await executeImport(again);
+  expect(seedBatches).toEqual([500, 1]);
 });

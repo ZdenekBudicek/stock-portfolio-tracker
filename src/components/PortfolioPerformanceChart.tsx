@@ -50,7 +50,7 @@ const PortfolioPerformanceChart = () => {
     return currency !== 'USD' ? `${sign}${abs.toLocaleString(currentLocale(), { minimumFractionDigits: 0, maximumFractionDigits: 0 })}` : `${sign}$${abs.toLocaleString(currentLocale(), { minimumFractionDigits: 0, maximumFractionDigits: 0 })}`;
   };
 
-  const CustomTooltip = ({ active, payload, label }: any) => {
+  const CustomTooltip = ({ active, payload, label }: { active?: boolean; label?: string | number; payload?: { payload: typeof data[number] }[] }) => {
   const { t } = useTranslation();
     if (!active || !payload?.length) return null;
     const d = payload[0].payload;

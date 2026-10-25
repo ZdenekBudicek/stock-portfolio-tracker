@@ -1,11 +1,13 @@
 // Import, účty a hotovost — broker connection, statement import, cash and exports.
 import BrokerConnect from '@/components/BrokerConnect';
-import StatementImport from '@/components/StatementImport';
+import { lazy, Suspense } from 'react';
 import CashAdjustDialog from '@/components/CashAdjustDialog';
 import ExportMenu from '@/components/ExportMenu';
 import QuickTradeDialog from '@/components/QuickTradeDialog';
 import { useTranslation } from 'react-i18next';
 import { PageTitle } from '@/components/v2/ui';
+
+const StatementImport = lazy(() => import('@/components/StatementImport'));
 
 const Accounts = () => {
   const { t } = useTranslation();
@@ -18,7 +20,7 @@ const Accounts = () => {
     />
     <div className="grid grid-cols-1 gap-4 lg:grid-cols-2">
       <BrokerConnect />
-      <StatementImport />
+      <Suspense fallback={<div role="status">{t('common.loading')}</div>}><StatementImport /></Suspense>
     </div>
   </div>
   );

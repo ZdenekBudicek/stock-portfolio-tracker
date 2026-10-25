@@ -11,8 +11,8 @@ export function usePriceHistory(symbol: string) {
     enabled: !!symbol,
     staleTime: 30 * 60_000,
     queryFn: async (): Promise<PricePoint[]> => {
-      const rows = await fetchAllRows<any>((from, to) =>
-        (supabase as any).from("price_history").select("date,close").eq("symbol", symbol).order("date", { ascending: true }).range(from, to),
+      const rows = await fetchAllRows((from, to) =>
+        supabase.from("price_history").select("date,close").eq("symbol", symbol).order("date", { ascending: true }).range(from, to),
       );
       return rows.map((r) => ({ date: String(r.date).slice(0, 10), close: Number(r.close) })).filter((r) => r.close > 0);
     },

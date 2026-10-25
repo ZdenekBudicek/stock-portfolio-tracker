@@ -1,0 +1,204 @@
+// Vitest Snapshot v1, https://vitest.dev/guide/snapshot.html
+
+exports[`original realized hook characterization > captures empty history 1`] = `
+{
+  "currency": "USD",
+  "fifo": {
+    "disposals": [],
+    "openLots": [],
+    "warnings": [],
+  },
+  "report": {
+    "complete": true,
+    "currency": "USD",
+    "dividends": {
+      "count": 0,
+      "grossRecorded": 0,
+      "projected": 0,
+      "total": 0,
+    },
+    "gains": 0,
+    "losses": 0,
+    "missingFx": [],
+    "net": 0,
+    "proceeds": 0,
+    "rows": [],
+    "unmatchedSells": 0,
+    "year": 2026,
+  },
+  "years": [
+    2026,
+  ],
+}
+`;
+
+exports[`original realized hook characterization > keeps the 2024 purchase for a 2026 sale and every return field 1`] = `
+{
+  "currency": "USD",
+  "fifo": {
+    "disposals": [
+      {
+        "account": "",
+        "acquiredAt": "2024-01-02T12:00:00Z",
+        "broker": "MANUAL",
+        "buyFeeUsd": 0,
+        "buyPriceUsd": 100,
+        "buyTxId": "buy",
+        "costUsd": 400,
+        "gainUsd": 200,
+        "key": "SYN|MANUAL|",
+        "kind": "sale",
+        "proceedsUsd": 600,
+        "sellFeeUsd": 0,
+        "sellPriceUsd": 150,
+        "sellTxId": "sell",
+        "shares": 4,
+        "soldAt": "2026-02-02T12:00:00Z",
+        "ticker": "SYN",
+      },
+    ],
+    "openLots": [
+      {
+        "account": "",
+        "acquiredAt": "2024-01-02T12:00:00Z",
+        "broker": "MANUAL",
+        "buyTxId": "buy",
+        "feePerShareUsd": 0,
+        "key": "SYN|MANUAL|",
+        "priceUsd": 100,
+        "shares": 6,
+        "ticker": "SYN",
+      },
+    ],
+    "warnings": [],
+  },
+  "report": {
+    "complete": true,
+    "currency": "USD",
+    "dividends": {
+      "count": 1,
+      "grossRecorded": 0,
+      "projected": 0,
+      "total": 12,
+    },
+    "gains": 200,
+    "losses": 0,
+    "missingFx": [],
+    "net": 200,
+    "proceeds": 600,
+    "rows": [
+      {
+        "account": "",
+        "acquiredDate": "2024-01-02",
+        "broker": "MANUAL",
+        "cost": 400,
+        "fees": 0,
+        "gain": 200,
+        "gainUsd": 200,
+        "kind": "sale",
+        "proceeds": 600,
+        "shares": 4,
+        "soldDate": "2026-02-02",
+        "ticker": "SYN",
+      },
+    ],
+    "unmatchedSells": 0,
+    "year": 2026,
+  },
+  "years": [
+    2026,
+  ],
+}
+`;
+
+exports[`original realized hook characterization > retains warnings and missing purchase FX in CZK 1`] = `
+{
+  "currency": "CZK",
+  "fifo": {
+    "disposals": [
+      {
+        "account": "",
+        "acquiredAt": "1990-01-02",
+        "broker": "MANUAL",
+        "buyFeeUsd": 0,
+        "buyPriceUsd": 100,
+        "buyTxId": "buy",
+        "costUsd": 400,
+        "gainUsd": 200,
+        "key": "SYN|MANUAL|",
+        "kind": "sale",
+        "proceedsUsd": 600,
+        "sellFeeUsd": 0,
+        "sellPriceUsd": 150,
+        "sellTxId": "sell",
+        "shares": 4,
+        "soldAt": "2026-02-02T12:00:00Z",
+        "ticker": "SYN",
+      },
+    ],
+    "openLots": [
+      {
+        "account": "",
+        "acquiredAt": "1990-01-02",
+        "broker": "MANUAL",
+        "buyTxId": "buy",
+        "feePerShareUsd": 0,
+        "key": "SYN|MANUAL|",
+        "priceUsd": 100,
+        "shares": 6,
+        "ticker": "SYN",
+      },
+    ],
+    "warnings": [
+      {
+        "account": "",
+        "amountUsd": 600,
+        "broker": "MANUAL",
+        "date": "2026-02-02T12:00:00Z",
+        "kind": "unmatched-sell",
+        "shares": 4,
+        "ticker": "MISSING",
+        "txId": "unmatched",
+      },
+    ],
+  },
+  "report": {
+    "complete": false,
+    "currency": "CZK",
+    "dividends": {
+      "count": 1,
+      "grossRecorded": 0,
+      "projected": 0,
+      "total": 240,
+    },
+    "gains": 0,
+    "losses": 0,
+    "missingFx": [
+      "1990-01-02",
+    ],
+    "net": 0,
+    "proceeds": 12000,
+    "rows": [
+      {
+        "account": "",
+        "acquiredDate": "1990-01-02",
+        "broker": "MANUAL",
+        "cost": null,
+        "fees": 0,
+        "gain": null,
+        "gainUsd": 200,
+        "kind": "sale",
+        "proceeds": 12000,
+        "shares": 4,
+        "soldDate": "2026-02-02",
+        "ticker": "SYN",
+      },
+    ],
+    "unmatchedSells": 1,
+    "year": 2026,
+  },
+  "years": [
+    2026,
+  ],
+}
+`;

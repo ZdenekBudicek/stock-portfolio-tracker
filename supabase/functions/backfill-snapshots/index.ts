@@ -21,8 +21,8 @@ const TIME_BUDGET = 90_000;
 // Every page of a select, in a deterministic order (PostgREST caps one select at 1000 rows and
 // paging without ORDER BY can skip or repeat rows). A failed read THROWS — treating it as "no
 // rows" rebuilt an empty history and then deleted the user's stored one.
-async function fetchAll(label: string, page: (from: number, to: number) => PromiseLike<{ data: any[] | null; error: any }>): Promise<any[]> {
-  const out: any[] = [];
+async function fetchAll<T>(label: string, page: (from: number, to: number) => PromiseLike<{ data: T[] | null; error: { message: string } | null }>): Promise<T[]> {
+  const out: T[] = [];
   for (let f = 0; ; f += 1000) {
     const { data, error } = await page(f, f + 999);
     if (error) throw new Error(`čtení ${label} selhalo: ${error.message ?? error}`);
@@ -56,14 +56,14 @@ Deno.serve(async (req) => {
     // dropped and the reconstructed value is undercounted (the chart's spike/dip at "today").
     const txRows = await fetchAll("transactions", (f, t) => svc.from("transactions").select("ticker,side,shares,price_usd,executed_at,ext_id")
       .eq("user_id", userId).order("executed_at", { ascending: true }).order("id", { ascending: true }).range(f, t));
-    const ledger = txRows.filter((t: any) => t.ticker !== "CASH");
-    const trades = ledger.filter((t: any) => !isSyntheticRow(t.ext_id));
+    const ledger = txRows.filter((t) => t.ticker !== "CASH");
+    const trades = ledger.filter((t) => !isSyntheticRow(t.ext_id));
 
     // Current broker-truth shares per ticker (positions table = reconciled to the broker).
     // The reconstruction is ANCHORED to these — see _shared/history.js for why.
     const posRows = await fetchAll("positions", (f, t) => svc.from("positions").select("ticker,shares,type,holding_start_date")
       .eq("user_id", userId).order("id", { ascending: true }).range(f, t));
-    const positions = ((posRows ?? []) as any[]).filter((p) => p.ticker !== "CASH" && String(p.type ?? "") !== "Cash");
+    const positions = ((posRows ?? [])).filter((p) => p.ticker !== "CASH" && String(p.type ?? "") !== "Cash");
     if (!trades.length && !positions.length) return json({ ok: true, done: true, message: "no trades" });
     const truth = new Map<string, number>();
     for (const p of positions) truth.set(p.ticker, (truth.get(p.ticker) ?? 0) + Number(p.shares));
@@ -83,7 +83,7 @@ Deno.serve(async (req) => {
     const { data: cov, error: covErr } = await svc.rpc("price_history_coverage", { p_symbols: needSymbols });
     if (covErr) throw new Error(`čtení pokrytí cen selhalo: ${covErr.message}`);
     const earliest = new Map<string, string>();
-    for (const r of (cov ?? []) as any[]) earliest.set(r.symbol, r.earliest);
+    for (const r of (cov ?? [])) earliest.set(r.symbol, r.earliest);
     const needsFetch = (sym: string, fromDate: string) => { const e = earliest.get(sym); return !e || e > fromDate; };
 
     const toFetch: string[] = [];
@@ -95,14 +95,14 @@ Deno.serve(async (req) => {
     // e.g. ATOM held as Atomera stock.
     const { data: aliasRows, error: aliasErr } = toFetch.length
       ? await svc.from("ticker_alias").select("alias,yahoo_symbol").in("alias", toFetch)
-      : { data: [] as any[], error: null };
+      : { data: [], error: null };
     if (aliasErr) throw new Error(`čtení ticker_alias selhalo: ${aliasErr.message}`);
-    const pinnedEquity = new Set(((aliasRows ?? []) as any[]).filter((a) => a.yahoo_symbol && !/-USD$/i.test(String(a.yahoo_symbol))).map((a) => a.alias));
+    const pinnedEquity = new Set(((aliasRows ?? [])).filter((a) => a.yahoo_symbol && !/-USD$/i.test(String(a.yahoo_symbol))).map((a) => a.alias));
     let fetched = 0; let remaining = 0;
     const skipped: string[] = [];
     for (const sym of toFetch) {
       if (Date.now() - started > TIME_BUDGET) { remaining++; continue; }
-      const tdSym = sym === "USDCZK" ? "USD/CZK" : pinnedEquity.has(sym) ? sym : tdSymbol(sym, positions.find((p: any) => p.ticker === sym)?.type);
+      const tdSym = sym === "USDCZK" ? "USD/CZK" : pinnedEquity.has(sym) ? sym : tdSymbol(sym, positions.find((p) => p.ticker === sym)?.type);
       // Known crypto with no Twelve Data symbol: skip, and deliberately do NOT write the
       // tombstone below. A tombstone makes needsFetch() permanently false, so the holding
       // would contribute 0 to every future snapshot and undercount the portfolio for good.
@@ -110,7 +110,7 @@ Deno.serve(async (req) => {
       try {
         const r = await fetch(`https://api.twelvedata.com/time_series?symbol=${encodeURIComponent(tdSym)}&interval=1day&outputsize=5000&apikey=${tdKey}`);
         const j = await r.json();
-        const vals: any[] = j?.values ?? [];
+        const vals: { datetime: string; close: string }[] = j?.values ?? [];
         if (vals.length) {
           const rows = vals.map((v) => ({ symbol: sym, date: v.datetime, close: Number(v.close) })).filter((x) => Number.isFinite(x.close));
           let stored = true;
@@ -164,7 +164,7 @@ Deno.serve(async (req) => {
       return null;
     };
     const { trades: tradeEvents, adjusted, unverified } = applySplitAdjustment(
-      trades.map((t: any) => ({
+      trades.map((t) => ({
         ticker: t.ticker,
         day: t.executed_at.slice(0, 10),
         signed: t.side === "BUY" ? Number(t.shares) : -Number(t.shares),
@@ -185,7 +185,7 @@ Deno.serve(async (req) => {
     const loopFirst = firstCash && firstCash < globalFirst ? firstCash : globalFirst;
 
     let lastFx = 23;
-    const snaps: any[] = [];
+    const snaps: { user_id: string; snapshot_date: string; value_usd: number; value_czk: number; cash_usd: number | null; profit_usd: number; profit_czk: number; profit_pct: number; fx_rate: number }[] = [];
     const todayMs = Date.now();
     // Iterate in UTC milliseconds — stepping a local Date by one day skips/repeats a day
     // across a DST boundary.

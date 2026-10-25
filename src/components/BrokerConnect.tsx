@@ -16,11 +16,10 @@ const BrokerConnect = () => {
   const [status, setStatus] = useState<ConnStatus | null>(null);
   const [apiKey, setApiKey] = useState("");
   const [secret, setSecret] = useState("");
-  const [env, setEnv] = useState<"live" | "demo">("live");
   const [busy, setBusy] = useState(false);
 
   const loadStatus = async () => {
-    const { data } = await supabase.rpc("get_broker_connection_status" as any);
+    const { data } = await supabase.rpc("get_broker_connection_status");
     const t212 = (data as ConnStatus[] | null)?.find((c) => c.broker === "T212") ?? null;
     setStatus(t212);
   };
@@ -31,13 +30,15 @@ const BrokerConnect = () => {
     setBusy(true);
     try {
       // T212 = HTTP Basic auth; store as "apiKey:secret".
-      const { error } = await supabase.rpc("set_broker_connection" as any, { p_broker: "T212", p_env: env, p_key: `${apiKey.trim()}:${secret.trim()}` });
+      const { error } = await supabase.rpc("set_broker_connection", { p_broker: "T212", p_env: "live", p_key: `${apiKey.trim()}:${secret.trim()}` });
       if (error) throw error;
       setApiKey(""); setSecret("");
       toast.success(t('legacy.brokerConnect.trading212Connected'));
       await loadStatus();
-    } catch (e: any) { toast.error(t('legacy.brokerConnect.error') + (e?.message ?? "")); }
-    finally { setBusy(false); }
+    } catch (error: unknown) {
+      const e = error as { message?: string } | null;
+      toast.error(t('legacy.brokerConnect.error') + (e?.message ?? ""));
+    } finally { setBusy(false); }
   };
 
   const sync = async () => {
@@ -45,11 +46,19 @@ const BrokerConnect = () => {
     const toastId = toast.loading(t('legacy.brokerConnect.syncingWithTrading'));
     try {
       let done = false, first = true, rounds = 0, total = 0;
+      let confirmAccount: string | undefined;
       while (!done && rounds < 80) {
         rounds++;
-        const { data, error } = await supabase.functions.invoke("sync-broker", { body: { broker: "T212", restart: first } });
+        const { data, error } = await supabase.functions.invoke("sync-broker", { body: { broker: "T212", restart: first, confirmAccount } });
         if (error) throw error;
-        const d: any = data;
+        const d = data as { code?: string; account?: string; error?: string; done?: boolean; positions?: number; appended?: number; reconciled?: boolean; batch?: number };
+        if (d?.code === "account_changed") {
+          if (!window.confirm(t('legacy.brokerConnect.confirmSwitch', { account: d.account }))) { toast.dismiss(toastId); return; }
+          confirmAccount = d.account;
+          continue;
+        }
+        if (d?.code === "practice_account") throw new Error(t('legacy.brokerConnect.practiceBlocked'));
+        if (d?.code === "account_unknown") throw new Error(t('legacy.brokerConnect.accountUnknown'));
         if (d?.error) throw new Error(d.error);
         first = false;
         done = !!d.done;
@@ -83,7 +92,8 @@ const BrokerConnect = () => {
       qc.invalidateQueries({ queryKey: ["ticker-profiles"] });
 
       await loadStatus();
-    } catch (e: any) {
+    } catch (error: unknown) {
+      const e = error as { message?: string } | null;
       toast.error(t('legacy.brokerConnect.syncFailed') + (e?.message ?? t('legacy.brokerConnect.unknownError')), { id: toastId });
     } finally { setBusy(false); }
   };
@@ -91,7 +101,7 @@ const BrokerConnect = () => {
   const disconnect = async () => {
     setBusy(true);
     try {
-      await supabase.rpc("delete_broker_connection" as any, { p_broker: "T212" });
+      await supabase.rpc("delete_broker_connection", { p_broker: "T212" });
       toast.success(t('legacy.brokerConnect.disconnected'));
       await loadStatus();
     } finally { setBusy(false); }
@@ -136,10 +146,7 @@ const BrokerConnect = () => {
             <Input type="password" value={secret} onChange={(e) => setSecret(e.target.value)} placeholder={t('legacy.brokerConnect.secretKey')} className="pl-9 font-mono" />
           </div>
           <div className="flex items-center gap-2">
-            <select value={env} onChange={(e) => setEnv(e.target.value as any)} className="text-sm h-9 px-2 rounded-md border border-border bg-background">
-              <option value="live">{t('legacy.brokerConnect.liveAccount')}</option>
-              <option value="demo">{t('legacy.brokerConnect.demoPractice')}</option>
-            </select>
+            <span className="text-sm">{t('legacy.brokerConnect.liveAccount')}</span>
             <Button onClick={connect} disabled={busy} className="flex-1 gap-1.5">
               {busy ? <Loader2 className="w-4 h-4 animate-spin" /> : <Link2 className="w-4 h-4" />} {t('legacy.brokerConnect.connect')}</Button>
           </div>

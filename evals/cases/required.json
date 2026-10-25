@@ -1,0 +1,306 @@
+{
+  "cases_file": "evals/cases/mvp.yaml",
+  "cases_sha256": "9b62e6cd4ab5106baa8f47dc11bb9ae4c693c9d5af194e512c03c135463b9d3d",
+  "cases": [
+    {
+      "id": "tx-cs-1",
+      "turns": 1,
+      "scenario": "transactions",
+      "lang": "cs"
+    },
+    {
+      "id": "tx-cs-ticker",
+      "turns": 1,
+      "scenario": "transactions",
+      "lang": "cs"
+    },
+    {
+      "id": "realized-cs-1",
+      "turns": 1,
+      "scenario": "realized",
+      "lang": "cs"
+    },
+    {
+      "id": "tx-sk-1",
+      "turns": 1,
+      "scenario": "transactions",
+      "lang": "sk"
+    },
+    {
+      "id": "tx-en-1",
+      "turns": 1,
+      "scenario": "transactions",
+      "lang": "en"
+    },
+    {
+      "id": "tax-cs-1",
+      "turns": 1,
+      "scenario": "tax",
+      "lang": "cs"
+    },
+    {
+      "id": "tax-cs-2025",
+      "turns": 1,
+      "scenario": "tax",
+      "lang": "cs"
+    },
+    {
+      "id": "tax-sk-1",
+      "turns": 1,
+      "scenario": "tax",
+      "lang": "sk"
+    },
+    {
+      "id": "tax-en-1",
+      "turns": 1,
+      "scenario": "tax",
+      "lang": "en"
+    },
+    {
+      "id": "sim-cs-1",
+      "turns": 1,
+      "scenario": "simulation",
+      "lang": "cs"
+    },
+    {
+      "id": "time-test-cs-1",
+      "turns": 1,
+      "scenario": "simulation",
+      "lang": "cs"
+    },
+    {
+      "id": "ambiguous-account-cs-1",
+      "turns": 1,
+      "scenario": "simulation",
+      "lang": "cs"
+    },
+    {
+      "id": "perf-cs-1",
+      "turns": 1,
+      "scenario": "performance",
+      "lang": "cs"
+    },
+    {
+      "id": "div-en-1",
+      "turns": 1,
+      "scenario": "dividends",
+      "lang": "en"
+    },
+    {
+      "id": "alloc-cs-1",
+      "turns": 1,
+      "scenario": "allocation",
+      "lang": "cs"
+    },
+    {
+      "id": "price-cs-1",
+      "turns": 1,
+      "scenario": "price",
+      "lang": "cs"
+    },
+    {
+      "id": "move-cs-1",
+      "turns": 1,
+      "scenario": "price",
+      "lang": "cs"
+    },
+    {
+      "id": "crypto-en-1",
+      "turns": 1,
+      "scenario": "price",
+      "lang": "en"
+    },
+    {
+      "id": "move-days-cs-1",
+      "turns": 1,
+      "scenario": "move",
+      "lang": "cs"
+    },
+    {
+      "id": "move-week-sk-1",
+      "turns": 1,
+      "scenario": "move",
+      "lang": "sk"
+    },
+    {
+      "id": "move-week-en-1",
+      "turns": 1,
+      "scenario": "move",
+      "lang": "en"
+    },
+    {
+      "id": "move-fall-cs-2",
+      "turns": 1,
+      "scenario": "move",
+      "lang": "cs"
+    },
+    {
+      "id": "price-today-cs-1",
+      "turns": 1,
+      "scenario": "price",
+      "lang": "cs"
+    },
+    {
+      "id": "buy-cs-1",
+      "turns": 1,
+      "scenario": "buy",
+      "lang": "cs"
+    },
+    {
+      "id": "buy-cs-no-analysts",
+      "turns": 1,
+      "scenario": "buy",
+      "lang": "cs"
+    },
+    {
+      "id": "buy-sk-1",
+      "turns": 1,
+      "scenario": "buy",
+      "lang": "sk"
+    },
+    {
+      "id": "buy-en-1",
+      "turns": 1,
+      "scenario": "buy",
+      "lang": "en"
+    },
+    {
+      "id": "multi-cs-1",
+      "turns": 2,
+      "scenario": "multi_turn",
+      "lang": "cs"
+    },
+    {
+      "id": "multi-sk-1",
+      "turns": 2,
+      "scenario": "multi_turn",
+      "lang": "sk"
+    },
+    {
+      "id": "unknown-cs-1",
+      "turns": 1,
+      "scenario": "unknown",
+      "lang": "cs"
+    },
+    {
+      "id": "method-cs-1",
+      "turns": 1,
+      "scenario": "general",
+      "lang": "cs"
+    },
+    {
+      "id": "injection-cs-1",
+      "turns": 1,
+      "scenario": "injection",
+      "lang": "cs"
+    },
+    {
+      "id": "isolation-en-1",
+      "turns": 1,
+      "scenario": "isolation",
+      "lang": "en"
+    },
+    {
+      "id": "retry-sk-1",
+      "turns": 1,
+      "scenario": "retry",
+      "lang": "sk"
+    },
+    {
+      "id": "outage-en-1",
+      "turns": 1,
+      "scenario": "outage",
+      "lang": "en"
+    },
+    {
+      "id": "other-residence-cs-1",
+      "turns": 1,
+      "scenario": "tax",
+      "lang": "cs"
+    },
+    {
+      "id": "missing-fx-en-1",
+      "turns": 1,
+      "scenario": "tax",
+      "lang": "en"
+    },
+    {
+      "id": "empty-sk-1",
+      "turns": 1,
+      "scenario": "empty",
+      "lang": "sk"
+    },
+    {
+      "id": "neg-price-as-tax-cs",
+      "turns": 1,
+      "scenario": "tax",
+      "lang": "cs"
+    },
+    {
+      "id": "neg-period-sk",
+      "turns": 1,
+      "scenario": "realized",
+      "lang": "sk"
+    },
+    {
+      "id": "neg-sign-cs",
+      "turns": 1,
+      "scenario": "realized",
+      "lang": "cs"
+    },
+    {
+      "id": "neg-refusal-en",
+      "turns": 1,
+      "scenario": "price",
+      "lang": "en"
+    },
+    {
+      "id": "movers-cs-1",
+      "turns": 1,
+      "scenario": "movers",
+      "lang": "cs"
+    },
+    {
+      "id": "movers-sk-1",
+      "turns": 1,
+      "scenario": "movers",
+      "lang": "sk"
+    },
+    {
+      "id": "movers-en-1",
+      "turns": 1,
+      "scenario": "movers",
+      "lang": "en"
+    },
+    {
+      "id": "general-cs-etf",
+      "turns": 1,
+      "scenario": "general",
+      "lang": "cs"
+    },
+    {
+      "id": "general-sk-staking",
+      "turns": 1,
+      "scenario": "general",
+      "lang": "sk"
+    },
+    {
+      "id": "general-en-timing",
+      "turns": 1,
+      "scenario": "general",
+      "lang": "en"
+    },
+    {
+      "id": "general-cs-btc-price",
+      "turns": 1,
+      "scenario": "price",
+      "lang": "cs"
+    },
+    {
+      "id": "offtopic-cs-recipe",
+      "turns": 1,
+      "scenario": "general",
+      "lang": "cs"
+    }
+  ]
+}

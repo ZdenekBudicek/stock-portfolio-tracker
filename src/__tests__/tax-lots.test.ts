@@ -99,8 +99,8 @@ describe("simulateSale", () => {
 
   it("stays tax-free under the 100 000 Kč limit", () => {
     const r = simulateSale(txs, before, { ...base, shares: 11, priceUsd: 300, saleFx: 20 }, { ...settings, limitIncludesExempt: false });
-    // only the taxable piece (1 share × 300 $ × 20 = 6 000 Kč) counts against the limit
-    expect(r.limitBaseAfterCzk).toBeCloseTo(6000);
+    // Audit B11: all 11 shares count against the limit (11 × 300 $ × 20 = 66 000 Kč), the exempt ten included
+    expect(r.limitBaseAfterCzk).toBeCloseTo(66000);
     expect(r.underLimitAfter).toBe(true);
     expect(r.extraTaxCzk).toBe(0);
   });

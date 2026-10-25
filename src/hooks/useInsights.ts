@@ -3,51 +3,35 @@
 import { useMemo } from "react";
 import { useComputedPortfolio, useLivePrices, useTransactions } from "@/hooks/usePortfolio";
 import { useDividends, useEarnings, useWatchlist } from "@/hooks/useExtras";
-import { isRealTradeTx, runFifo } from "@/lib/fifo";
-import { usdCzkFor } from "@/lib/cnbRates";
-import { addDays, buildSalesReport, DEFAULT_TAX_SETTINGS, limitStateOf, overallTaxState, pragueDate, type TaxSettings } from "@/lib/czTax";
-import { exemptionCalendar, exemptSummary, lotStatuses } from "@/lib/taxLots";
-import { annualByTicker, dividendForecast, receivedLast12m, remainingThisMonth } from "@/lib/dividendAnalytics";
+import { addDays, DEFAULT_TAX_SETTINGS, limitStateOf, overallTaxState, pragueDate, summarizeSalesYear, type TaxSettings } from "@/lib/czTax";
+import { computeCzTaxModel } from "@/lib/czTaxModel";
+import { computeDividendModel } from "@/lib/dividendModel";
 import { deriveAlerts } from "@/lib/alerts";
 import { useJurisdiction } from "@/hooks/useTaxResidence";
-import { useAssetKindResolver } from "@/hooks/useAssetKinds";
+import { useInstrumentRegistry } from "@/hooks/useAssetKinds";
 
 export const todayPrague = () => pragueDate(new Date().toISOString());
 
 export { limitStateOf, overallTaxState, type LimitState, type OverallTaxState } from "@/lib/czTax";
 
 export function useTaxModel(year = Number(todayPrague().slice(0, 4)), settings: TaxSettings = DEFAULT_TAX_SETTINGS) {
-  const { data: txs = [] } = useTransactions();
-  const { positions, usdCzk } = useComputedPortfolio();
+  const txsQ = useTransactions();
+  const portfolio = useComputedPortfolio();
+  const registryQ = useInstrumentRegistry();
   const today = todayPrague();
-  const fifo = useMemo(() => runFifo(txs.filter(isRealTradeTx) as any), [txs]);
-  // Crypto has its own rules; the kind comes from the whole instrument registry (sold
-  // positions included), the same resolver the full tax report uses.
-  const kindOf = useAssetKindResolver();
-  const report = useMemo(
-    () => buildSalesReport(fifo.disposals, year, settings, fifo.warnings, kindOf),
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-    [fifo, year, settings.fxMethod, settings.limitIncludesExempt, kindOf],
-  );
-  const priceKey = positions.map((p) => `${p.ticker}:${p.currentPrice}`).join("|");
-  const lots = useMemo(() => {
-    const price = new Map(positions.map((p) => [p.ticker, p.currentPrice]));
-    return lotStatuses(fifo.openLots, (t) => price.get(t) ?? null, today, { rate: usdCzk, fxAt: (d) => usdCzkFor(d, settings.fxMethod)?.rate ?? null });
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [fifo, priceKey, today, usdCzk, settings.fxMethod]);
-  // Lots of tickers no longer held (no live position, e.g. a sale at an unimported broker)
-  // stay in the FIFO for the tax report, but are not shown as "your" exempt holdings.
-  const heldLots = useMemo(() => lots.filter((l) => l.valueUsd != null), [lots]);
-  const calendar = useMemo(() => exemptionCalendar(heldLots), [heldLots]);
-  const summary = useMemo(() => exemptSummary(heldLots), [heldLots]);
-  return { fifo, report, kindOf, lots: heldLots, allLots: lots, calendar, summary, today, settings,
-    /** Securities or crypto proceeds over their own 100 000 Kč limit. */
+  const model = useMemo(() => computeCzTaxModel({ transactions: txsQ.data ?? [], positions: portfolio.positions,
+    registry: registryQ.registry, year, today, usdCzk: portfolio.usdCzk, settings }),
+  [txsQ.data, portfolio.positions, registryQ.registry, year, today, portfolio.usdCzk, settings]);
+  const loading = txsQ.isLoading || portfolio.loading || registryQ.loading;
+  const error = txsQ.error || registryQ.error || portfolio.error || null;
+  // Missing query data cannot confirm an exemption. Keep partial rows and warnings,
+  // using the engine's existing incomplete-data path for all dependent totals.
+  const report = loading || error ? summarizeSalesYear(year, model.report.rows, model.report.unmatched,
+    settings, model.report.missingFx, true) : model.report;
+  return { ...model, report, loading, error,
     overLimit: limitStateOf(report.securities) === 'over' || limitStateOf(report.crypto) === 'over',
-    /** Securities limit: over / confirmed under / cannot tell (incomplete data under the limit). */
     limitState: limitStateOf(report.securities),
-    /** Crypto's own limit; 'none' when crypto has no exemption that year (or no sales). */
     cryptoLimitState: report.crypto.limitApplies ? limitStateOf(report.crypto) : 'none' as const,
-    /** Every kind together — what a summary card shows. */
     overallState: overallTaxState(report) };
 }
 
@@ -55,16 +39,7 @@ export function useDividendModel() {
   const { data: divs = [] } = useDividends();
   const { positions } = useComputedPortfolio();
   const today = todayPrague();
-  const held = useMemo(() => new Set(positions.filter((p) => p.ticker !== "CASH").map((p) => p.ticker.toUpperCase().split(".")[0])), [positions]);
-  return useMemo(() => {
-    const forecast = dividendForecast(divs, today, held);
-    const rest = remainingThisMonth(divs, today, held);
-    const annual = annualByTicker(forecast, rest);
-    const annualTotal = [...annual.values()].reduce((s, v) => s + v, 0);
-    const received = receivedLast12m(divs, today);
-    const next = [...rest, ...forecast.flatMap((m) => m.items)][0] ?? null;
-    return { forecast, rest, annual, annualTotal, received, next, today };
-  }, [divs, today, held]);
+  return useMemo(() => computeDividendModel({ dividends: divs, positions, today }), [divs, positions, today]);
 }
 
 export const MOVE_THRESHOLD_PCT = 7;
@@ -97,7 +72,7 @@ export function useAlerts() {
       held,
       newlyExempt: tax.lots.filter((l) => l.exempt && l.exemptFrom > monthAgo).map((l) => ({ ticker: l.ticker, exemptFrom: l.exemptFrom, valueUsd: l.valueUsd })),
       pricesStale: !!p.stale,
-      pricesError: p.error ? String((p.error as any)?.message ?? p.error) : null,
+      pricesError: p.error ? String((p.error as { message?: string })?.message ?? p.error) : null,
       caps,
     });
   }, [p.positions, p.stale, p.error, live.data, watch, earnings, tax, today, caps]);

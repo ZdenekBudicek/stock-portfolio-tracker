@@ -1,15 +1,31 @@
-// Nightly Yahoo fundamentals, run from GitHub Actions (Yahoo rejects Supabase edge IPs).
-// Env: SUPABASE_URL, SUPABASE_SERVICE_KEY. Importing this file never performs IO.
+// Nightly Yahoo fundamentals, run from GitHub Actions (Yahoo rejects Supabase edge IPs), with
+// the long history from SEC EDGAR underneath (see edgar-fundamentals.mjs).
+// Env: SUPABASE_URL, SUPABASE_SERVICE_KEY; optional SEC_USER_AGENT ("Name email", required by
+// the SEC — without it EDGAR is skipped) and FUNDAMENTALS_FORCE=1 (refresh every symbol once).
+// Importing this file never performs IO.
 import { pathToFileURL } from 'node:url';
 import { isCryptoHolding } from '../supabase/functions/_shared/crypto.js';
 import { normalizeYahooFundamentals, YAHOO_FUNDAMENTAL_METRICS } from '../supabase/functions/_shared/fundamentals.js';
+import {
+  mergeFundamentals, normalizeEdgarFacts, parseYahooSplits, secCikMap, secFactsUrl, secTicker, SEC_TICKERS_URL,
+  storedHistory, yahooSplitsUrl,
+} from './edgar-fundamentals.mjs';
 import { parseOnlySymbols } from './only-symbols.mjs';
 
 const up = (value) => String(value ?? '').trim().toUpperCase();
 const FRESH_MS = 20 * 60 * 60 * 1000;
 const TIMEOUT_MS = 15_000;
+const SEC_TIMEOUT_MS = 30_000; // companyfacts of a large filer is several MB
 
 /** One row per canonical symbol, with the curated Yahoo spelling taking precedence. */
+/** Companies someone asked about (fundamentals_requests, e.g. from the assistant) stay refreshed this long. */
+export const ASKED_KEEP_DAYS = 90;
+/** Symbols requested within ASKED_KEEP_DAYS, as one-share positions for fundamentalsSymbols. */
+export function askedPositions(requests, now) {
+  const since = now - ASKED_KEEP_DAYS * 86_400_000;
+  return requests.filter((r) => Date.parse(r.requested_at) >= since).map((r) => ({ ticker: r.symbol, shares: 1 }));
+}
+
 export function fundamentalsSymbols(positions, watchlist, aliases) {
   const byAlias = new Map(aliases.map((a) => [up(a.alias), a]));
   const yahooByCanonical = new Map();
@@ -92,7 +108,7 @@ export function fundamentalsUrl(symbol, now) {
 
 /** Injectable transport/clock for tests; production uses only the service-role REST API. */
 export async function runFundamentalsWorker({
-  url, key, fetchFn = fetch, now = Date.now(), only = [],
+  url, key, fetchFn = fetch, now = Date.now(), only = [], secUserAgent = '', force = false,
   sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms)), log = console.log,
 }) {
   if (!url || !key) throw new Error('Missing SUPABASE_URL / SUPABASE_SERVICE_KEY');
@@ -122,12 +138,13 @@ export async function runFundamentalsWorker({
 
   const today = new Date(now).toISOString().slice(0, 10);
   const since = new Date(now - (EARNINGS_WINDOW_DAYS + 1) * DAY_MS).toISOString().slice(0, 10);
-  const [positions, watchlist, aliases, existing, earnings] = await Promise.all([
+  const [positions, watchlist, aliases, existing, earnings, asked] = await Promise.all([
     read('positions?select=ticker,type,shares&shares=gt.0&order=id.asc'),
     read('watchlist?select=ticker&order=id.asc'),
     read('ticker_alias?select=alias,canonical,yahoo_symbol&order=alias.asc'),
     read('company_fundamentals?select=symbol,fetched_at,last_attempt_at,status,qperiods:data->quarterly->periods&order=symbol.asc'),
     read(`earnings_calendar?select=ticker,earnings_date&earnings_date=gte.${since}&earnings_date=lte.${today}&order=earnings_date.asc`),
+    read('fundamentals_requests?select=symbol,requested_at&order=symbol.asc'),
   ]);
   const lastEarnings = new Map();
   for (const e of earnings) lastEarnings.set(up(e.ticker), String(e.earnings_date).slice(0, 10)); // ascending → last wins
@@ -136,9 +153,58 @@ export async function runFundamentalsWorker({
   const requested = (only ?? []).filter(Boolean);
   const symbols = requested.length
     ? fundamentalsSymbols(requested.map((ticker) => ({ ticker, shares: 1 })), [], aliases)
-    : fundamentalsSymbols(positions, watchlist, aliases);
-  const queue = requested.length ? symbols : symbols.filter(({ symbol }) => fundamentalsDue(prior.get(symbol), lastEarnings.get(symbol), now));
+    : fundamentalsSymbols([...positions, ...askedPositions(asked, now)], watchlist, aliases);
+  const queue = requested.length || force ? symbols : symbols.filter(({ symbol }) => fundamentalsDue(prior.get(symbol), lastEarnings.get(symbol), now));
   const summary = { updated: 0, failed: 0, skipped: symbols.length - queue.length };
+
+  // EDGAR never fails a symbol: without it the Yahoo data is stored as before, and when the SEC
+  // is unreachable the older periods already stored are kept so the history does not flap.
+  const secHeaders = { 'User-Agent': secUserAgent, Accept: 'application/json' };
+  let ciks; // loaded once, on the first symbol that could be an SEC filer
+  const loadCiks = async () => {
+    if (ciks === undefined) {
+      try {
+        const response = await fetchFn(SEC_TICKERS_URL, { headers: secHeaders, signal: AbortSignal.timeout(SEC_TIMEOUT_MS) });
+        if (!response.ok) throw new Error(`SEC tickers HTTP ${response.status}`);
+        ciks = secCikMap(await response.json());
+        if (!ciks.size) throw new Error('SEC tickers: empty');
+      } catch (error) {
+        log(`SEC tickers: ${error?.message ?? error}`);
+        ciks = null;
+      }
+    }
+    return ciks;
+  };
+  const storedData = async (symbol) => {
+    const rows = await read(`company_fundamentals?select=data&symbol=eq.${encodeURIComponent(symbol)}`);
+    return rows[0]?.data ?? null;
+  };
+  if (!secUserAgent) log('SEC_USER_AGENT not set: statements from Yahoo only');
+  const withHistory = async (data, symbol, yahooSymbol) => {
+    const ticker = secUserAgent ? secTicker(yahooSymbol) : null;
+    if (!ticker) return data;
+    const map = await loadCiks();
+    if (map && !map.has(ticker)) return data; // not an SEC filer
+    let history = null;
+    try {
+      if (!map) throw new Error('no ticker map');
+      const response = await fetchFn(secFactsUrl(map.get(ticker)), { headers: secHeaders, signal: AbortSignal.timeout(SEC_TIMEOUT_MS) });
+      if (!response.ok) throw new Error(`SEC HTTP ${response.status}`);
+      const facts = await response.json();
+      let splits = null; // without split history, EPS and share counts stay Yahoo-only
+      try {
+        const split = await fetchFn(yahooSplitsUrl(yahooSymbol, now), {
+          headers: { 'User-Agent': 'Mozilla/5.0', Accept: 'application/json' }, signal: AbortSignal.timeout(TIMEOUT_MS),
+        });
+        if (split.ok) splits = parseYahooSplits(await split.json());
+      } catch { /* keep null */ }
+      history = normalizeEdgarFacts(facts, data.currency, splits);
+    } catch (error) {
+      log(`${symbol}: EDGAR ${error?.message ?? error}; keeping stored history`);
+      history = storedHistory(await storedData(symbol).catch(() => null), data.currency);
+    }
+    return mergeFundamentals(data, history).data;
+  };
 
   for (const [index, { symbol, yahooSymbol }] of queue.entries()) {
     // Sequential requests plus 500 ms between completions and starts: at most ~2/s.
@@ -153,6 +219,7 @@ export async function runFundamentalsWorker({
       if (!response.ok) throw new Error(`Yahoo HTTP ${response.status}`);
       data = normalizeYahooFundamentals(await response.json(), symbol, new Date(now).toISOString());
       if (data.status !== 'ok') throw new Error('Yahoo returned no usable fundamentals');
+      data = await withHistory(data, symbol, yahooSymbol);
     } catch (error) {
       failure = String(error?.message ?? error).slice(0, 500);
     }
@@ -186,7 +253,10 @@ export async function runFundamentalsWorker({
 if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) {
   let only = null;
   try { only = parseOnlySymbols(process.env.ONLY_SYMBOLS); } catch (e) { console.error(e.message); process.exit(1); }
-  runFundamentalsWorker({ url: process.env.SUPABASE_URL, key: process.env.SUPABASE_SERVICE_KEY, only })
+  runFundamentalsWorker({
+    url: process.env.SUPABASE_URL, key: process.env.SUPABASE_SERVICE_KEY, only,
+    secUserAgent: String(process.env.SEC_USER_AGENT ?? '').trim(), force: process.env.FUNDAMENTALS_FORCE === '1',
+  })
     // ETFs and delisted symbols never have statements; only a run where nothing loaded is a failure.
     // On demand a missing company (ETF) is an answer, not a failure: finish-requests records it.
     .then((summary) => { if (!only && summary.failed && !summary.updated && !summary.skipped) process.exitCode = 1; })

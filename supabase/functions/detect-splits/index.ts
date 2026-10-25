@@ -4,6 +4,7 @@
 // portfolios when confirmed — that heuristic has been removed.
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2.45.0";
 import { isSchedulerToken } from "../_shared/auth.ts";
+import { fetchAllRows } from "../_shared/price-providers.ts";
 import { parseFinnhubSplits } from "./parse.ts";
 import { isCryptoTicker } from "../_shared/crypto.js";
 
@@ -32,8 +33,8 @@ Deno.serve(async (req) => {
     if (!finnhubKey) throw new Error("FINNHUB_API_KEY not configured");
 
     // Who holds what (non-cash, non-crypto).
-    const { data: positions } = await supabase
-      .from("positions").select("ticker,user_id").neq("type", "Cash");
+    const positions = await fetchAllRows("positions", (from, to) => supabase
+      .from("positions").select("ticker,user_id").neq("type", "Cash").order("id").range(from, to));
     const holders = new Map<string, Set<string>>(); // ticker -> set(user_id)
     for (const p of positions ?? []) {
       if (!p.ticker || isCryptoTicker(p.ticker) || p.ticker.toUpperCase() === "CASH") continue;
@@ -42,15 +43,15 @@ Deno.serve(async (req) => {
     }
 
     // Existing split rows (any status) to avoid duplicates: key = ticker|user_id|date.
-    const { data: existing } = await supabase.from("splits").select("ticker,user_id,split_date");
-    const seen = new Set((existing ?? []).map((s: any) => `${s.ticker}|${s.user_id}|${s.split_date}`));
+    const existing = await fetchAllRows("splits", (from, to) => supabase.from("splits").select("ticker,user_id,split_date").order("id").range(from, to));
+    const seen = new Set((existing ?? []).map((s) => `${s.ticker}|${s.user_id}|${s.split_date}`));
 
     const from = ymd(new Date(Date.now() - 7 * 86_400_000));
     const to = ymd(new Date());
 
-    const candidates: any[] = [];
+    const candidates: (ReturnType<typeof parseFinnhubSplits>[number] & { user_id: string })[] = [];
     for (const [ticker, users] of holders) {
-      let rows: any[] = [];
+      let rows: Parameters<typeof parseFinnhubSplits>[1] = [];
       try {
         const r = await fetch(
           `https://finnhub.io/api/v1/stock/split?symbol=${encodeURIComponent(ticker)}&from=${from}&to=${to}&token=${finnhubKey}`,
@@ -65,7 +66,13 @@ Deno.serve(async (req) => {
       }
     }
 
-    if (candidates.length > 0) await supabase.from("splits").insert(candidates);
+    // One row per user, ticker and day (unique index, audit B7): a concurrent run adds nothing twice.
+    if (candidates.length > 0) {
+      let { error } = await supabase.from("splits").upsert(candidates, { onConflict: "user_id,ticker,split_date", ignoreDuplicates: true });
+      // 42P10 = no such unique index yet (deployed before migration 20261026100120): the plain insert of rows not seen above.
+      if (error?.code === "42P10") ({ error } = await supabase.from("splits").insert(candidates));
+      if (error) throw new Error(`store splits: ${error.message}`);
+    }
 
     return new Response(JSON.stringify({ detected: candidates.length, tickers_checked: holders.size }), {
       headers: { ...corsHeaders, "Content-Type": "application/json" },

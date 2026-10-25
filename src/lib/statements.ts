@@ -4,7 +4,20 @@
 export type Kind = "TRADE" | "DEPOSIT" | "WITHDRAWAL" | "DIVIDEND" | "FEE" | "SPLIT" | "HOLDING" | "SKIP";
 export type Side = "BUY" | "SELL";
 
+import { datedUsd } from "./fxLookup";
+import cnb from "@/data/cnbRates.json";
+
 export interface NormalizedRow {
+  original_currency?: string;
+  original_amount?: number;
+  gross_amount_usd?: number;
+  withholding_tax_usd?: number;
+  gross_amount?: number;
+  withholding_tax?: number;
+  fee_amount?: number;
+  fee_currency?: string;
+  needs_review?: boolean;
+  withholding?: boolean;
   external_id: string;
   broker: "XTB" | "Revolut" | "T212";
   /**
@@ -42,7 +55,7 @@ export function excelDateToISO(serial: number): string {
   return new Date(ms).toISOString();
 }
 
-/** Strip XTB exchange suffix: AMD.US -> AMD, ASML.US -> ASML. */
+/** Preserve the legacy stored identity; currency is derived separately from the raw ticker. */
 export function stripSuffix(t: string): string {
   return (t || "").replace(/\.[A-Z]{2,3}$/i, "").toUpperCase();
 }
@@ -306,10 +319,12 @@ export function parseT212Activity(text: string): NormalizedRow[] {
       // importer's FX conversion can't turn a USD amount into a 20x-too-small one.
       const txCcy = (l.match(CCY_RE) ?? []).pop();
       const total = parseUsd((l.match(/([\d,.]+)\s*$/) || ["", "0"])[1]);
+      const settlement = txCcy ? l.slice(l.lastIndexOf(txCcy) + txCcy.length).trim().split(/\s+/) : [];
+      const fee = settlement.slice(0, -1).reduce((sum, v) => sum + (Number.isFinite(parseUsd(v)) ? Math.abs(parseUsd(v)) : 0), 0);
       const side: Side = m[6] === "Koupit" ? "BUY" : "SELL";
       out.push({
         external_id: `t212:act:${orderId}`, broker: "T212", account, kind: "TRADE", ticker: m[2].toUpperCase(), isin: m[3],
-        side, shares, ccy: m[4], price_ccy: price, value_ccy: value, czk: txCcy === "CZK" ? total : undefined,
+        side, shares, fee_amount: fee, fee_currency: txCcy, ccy: m[4], price_ccy: price, value_ccy: value, czk: txCcy === "CZK" ? total : undefined,
         // A non-USD instrument settled in USD has no CZK amount; without this its USD price
         // could only come out as 0 (convertT212 in statementImport.ts).
         usd_total: txCcy === "USD" && total > 0 ? total : undefined,
@@ -384,7 +399,7 @@ export function parseT212Holdings(text: string): NormalizedRow[] {
  * @param cashRows  "Cash Operations" sheet (array-of-arrays, header:1)
  * @param closedRows "Closed Positions" sheet (array-of-arrays, header:1)
  */
-export function parseXtbHoldings(cashRows: any[][], closedRows: any[][] = []): NormalizedRow[] {
+export function parseXtbHoldings(cashRows: unknown[][], closedRows: unknown[][] = []): NormalizedRow[] {
   // Purchases from Cash Operations (shares + cost from the comment).
   const bought: Record<string, { shares: number; cost: number }> = {};
   for (const r of parseXtbRows(cashRows)) {
@@ -423,7 +438,7 @@ export function parseXtbHoldings(cashRows: any[][], closedRows: any[][] = []): N
  * Using Closed Positions for sells captures disposals that aren't plain "Stock sell" rows
  * (splits/corporate closes), so net shares end up correct. ext_id keeps it idempotent.
  */
-export function parseXtbTrades(cashRows: any[][], closedRows: any[][] = []): NormalizedRow[] {
+export function parseXtbTrades(cashRows: unknown[][], closedRows: unknown[][] = []): NormalizedRow[] {
   const out: NormalizedRow[] = [];
   const account = parseXtbAccount(cashRows);
   // From Cash Operations take BUYs + deposits/withdrawals + dividends. SELLs come from the
@@ -436,13 +451,13 @@ export function parseXtbTrades(cashRows: any[][], closedRows: any[][] = []): Nor
       out.push({ ...r, external_id: `xtb:ord:${r.external_id}`, label: `BUY ${r.shares} × ${r.ticker} @ $${r.price_usd}` });
     } else if (r.kind === "TRADE" && r.side === "SELL") {
       cashSells.push(r);
-    } else if (r.kind === "DEPOSIT" || r.kind === "WITHDRAWAL" || r.kind === "DIVIDEND") {
+    } else if (r.kind === "DEPOSIT" || r.kind === "WITHDRAWAL" || r.kind === "DIVIDEND" || r.kind === "SKIP") {
       out.push({ ...r, external_id: `xtb:${r.kind.toLowerCase()}:${r.external_id}` });
     }
   }
   const hdr = closedRows.findIndex((r) => String(r?.[0]).trim() === "Instrument");
   if (hdr >= 0) {
-    const cols = closedRows[hdr].map((c: any) => String(c).trim());
+    const cols = closedRows[hdr].map((c) => String(c).trim());
     const idx = (name: string) => cols.indexOf(name);
     const ci = { ticker: idx("Ticker"), vol: idx("Volume"), price: idx("Close Price"), time: idx("Close Time (UTC)"), pid: idx("Position ID") };
     for (const r of closedRows.slice(hdr + 1)) {
@@ -452,12 +467,17 @@ export function parseXtbTrades(cashRows: any[][], closedRows: any[][] = []): Nor
       const t = Number(r?.[ci.time]);
       if (!ticker || !(shares > 0)) continue;
       const pid = String(r?.[ci.pid] ?? `${ticker}-${shares}`);
-      out.push({
+      if (!Number.isFinite(t) || t <= 0 || t > 2958465) {
+        out.push({ external_id: `xtb:close:${pid}-${shares}`, broker: "XTB", account, kind: "SKIP", needs_review: true, ticker,
+          executed_at: "", label: `XTB ${ticker}: chybí datum prodeje, nutná kontrola` });
+        continue;
+      }
+      out.push(convertXtbRow({
         external_id: `xtb:close:${pid}-${shares}`, broker: "XTB", account, kind: "TRADE", ticker, side: "SELL",
-        shares, price_usd: Number.isFinite(price) ? price : 0, fee_usd: 0,
-        executed_at: Number.isFinite(t) ? excelDateToISO(t) : new Date().toISOString(),
+        shares, price_usd: price, fee_usd: 0,
+        executed_at: excelDateToISO(t),
         label: `SELL ${shares} × ${ticker} @ $${price}`,
-      });
+      }, xtbInstrumentCurrency(String(r?.[ci.ticker] ?? ""), String(r?.[idx("Currency")] ?? ""))));
     }
   } else {
     // No "Closed Positions" sheet → fall back to the Cash Operations "Stock sell" rows.
@@ -470,7 +490,7 @@ export function parseXtbTrades(cashRows: any[][], closedRows: any[][] = []): Nor
  * Parse XTB "Cash Operations" sheet (array-of-arrays from xlsx sheet_to_json header:1).
  * Header is located dynamically (the row whose first cell is "Type").
  */
-export function parseXtbAccount(rows: any[][]): string | undefined {
+export function parseXtbAccount(rows: unknown[][]): string | undefined {
   for (const r of rows.slice(0, 10)) {
     if (/account number/i.test(String(r?.[0] ?? ""))) {
       const v = String(r?.[1] ?? "").trim();
@@ -480,22 +500,59 @@ export function parseXtbAccount(rows: any[][]): string | undefined {
   return undefined;
 }
 
-export function parseXtbRows(rows: any[][]): NormalizedRow[] {
+const xtbAccountCurrencies = new Set(["CZK", ...Object.values(cnb.rates).flatMap(Object.keys)]);
+
+export function parseXtbCurrency(rows: unknown[][]): string | undefined {
+  for (const row of rows) {
+    if (["Type", "Instrument"].includes(String(row[0]).trim())) break;
+    // Labels are case-insensitive, but codes must be uppercase and supported by our rates.
+    const label = /(?:account currency|currency|měna účtu|měna|waluta)\s*:?\s*/i.exec(row.join(" "));
+    const code = label && /^([A-Z]{3})\b/.exec(label.input.slice(label.index + label[0].length))?.[1];
+    if (code && xtbAccountCurrencies.has(code)) return code;
+  }
+  return undefined;
+}
+
+function xtbInstrumentCurrency(ticker: string, explicit?: string): string | undefined {
+  if (explicit && /^[A-Z]{3}$/.test(explicit)) return explicit;
+  const suffix = ticker.split(".").pop()?.toUpperCase() ?? "";
+  // London listings can quote GBP, GBX or USD; require an explicit currency there.
+  return ({ US: "USD", DE: "EUR", FR: "EUR", NL: "EUR", ES: "EUR", IT: "EUR", PT: "EUR", BE: "EUR", PL: "PLN", CZ: "CZK" } as Record<string, string>)[suffix];
+}
+
+function convertXtbRow(r: NormalizedRow, currency: string | undefined): NormalizedRow {
+  const amount = r.kind === "TRADE" ? r.price_usd : r.amount_usd;
+  if (amount == null) return r;
+  const usd = datedUsd(amount, currency, r.executed_at.slice(0, 10));
+  const original = r.kind === "TRADE" ? { ccy: currency, price_ccy: amount } : { original_currency: currency, original_amount: amount };
+  if (!Number.isFinite(usd)) return { ...r, ...original, kind: "SKIP", needs_review: true, price_usd: undefined, amount_usd: undefined,
+    label: `${r.label}: chybí měna / datovaný kurz ${currency ?? "?"}, nutná kontrola` };
+  return { ...r, ...original, ...(r.kind === "TRADE" ? { price_usd: usd } : { amount_usd: usd }) };
+}
+
+export function parseXtbRows(rows: unknown[][]): NormalizedRow[] {
+  const currency = parseXtbCurrency(rows);
   const headerIdx = rows.findIndex((r) => String(r?.[0]).trim() === "Type");
   if (headerIdx < 0) return [];
   const account = parseXtbAccount(rows);
   const out: NormalizedRow[] = [];
   for (const r of rows.slice(headerIdx + 1)) {
     const type = String(r?.[0] ?? "").trim();
-    if (!type || type === "Total") continue;
+    if (!type || type === "Total" || type === "Type") continue;
     const rawTicker = String(r?.[1] ?? "");
     const ticker = rawTicker ? stripSuffix(rawTicker) : undefined;
     const serial = Number(r?.[3]);
     const amount = Number(r?.[4]);
     const id = String(r?.[5] ?? "");
     const comment = String(r?.[6] ?? "");
-    const executed_at = Number.isFinite(serial) ? excelDateToISO(serial) : new Date().toISOString();
-    const base = { external_id: id, broker: "XTB" as const, account, executed_at };
+    if (!Number.isFinite(serial) || serial <= 0 || serial > 2958465) {
+      out.push({ external_id: id, broker: "XTB", account, kind: "SKIP", needs_review: true, ticker,
+        executed_at: "", label: `XTB ${type}: chybí datum, nutná kontrola` });
+      continue;
+    }
+    const executed_at = excelDateToISO(serial);
+    const explicitCurrency = String(r?.[rows[headerIdx].indexOf("Currency")] ?? "") || comment.match(/\b(USD|EUR|GBP|GBX|CZK|PLN)\b/)?.[1];
+    const base = { external_id: id, broker: "XTB" as const, account, executed_at, original_currency: currency, original_amount: amount, ccy: xtbInstrumentCurrency(rawTicker, explicitCurrency) };
 
     switch (type) {
       case "Stock purchase":
@@ -524,7 +581,7 @@ export function parseXtbRows(rows: any[][]): NormalizedRow[] {
       case "Free funds interest tax":
       case "SEC fee":
       case "Commission":
-        out.push({ ...base, kind: "FEE", ticker, amount_usd: amount, label: `${type} ${ticker ?? ""} $${amount}`.trim() });
+        out.push({ ...base, kind: "FEE", ticker, withholding: type === "Withholding tax", amount_usd: amount, label: `${type} ${ticker ?? ""} $${amount}`.trim() });
         break;
       default:
         // Catch deposit/withdrawal rows whose label isn't exactly "Deposit" (XTB has used
@@ -537,5 +594,19 @@ export function parseXtbRows(rows: any[][]): NormalizedRow[] {
           out.push({ ...base, kind: "SKIP", ticker, label: `${type} (přeskočeno)` });
     }
   }
-  return out;
+  const converted = out.map((r) => convertXtbRow(r, r.kind === "TRADE" ? r.ccy : currency));
+  const groups = new Map<string, NormalizedRow[]>();
+  const key = (r: NormalizedRow) => `${r.ticker}|${r.executed_at.slice(0, 10)}`;
+  for (const r of converted) if (r.kind === "DIVIDEND") groups.set(key(r), [...(groups.get(key(r)) ?? []), r]);
+  for (const [k, dividends] of groups) {
+    const taxes = converted.filter((r) => r.withholding && r.kind === "FEE" && key(r) === k);
+    // Multiple payments need a payment reference to pair the withholding reliably.
+    if (dividends.length !== 1 || !taxes.length) continue;
+    const d = dividends[0];
+    d.gross_amount_usd = d.amount_usd;
+    d.gross_amount = d.original_amount;
+    d.withholding_tax_usd = taxes.reduce((sum, t) => sum + Math.abs(t.amount_usd!), 0);
+    d.withholding_tax = taxes.reduce((sum, t) => sum + Math.abs(t.original_amount!), 0);
+  }
+  return converted;
 }

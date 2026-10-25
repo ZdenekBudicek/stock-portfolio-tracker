@@ -14,6 +14,253 @@ export type Database = {
   }
   public: {
     Tables: {
+      // B?h 6: synchronized from the reviewed test-target migration DDL; live generation pending.
+      chat_threads: {
+        Row: {
+          id: string
+          user_id: string
+          title: string
+          created_at: string
+          updated_at: string
+        }
+        Insert: {
+          id?: string
+          user_id: string
+          title: string
+          created_at?: string
+          updated_at?: string
+        }
+        Update: {
+          id?: string
+          user_id?: string
+          title?: string
+          created_at?: string
+          updated_at?: string
+        }
+        Relationships: []
+      }
+      chat_messages: {
+        Row: {
+          id: string
+          thread_id: string
+          user_id: string
+          request_id: string
+          seq: number
+          role: string
+          content: string
+          lang: string
+          trace: Json
+          links: Json
+          created_at: string
+        }
+        Insert: {
+          id?: string
+          thread_id: string
+          user_id: string
+          request_id: string
+          seq: number
+          role: string
+          content: string
+          lang: string
+          trace?: Json
+          links?: Json
+          created_at?: string
+        }
+        Update: {
+          id?: string
+          thread_id?: string
+          user_id?: string
+          request_id?: string
+          seq?: number
+          role?: string
+          content?: string
+          lang?: string
+          trace?: Json
+          links?: Json
+          created_at?: string
+        }
+        Relationships: [{
+          foreignKeyName: "chat_messages_thread_id_user_id_fkey"
+          columns: ["thread_id", "user_id"]
+          isOneToOne: false
+          referencedRelation: "chat_threads"
+          referencedColumns: ["id", "user_id"]
+        }]
+      }
+      agent_runs: {
+        Row: {
+          id: string
+          thread_id: string
+          user_id: string
+          request_id: string
+          model: string | null
+          router_model: string | null
+          tokens_in: number
+          tokens_out: number
+          max_call_tokens: number
+          tool_calls: number
+          tools_used: string[]
+          wall_ms: number
+          ttft_ms: number | null
+          outcome: string
+          grounding_ok: boolean
+          calculation_version: string
+          error_code: string | null
+          created_at: string
+        }
+        Insert: {
+          id?: string
+          thread_id: string
+          user_id: string
+          request_id: string
+          model?: string | null
+          router_model?: string | null
+          tokens_in: number
+          tokens_out: number
+          max_call_tokens: number
+          tool_calls: number
+          tools_used: string[]
+          wall_ms: number
+          ttft_ms?: number | null
+          outcome: string
+          grounding_ok: boolean
+          calculation_version: string
+          error_code?: string | null
+          created_at?: string
+        }
+        Update: {
+          id?: string
+          thread_id?: string
+          user_id?: string
+          request_id?: string
+          model?: string | null
+          router_model?: string | null
+          tokens_in?: number
+          tokens_out?: number
+          max_call_tokens?: number
+          tool_calls?: number
+          tools_used?: string[]
+          wall_ms?: number
+          ttft_ms?: number | null
+          outcome?: string
+          grounding_ok?: boolean
+          calculation_version?: string
+          error_code?: string | null
+          created_at?: string
+        }
+        Relationships: [{
+          foreignKeyName: "agent_runs_thread_id_user_id_fkey"
+          columns: ["thread_id", "user_id"]
+          isOneToOne: false
+          referencedRelation: "chat_threads"
+          referencedColumns: ["id", "user_id"]
+        }]
+      }
+      agent_daily_usage: {
+        Row: {
+          user_id: string
+          day: string
+          used: number
+        }
+        Insert: {
+          user_id: string
+          day: string
+          used: number
+        }
+        Update: {
+          user_id?: string
+          day?: string
+          used?: number
+        }
+        Relationships: []
+      }
+      agent_requests: {
+        Row: {
+          user_id: string
+          request_id: string
+          thread_id: string
+          requested_thread_id: string | null
+          fingerprint: string
+          question_hash: string
+          lang: string
+          state: string
+          execution_token_hash: string
+          created_at: string
+          completed_at: string | null
+          answer: Json | null
+        }
+        Insert: {
+          user_id: string
+          request_id: string
+          thread_id: string
+          requested_thread_id?: string | null
+          fingerprint: string
+          question_hash: string
+          lang: string
+          state: string
+          execution_token_hash: string
+          created_at?: string
+          completed_at?: string | null
+          answer?: Json | null
+        }
+        Update: {
+          user_id?: string
+          request_id?: string
+          thread_id?: string
+          requested_thread_id?: string | null
+          fingerprint?: string
+          question_hash?: string
+          lang?: string
+          state?: string
+          execution_token_hash?: string
+          created_at?: string
+          completed_at?: string | null
+          answer?: Json | null
+        }
+        Relationships: []
+      }
+      stock_news: {
+        Row: {
+          symbol: string
+          items: Json | null
+          fetched_at: string | null
+        }
+        Insert: {
+          symbol: string
+          items?: Json | null
+          fetched_at?: string | null
+        }
+        Update: {
+          symbol?: string
+          items?: Json | null
+          fetched_at?: string | null
+        }
+        Relationships: []
+      }
+      analyst_snapshots: {
+        Row: {
+          symbol: string
+          data: Json | null
+          fetched_at: string | null
+          last_attempt_at: string | null
+          status: string
+        }
+        Insert: {
+          symbol: string
+          data?: Json | null
+          fetched_at?: string | null
+          last_attempt_at?: string | null
+          status: string
+        }
+        Update: {
+          symbol?: string
+          data?: Json | null
+          fetched_at?: string | null
+          last_attempt_at?: string | null
+          status?: string
+        }
+        Relationships: []
+      }
       benchmark_history: {
         Row: {
           close_value: number
@@ -40,6 +287,7 @@ export type Database = {
       }
       broker_connections: {
         Row: {
+          cash_sync_state: Json | null
           account_id: string | null
           account_summary: Json | null
           api_key_encrypted: string | null
@@ -53,6 +301,7 @@ export type Database = {
           user_id: string
         }
         Insert: {
+          cash_sync_state?: Json | null
           account_id?: string | null
           account_summary?: Json | null
           api_key_encrypted?: string | null
@@ -66,6 +315,7 @@ export type Database = {
           user_id?: string
         }
         Update: {
+          cash_sync_state?: Json | null
           account_id?: string | null
           account_summary?: Json | null
           api_key_encrypted?: string | null
@@ -154,6 +404,9 @@ export type Database = {
       }
       deposits: {
         Row: {
+          api_reference: string | null
+          original_currency: string | null
+          original_amount: number | null
           amount_usd: number
           broker: string | null
           broker_account: string | null
@@ -165,6 +418,9 @@ export type Database = {
           user_id: string
         }
         Insert: {
+          api_reference?: string | null
+          original_currency?: string | null
+          original_amount?: number | null
           amount_usd: number
           broker?: string | null
           broker_account?: string | null
@@ -176,6 +432,9 @@ export type Database = {
           user_id: string
         }
         Update: {
+          api_reference?: string | null
+          original_currency?: string | null
+          original_amount?: number | null
           amount_usd?: number
           broker?: string | null
           broker_account?: string | null
@@ -190,6 +449,11 @@ export type Database = {
       }
       dividends: {
         Row: {
+          gross_amount_usd: number | null
+          withholding_tax_usd: number | null
+          original_currency: string | null
+          gross_amount: number | null
+          withholding_tax: number | null
           amount_per_share: number
           broker: string
           broker_account: string | null
@@ -206,6 +470,11 @@ export type Database = {
           user_id: string | null
         }
         Insert: {
+          gross_amount_usd?: number | null
+          withholding_tax_usd?: number | null
+          original_currency?: string | null
+          gross_amount?: number | null
+          withholding_tax?: number | null
           amount_per_share: number
           broker?: string
           broker_account?: string | null
@@ -222,6 +491,11 @@ export type Database = {
           user_id?: string | null
         }
         Update: {
+          gross_amount_usd?: number | null
+          withholding_tax_usd?: number | null
+          original_currency?: string | null
+          gross_amount?: number | null
+          withholding_tax?: number | null
           amount_per_share?: number
           broker?: string
           broker_account?: string | null
@@ -559,6 +833,7 @@ export type Database = {
           base_currency: string
           confirmed_at: string | null
           created_at: string
+          tax_profile: Json
           tax_residence: string
           updated_at: string
           user_id: string
@@ -567,6 +842,7 @@ export type Database = {
           base_currency?: string
           confirmed_at?: string | null
           created_at?: string
+          tax_profile?: Json
           tax_residence?: string
           updated_at?: string
           user_id: string
@@ -575,6 +851,7 @@ export type Database = {
           base_currency?: string
           confirmed_at?: string | null
           created_at?: string
+          tax_profile?: Json
           tax_residence?: string
           updated_at?: string
           user_id?: string
@@ -616,6 +893,9 @@ export type Database = {
       [_ in never]: never
     }
     Functions: {
+      replace_statement_trades: { Args: { p_account: string | null; p_from: string; p_before: string; p_rows: Json; p_adopt: boolean; p_corrections: Json }; Returns: { inserted: number; corrected: number } }
+      begin_agent_request: { Args: { p_request_id: string; p_thread_id: string | null; p_question: string; p_lang: string; p_fingerprint: string; p_execution_token: string }; Returns: Json }
+      complete_agent_request: { Args: { p_request_id: string; p_execution_token: string; p_answer: Json; p_metrics: Json }; Returns: undefined }
       apply_cash_delta: { Args: { p_delta: number; p_user_id: string }; Returns: number }
       apply_split: { Args: { split_id: string }; Returns: undefined }
       claim_orphan_data: { Args: { p_email: string }; Returns: Json }

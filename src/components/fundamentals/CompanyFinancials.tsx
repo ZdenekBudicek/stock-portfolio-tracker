@@ -9,15 +9,20 @@ import { useEffect, useMemo, useRef, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import { Loader2, Maximize2 } from 'lucide-react';
 import {
-  Area, AreaChart, Bar, BarChart, CartesianGrid, Cell, LabelList, ReferenceLine, ResponsiveContainer, Tooltip, XAxis, YAxis,
+  Area, AreaChart, Bar, BarChart, Brush, CartesianGrid, Cell, LabelList, ReferenceLine, ResponsiveContainer, Tooltip, XAxis, YAxis,
 } from 'recharts';
 import { useCompanyFundamentals } from '@/hooks/useCompanyFundamentals';
 import { usePriceHistory } from '@/hooks/usePriceHistory';
-import { isStalePending, requestFundamentals, useFundamentalsRequest } from '@/hooks/useFundamentalsRequests';
+import { fetchCompanyData, isStalePending, useFundamentalsRequest } from '@/hooks/useFundamentalsRequests';
+import { useQueryClient } from '@tanstack/react-query';
 import type { CompanyFundamentals, FundamentalMetric, FundamentalSeries } from '@/types/fundamentals';
 import { medianOf, valuationSeries, type Multiple } from '@/lib/valuationSeries';
 import { Panel, Segmented, EmptyNote, Pill } from '@/components/v2/ui';
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from '@/components/ui/dialog';
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
+import { TickerLogo } from '@/components/TickerLogo';
+import { useIsMobile } from '@/hooks/use-mobile';
+import { CHART_RANGES, growthStats, rangeFor, rangeStartIndex, usableRanges, type ChartRange } from '@/lib/financialsGrowth';
 import { currentLang, currentLocale } from '@/i18n';
 import { fmtDay, fmtNum, fmtPercent } from '@/i18n/format';
 import { cn } from '@/lib/utils';
@@ -67,13 +72,15 @@ function formatter(kind: Fmt, currency: string, compact = false): (v: number) =>
 /** Margins beyond ±200 % come from near-zero revenue and would flatten the chart. */
 const MARGIN_LIMIT = 2;
 
-const periodLabel = (iso: string, mode: Mode) => {
+/** "Q3 25" in the small cards; "3Q 2025" (cs) / "Q3 2025" (en) in the enlarged chart. */
+const periodLabel = (iso: string, mode: Mode, long = false) => {
   if (mode === 'annual') return iso.slice(0, 4);
   const q = Math.floor((Number(iso.slice(5, 7)) - 1) / 3) + 1;
-  return `Q${q} ${iso.slice(2, 4)}`;
+  if (!long) return `Q${q} ${iso.slice(2, 4)}`;
+  return currentLang() === 'en' ? `Q${q} ${iso.slice(0, 4)}` : `${q}Q ${iso.slice(0, 4)}`;
 };
 
-type Row = { period: string; end: string } & Record<string, number | string | null>;
+type Row = { period: string; label: string; end: string } & Record<string, number | string | null>;
 
 const num = (v: unknown): number | null => (typeof v === 'number' && Number.isFinite(v) ? v : null);
 const div = (a: number | null, b: number | null) => (a == null || b == null || b === 0 ? null : a / b);
@@ -94,7 +101,7 @@ function buildRows(s: FundamentalSeries, mode: Mode): Row[] {
     const buybacks = v('buybacks', i) != null ? Math.abs(v('buybacks', i)!) : null;
     const cash = v('cash', i), debt = v('totalDebt', i);
     const r: Row = {
-      period: periodLabel(end, mode), end,
+      period: periodLabel(end, mode), label: periodLabel(end, mode, true), end,
       revenue: rev, grossProfit: v('grossProfit', i), ebitda: v('ebitda', i),
       netIncome: v('netIncome', i), eps: v('dilutedEps', i), operatingIncome: v('operatingIncome', i),
       fcf, ocf, capexSpend: capex != null ? Math.abs(capex) : null,
@@ -144,7 +151,7 @@ function headline(rows: Row[], key: string) {
     else if (p != null && p !== 0 && v !== 0) flip = v > 0 ? 'toPositive' : 'toNegative';
     break;
   }
-  return { v, change, flip, period: rows[i].period };
+  return { v, change, flip, period: rows[i].period, label: rows[i].label };
 }
 
 interface SeriesDef { key: string; label: string; color: string }
@@ -215,7 +222,7 @@ function Headline({ rows, view, currency, big }: { rows: Row[]; view: View; curr
       {h.flip && (
         <span className={cn('rounded-full px-1.5 py-0.5 text-[11px] font-semibold', view.neutral ? 'bg-white/10 text-foreground/80' : (h.flip === 'toPositive') !== !!view.upIsBad ? 'bg-profit/15 text-profit' : 'bg-loss/15 text-loss')}>{t(h.flip === 'toPositive' ? 'fin.flipUp' : 'fin.flipDown')}</span>
       )}
-      <span className="text-[11px] text-muted-foreground">{h.period}{h.change != null ? ` · ${t('fin.vsYearAgo')}` : ''}</span>
+      <span className="text-[11px] text-muted-foreground">{big ? h.label : h.period}{h.change != null ? ` · ${t('fin.vsYearAgo')}` : ''}</span>
     </div>
   );
 }
@@ -256,7 +263,7 @@ function ViewChart({ rows, view, currency, big, uid }: { rows: Row[]; view: View
   );
 }
 
-function ValuesTable({ rows, view, currency }: { rows: Row[]; view: View; currency: string }) {
+function ValuesTable({ rows, view, currency, long }: { rows: Row[]; view: View; currency: string; long?: boolean }) {
   const { t } = useTranslation();
   const f = formatter(view.fmt, currency);
   const keys = [...view.series, ...(view.kind === 'stack' && view.head ? [{ key: view.head, label: t('fin.total'), color: 'hsl(220 20% 85%)' }] : [])];
@@ -265,14 +272,14 @@ function ValuesTable({ rows, view, currency }: { rows: Row[]; view: View; curren
       <table className="w-full min-w-[420px] text-xs">
         <thead>
           <tr className="text-muted-foreground">
-            <th className="py-2 pr-3 text-left font-medium">{t('fin.table')}</th>
-            {rows.map((r) => <th key={r.end} className="px-2 py-2 text-right font-medium num">{r.period}</th>)}
+            <th className="sticky left-0 z-10 whitespace-nowrap bg-[hsl(228_24%_7%)] py-2 pr-3 text-left font-medium">{t('fin.table')}</th>
+            {rows.map((r) => <th key={r.end} className="whitespace-nowrap px-2 py-2 text-right font-medium num">{long ? r.label : r.period}</th>)}
           </tr>
         </thead>
         <tbody>
           {keys.map((s) => (
             <tr key={s.key} className="border-t border-white/[0.06]">
-              <td className="py-2 pr-3"><span className="flex items-center gap-1.5 whitespace-nowrap"><span className="h-2 w-2 rounded-full" style={{ background: s.color }} />{s.label}</span></td>
+              <td className="sticky left-0 z-10 bg-[hsl(228_24%_7%)] py-2 pr-3"><span className="flex items-center gap-1.5 whitespace-nowrap"><span className="h-2 w-2 rounded-full" style={{ background: s.color }} />{s.label}</span></td>
               {rows.map((r) => {
                 const v = num(r[s.key]);
                 return <td key={r.end} className={cn('px-2 py-2 text-right num whitespace-nowrap', v != null && v < 0 && 'text-loss')}>{v == null ? '—' : f(v)}</td>;
@@ -306,10 +313,205 @@ const Explain = ({ what, how, note }: { what: string; how: string; note?: string
 const dialogClass = 'max-h-[92vh] max-w-5xl overflow-y-auto border-white/10 bg-[hsl(228_24%_7%/0.98)] p-5 sm:p-7';
 const cardClass = 'group/card flex flex-col rounded-3xl border border-white/[0.07] bg-white/[0.025] p-4 transition-colors hover:border-white/[0.15]';
 
-function MetricCard({ card, rows, currency }: { card: CardDef; rows: Row[]; currency: string }) {
+interface Company { symbol: string; name: string }
+
+/** Hover card of the enlarged chart: period, then each series' value in its own colour. */
+function ChartTip({ active, payload, view, currency }: { active?: boolean; payload?: { payload?: Row }[]; view: View; currency: string }) {
+  if (!active || !payload?.length) return null;
+  const row = payload[0].payload;
+  if (!row) return null;
+  const f = formatter(view.fmt, currency);
+  return (
+    <div className="min-w-[150px] rounded-xl border border-white/[0.12] bg-[hsl(228_24%_8%/0.96)] px-3.5 py-2.5 text-xs shadow-[0_12px_30px_-8px_rgb(0_0_0/0.6)]">
+      <div className="mb-1.5 font-medium text-muted-foreground num">{row.label}</div>
+      {view.series.map((s) => {
+        const v = num(row[s.key]);
+        const neg = v != null && v < 0 && view.kind === 'bar';
+        return (
+          <div key={s.key} className="flex items-baseline gap-2 py-0.5">
+            <span className={cn('text-base font-semibold num', neg && 'text-loss')} style={neg ? undefined : { color: s.color }}>{v == null ? '—' : f(v)}</span>
+            <span className="text-muted-foreground">{s.label}</span>
+          </div>
+        );
+      })}
+    </div>
+  );
+}
+
+/** The range slider pays off only with a long history; a handful of bars needs none. */
+const BRUSH_MIN = 16;
+
+/** The enlarged chart: every period, a range slider under long histories, value labels when few bars show. */
+function BigChart({ rows, view, currency, uid, start, end, onRange }: {
+  rows: Row[]; view: View; currency: string; uid: string; start: number; end: number; onRange: (s: number, e: number) => void;
+}) {
+  const mobile = useIsMobile();
+  const tick = formatter(view.fmt, currency, true);
+  const visible = end - start + 1;
+  const showLabels = !mobile && visible <= 12;
+  const single = view.kind === 'bar' && view.series.length === 1;
+  const s0 = view.series[0];
+  const gid = (k: string) => `${uid}-${k}-x`;
+  const fill = (s: SeriesDef) => `url(#${gid(s.key)})`;
+  const brush = rows.length >= BRUSH_MIN;
+  return (
+    <ResponsiveContainer>
+      <BarChart data={rows} margin={{ top: showLabels ? 22 : 8, right: 4, left: 0, bottom: 0 }} barCategoryGap={view.kind === 'group' ? '22%' : visible > 24 ? '12%' : '22%'}>
+        <defs>
+          {view.series.map((s) => <Grad key={s.key} id={gid(s.key)} color={s.color} />)}
+          <Grad id={gid('neg')} color={COL.red} />
+        </defs>
+        <CartesianGrid stroke={COL.grid} strokeDasharray="3 4" vertical={false} />
+        <XAxis dataKey="label" tick={{ fill: COL.axis, fontSize: mobile ? 10.5 : 12, fontWeight: 600 }} axisLine={false} tickLine={false} minTickGap={mobile ? 8 : 16} interval="preserveStartEnd" />
+        <YAxis tickFormatter={tick} tick={{ fill: COL.axis, fontSize: mobile ? 10.5 : 12, fontWeight: 600 }} axisLine={false} tickLine={false} width={mobile ? 74 : 84} />
+        <ReferenceLine y={0} stroke="hsl(0 0% 100% / 0.22)" />
+        <Tooltip content={<ChartTip view={view} currency={currency} />} cursor={{ fill: 'hsl(0 0% 100% / 0.05)' }} isAnimationActive={false} />
+        {view.series.map((s, si) => (
+          <Bar key={s.key} dataKey={s.key} name={s.label} stackId={view.kind === 'stack' ? 'a' : undefined} fill={fill(s)}
+            radius={view.kind === 'stack' ? (si === view.series.length - 1 ? [4, 4, 0, 0] : [0, 0, 0, 0]) : [4, 4, 4, 4]}
+            maxBarSize={64} isAnimationActive={false}>
+            {/* Cells follow the bars the brush leaves visible, not the full data. */}
+            {single && rows.slice(start, end + 1).map((r, i) => <Cell key={i} fill={(num(r[s0.key]) ?? 0) < 0 ? `url(#${gid('neg')})` : fill(s)} />)}
+            {showLabels && (view.kind !== 'stack' || si === view.series.length - 1) && (
+              <LabelList dataKey={view.kind === 'stack' ? (view.head ?? s.key) : s.key} position="top"
+                formatter={(v: unknown) => (v == null ? '' : tick(Number(v)))} style={{ ...labelStyle, fill: view.kind === 'stack' ? 'hsl(220 20% 88%)' : s.color }} />
+            )}
+          </Bar>
+        ))}
+        {brush && (
+          <Brush dataKey="label" height={mobile ? 16 : 12} travellerWidth={mobile ? 12 : 8} startIndex={start} endIndex={end}
+            stroke="hsl(0 0% 100% / 0.18)" fill="hsl(0 0% 100% / 0.04)" tickFormatter={() => ''}
+            onChange={(r) => { if (r.startIndex != null && r.endIndex != null) onRange(r.startIndex, r.endIndex); }} />
+        )}
+      </BarChart>
+    </ResponsiveContainer>
+  );
+}
+
+/** CAGR and total growth of the newest value against 1–10 years earlier (margins: change in points). */
+function GrowthCards({ rows, view, mode }: { rows: Row[]; view: View; mode: Mode }) {
+  const { t } = useTranslation();
+  const key = view.head ?? view.series[0].key;
+  const stats = growthStats(rows.map((r) => r.end), rows.map((r) => num(r[key])));
+  if (stats.length === 0) return null;
+  const pct = view.fmt === 'pct';
+  const tone = (x: number | null) => (x == null ? 'text-muted-foreground' : view.neutral || x === 0 ? 'text-foreground' : (view.upIsBad ? x < 0 : x > 0) ? 'text-profit' : 'text-loss');
+  // Margins move in tenths of a point; a float residue must not read as "+0,0".
+  const points = (x: number) => Math.round(x * 1000) / 10;
+  const pp = (x: number) => `${points(x) > 0 ? '+' : ''}${fmtNum(points(x), 1, 1)} ${t('fin.chart.pp')}`;
+  const pc = (x: number | null) => (x == null ? '—' : fmtPercent(x * 100, 1, true));
+  const to = rows.find((r) => r.end === stats[0].to)!;
+  return (
+    <div>
+      <div className="grid grid-cols-2 gap-2 sm:grid-cols-3 lg:grid-cols-5">
+        {stats.map((g) => (
+          <div key={g.years} className="rounded-2xl border border-white/[0.07] bg-white/[0.03] px-3.5 py-3">
+            <div className="text-[11px] font-semibold text-foreground/90">{t(`fin.chart.horizon.${g.years}`)}</div>
+            {pct ? (
+              <div className="mt-1.5 flex items-baseline justify-between gap-2 text-xs"><span className="text-muted-foreground">{t('fin.chart.change')}</span><span className={cn('font-semibold num', tone(points(g.diff)))}>{pp(g.diff)}</span></div>
+            ) : (
+              <>
+                <div className="mt-1.5 flex items-baseline justify-between gap-2 text-xs"><span className="text-muted-foreground">CAGR</span><span className={cn('font-semibold num', tone(g.cagr))}>{pc(g.cagr)}</span></div>
+                <div className="mt-0.5 flex items-baseline justify-between gap-2 text-xs"><span className="text-muted-foreground">{t('fin.chart.growth')}</span><span className={cn('font-semibold num', tone(g.growth))}>{pc(g.growth)}</span></div>
+              </>
+            )}
+          </div>
+        ))}
+      </div>
+      <p className="mt-2 text-[11px] leading-relaxed text-muted-foreground">
+        {t(mode === 'annual' ? 'fin.chart.growthNoteAnnual' : 'fin.chart.growthNoteQuarter', { period: to.label })}
+        {!pct && stats.some((g) => g.cagr == null) ? ` ${t('fin.chart.growthNegative')}` : ''}
+      </p>
+    </div>
+  );
+}
+
+/** Body of the enlarged view for one period type and metric; remounted when either changes. */
+function ChartPanel({ rows, view, currency, uid, mode }: { rows: Row[]; view: View; currency: string; uid: string; mode: Mode }) {
+  const { t } = useTranslation();
+  const ends = useMemo(() => rows.map((r) => r.end), [rows]);
+  const [sel, setSel] = useState({ start: 0, end: Math.max(0, rows.length - 1) });
+  const usable = useMemo(() => usableRanges(ends), [ends]);
+  const active = rangeFor(ends, sel.start, sel.end);
+  const has = view.series.some((s) => rows.some((r) => num(r[s.key]) != null));
+  // Only presets the history can fill; a short source history leaves just a few, so say where it starts.
+  const ranges = CHART_RANGES.filter((r) => usable.has(r)).map((r) => ({ value: r, label: t(`fin.chart.range.${r}`) }));
+  const pick = (r: ChartRange) => setSel({ start: rangeStartIndex(ends, r), end: ends.length - 1 });
+  if (!has) return <EmptyNote>{t('fin.noData')}</EmptyNote>;
+  return (
+    <>
+      <div className="flex flex-col items-center gap-1.5">
+        {ranges.length > 1 && <Segmented<ChartRange> value={active} onChange={pick} options={ranges} className="max-w-full overflow-x-auto [scrollbar-width:none]" />}
+        {ranges.length < CHART_RANGES.length && rows.length > 0 && <span className="text-[11px] text-muted-foreground">{t('fin.chart.historyFrom', { period: rows[0].label })}</span>}
+      </div>
+      <div className="flex flex-wrap items-end justify-between gap-3">
+        <Headline rows={rows} view={view} currency={currency} big />
+        <LegendChips series={view.series} />
+      </div>
+      <div className="h-[46vh] min-h-[300px]">
+        <BigChart rows={rows} view={view} currency={currency} uid={uid} start={sel.start} end={sel.end} onRange={(start, end) => setSel({ start, end })} />
+      </div>
+      {rows.length >= BRUSH_MIN && <p className="-mt-2 text-center text-[11px] text-muted-foreground">{t('fin.chart.brushHint')}</p>}
+      <GrowthCards rows={rows} view={view} mode={mode} />
+      <ValuesTable rows={rows.slice(sel.start, sel.end + 1)} view={view} currency={currency} long />
+    </>
+  );
+}
+
+function ChartDialog({ open, onOpenChange, card, rowsBy, initialMode, vi, onView, currency, company }: {
+  open: boolean; onOpenChange: (o: boolean) => void; card: CardDef; rowsBy: Record<Mode, Row[]>; initialMode: Mode;
+  vi: number; onView: (i: number) => void; currency: string; company: Company;
+}) {
+  const { t } = useTranslation();
+  const [mode, setMode] = useState<Mode>(initialMode);
+  useEffect(() => { if (open) setMode(initialMode); }, [open, initialMode]);
+  const view = card.views[Math.min(vi, card.views.length - 1)];
+  const m = rowsBy.quarterly.length > 1 ? mode : 'annual';
+  return (
+    <Dialog open={open} onOpenChange={onOpenChange}>
+      <DialogContent className={cn(dialogClass, 'max-w-6xl gap-5')}>
+        <DialogHeader className="flex-row items-center gap-3 space-y-0 border-b border-white/[0.07] pb-4 pr-8 text-left">
+          <TickerLogo ticker={company.symbol} size="md" />
+          <div className="min-w-0">
+            <DialogTitle className="truncate text-lg sm:text-xl">{t('fin.chart.title', { symbol: company.symbol, title: card.title })}</DialogTitle>
+            <div className="truncate text-xs text-muted-foreground">{company.name !== company.symbol ? `${company.name} · ` : ''}{t('fin.chart.currency', { currency })}</div>
+          </div>
+          <DialogDescription className="sr-only">{view.explain}</DialogDescription>
+        </DialogHeader>
+        <div className="flex flex-wrap items-center justify-between gap-2">
+          {card.views.length > 1 ? (
+            <Select value={view.id} onValueChange={(id) => onView(Math.max(0, card.views.findIndex((x) => x.id === id)))}>
+              <SelectTrigger aria-label={t('fin.chart.metric')} className="h-8 w-auto min-w-[150px] gap-2 rounded-full border-white/10 bg-white/[0.04] px-3 text-xs font-medium">
+                <SelectValue />
+              </SelectTrigger>
+              <SelectContent>
+                {card.views.map((x) => <SelectItem key={x.id} value={x.id} className="text-xs">{x.label}</SelectItem>)}
+              </SelectContent>
+            </Select>
+          ) : <span className="text-sm font-medium">{view.label}</span>}
+          <div className="flex items-center gap-2 text-xs text-muted-foreground">
+            <span>{t('fin.chart.period')}</span>
+            {rowsBy.quarterly.length > 1
+              ? <Segmented<Mode> value={m} onChange={setMode} options={[{ value: 'annual', label: t('fin.annual') }, { value: 'quarterly', label: t('fin.quarterly') }]} />
+              : <span className="font-medium text-foreground">{t('fin.annual')}</span>}
+          </div>
+        </div>
+        <ChartPanel key={`${m}-${view.id}`} rows={rowsBy[m]} view={view} currency={currency} uid={card.id} mode={m} />
+        <Explain what={view.explain} how={view.more} note={view.note} />
+      </DialogContent>
+    </Dialog>
+  );
+}
+
+const CARD_PERIODS: Record<Mode, number> = { annual: 8, quarterly: 12 };
+
+function MetricCard({ card, rowsBy, mode, currency, company }: { card: CardDef; rowsBy: Record<Mode, Row[]>; mode: Mode; currency: string; company: Company }) {
   const { t } = useTranslation();
   const [vi, setVi] = useState(0);
   const [open, setOpen] = useState(false);
+  const rows = rowsBy[mode];
+  // The card shows the recent periods; the full history (SEC goes back ~19 years) is in the enlarged view.
+  const recent = useMemo(() => rows.slice(-CARD_PERIODS[mode]), [rows, mode]);
   const view = card.views[Math.min(vi, card.views.length - 1)];
   return (
     <div className={cardClass}>
@@ -320,25 +522,9 @@ function MetricCard({ card, rows, currency }: { card: CardDef; rows: Row[]; curr
       <div className="mt-1.5"><ViewTabs views={card.views} active={vi} onChange={setVi} /></div>
       <div className="mt-2"><Headline rows={rows} view={view} currency={currency} /></div>
       <LegendChips series={view.series} className="mt-2" />
-      <div className="mt-1 h-44 cursor-zoom-in" onClick={() => setOpen(true)}><ViewChart rows={rows} view={view} currency={currency} big={false} uid={card.id} /></div>
+      <div className="mt-1 h-44 cursor-zoom-in" onClick={() => setOpen(true)}><ViewChart rows={recent} view={view} currency={currency} big={false} uid={card.id} /></div>
       <p className="mt-2 line-clamp-2 text-[11px] leading-relaxed text-muted-foreground">{view.note ?? view.explain}</p>
-
-      <Dialog open={open} onOpenChange={setOpen}>
-        <DialogContent className={dialogClass}>
-          <DialogHeader className="pr-8 text-left">
-            <DialogTitle className="text-xl">{card.title}</DialogTitle>
-            <DialogDescription className="sr-only">{view.explain}</DialogDescription>
-          </DialogHeader>
-          <ViewTabs views={card.views} active={vi} onChange={setVi} />
-          <div className="flex flex-wrap items-end justify-between gap-3">
-            <Headline rows={rows} view={view} currency={currency} big />
-            <LegendChips series={view.series} />
-          </div>
-          <div className="h-[44vh] min-h-[280px]"><ViewChart rows={rows} view={view} currency={currency} big uid={card.id} /></div>
-          <ValuesTable rows={rows} view={view} currency={currency} />
-          <Explain what={view.explain} how={view.more} note={view.note} />
-        </DialogContent>
-      </Dialog>
+      <ChartDialog open={open} onOpenChange={setOpen} card={card} rowsBy={rowsBy} initialMode={mode} vi={vi} onView={setVi} currency={currency} company={company} />
     </div>
   );
 }
@@ -458,9 +644,9 @@ function useCards(rows: Row[]): CardDef[] {
       v('ebitda', 'EBITDA', 'bar', one('ebitda', 'EBITDA', COL.purple), 'money'),
     ]) },
     { id: 'profit', title: t('fin.c.profit'), views: keep([
-      v('netIncome', t('fin.m.netIncome'), 'bar', one('netIncome', t('fin.m.netIncome'), COL.green), 'money'),
-      v('eps', 'EPS', 'bar', one('eps', t('fin.m.eps'), COL.green), 'perShare'),
-      v('operatingIncome', t('fin.m.operatingIncome'), 'bar', one('operatingIncome', t('fin.m.operatingIncome'), COL.green), 'money'),
+      v('netIncome', t('fin.m.netIncome'), 'bar', one('netIncome', t('fin.m.netIncome'), COL.pink), 'money'),
+      v('eps', 'EPS', 'bar', one('eps', t('fin.m.eps'), COL.pink), 'perShare'),
+      v('operatingIncome', t('fin.m.operatingIncome'), 'bar', one('operatingIncome', t('fin.m.operatingIncome'), COL.pink), 'money'),
     ]) },
     { id: 'cf', title: t('fin.c.cashflow'), views: keep([
       v('fcf', t('fin.m.fcf'), 'bar', one('fcf', t('fin.m.fcf'), COL.teal), 'money', fintech),
@@ -482,9 +668,9 @@ function useCards(rows: Row[]): CardDef[] {
     // an investment, not an expense — adding them up would double count or mix concepts.
     { id: 'exp', title: t('fin.c.expenses'), views: keep([
       v('cogs', t('fin.m.cogsShort'), 'bar', one('cogs', t('fin.m.cogs'), COL.teal), 'money', { neutral: true }),
-      v('rnd', 'R&D', 'bar', one('rnd', t('fin.m.rnd'), COL.pink), 'money', { neutral: true }),
+      v('rnd', 'R&D', 'bar', one('rnd', t('fin.m.rnd'), COL.orange), 'money', { neutral: true }),
       v('sga', 'SG&A', 'bar', one('sga', t('fin.m.sga'), COL.purple), 'money', { neutral: true }),
-      v('rndShare', t('fin.m.rndShareShort'), 'bar', one('rndShare', t('fin.m.rndShare'), COL.pink), 'pct', { neutral: true }),
+      v('rndShare', t('fin.m.rndShareShort'), 'bar', one('rndShare', t('fin.m.rndShare'), COL.orange), 'pct', { neutral: true }),
     ]) },
     { id: 'shares', title: t('fin.c.shares'), views: keep([
       v('shares', t('fin.m.shares'), 'bar', one('shares', t('fin.m.shares'), COL.lime), 'shares', { upIsBad: true }),
@@ -497,36 +683,47 @@ function useCards(rows: Row[]): CardDef[] {
   return cards.filter((c) => c.views.length > 0);
 }
 
-function Charts({ f, mode, symbol }: { f: CompanyFundamentals; mode: Mode; symbol: string }) {
+function Charts({ f, mode, company }: { f: CompanyFundamentals; mode: Mode; company: Company }) {
   const { t } = useTranslation();
-  const s = mode === 'annual' ? f.annual : f.quarterly;
-  const rows = useMemo(() => withTotals(buildRows(s, mode)), [s, mode]);
-  const cards = useCards(rows);
+  const rowsBy = useMemo<Record<Mode, Row[]>>(() => ({
+    annual: withTotals(buildRows(f.annual, 'annual')),
+    quarterly: withTotals(buildRows(f.quarterly, 'quarterly')),
+  }), [f]);
+  const cards = useCards(rowsBy[mode]);
   const cur = f.currency || 'USD';
   if (cards.length === 0) return <EmptyNote>{t('fin.noData')}</EmptyNote>;
   return (
     <div className="grid grid-cols-1 gap-4 md:grid-cols-2 xl:grid-cols-3">
-      {cards.slice(0, 4).map((c) => <MetricCard key={c.id} card={c} rows={rows} currency={cur} />)}
-      <ValuationCard f={f} symbol={symbol} />
-      {cards.slice(4).map((c) => <MetricCard key={c.id} card={c} rows={rows} currency={cur} />)}
+      {cards.slice(0, 4).map((c) => <MetricCard key={c.id} card={c} rowsBy={rowsBy} mode={mode} currency={cur} company={company} />)}
+      <ValuationCard f={f} symbol={company.symbol} />
+      {cards.slice(4).map((c) => <MetricCard key={c.id} card={c} rowsBy={rowsBy} mode={mode} currency={cur} company={company} />)}
     </div>
   );
 }
 
-export default function CompanyFinancials({ symbol }: { symbol: string }) {
+export default function CompanyFinancials({ symbol, name }: { symbol: string; name?: string }) {
   const { t } = useTranslation();
   const { data: f, isLoading } = useCompanyFundamentals(symbol);
   const missing = !isLoading && !f;
   const request = useFundamentalsRequest(symbol, missing);
-  // Opening a company nobody has data for asks for it right away (once per visit).
+  const qc = useQueryClient();
+  const [live, setLive] = useState(false);
+  // Opening a company nobody has data for fetches it right away (once per visit): SEC statements and
+  // analyst consensus in seconds; a company listed abroad goes to the GitHub run (pending below).
   const asked = useRef('');
   useEffect(() => {
     if (!missing || request.isLoading || asked.current === symbol) return;
     const st = request.data;
     if (st && ((st.status === 'pending' && !isStalePending(st)) || st.status === 'failed')) return;
     asked.current = symbol;
-    requestFundamentals([symbol]).then(() => request.refetch()).catch(() => {});
-  }, [missing, symbol, request]);
+    setLive(true);
+    fetchCompanyData(symbol).then(answer => {
+      const key = symbol.trim().toUpperCase();
+      if (answer?.fundamentals === 'loaded') void qc.invalidateQueries({ queryKey: ['company-fundamentals', key] });
+      if (answer?.analysts === 'loaded') void qc.invalidateQueries({ queryKey: ['analyst-snapshot', key] });
+      return request.refetch();
+    }).catch(() => {}).finally(() => setLive(false));
+  }, [missing, symbol, request, qc]);
   const [mode, setMode] = useState<Mode>('annual');
   const hasQuarterly = useMemo(() => !!f && f.quarterly.periods.length > 1, [f]);
   return (
@@ -544,7 +741,7 @@ export default function CompanyFinancials({ symbol }: { symbol: string }) {
         // Stored attempt without any statements (an ETF): say so instead of drawing empty cards.
         <EmptyNote>{t('fin.unavailable', { symbol })}</EmptyNote>
       ) : !f ? (
-        request.data?.status === 'pending' && !isStalePending(request.data) ? (
+        live || (request.data?.status === 'pending' && !isStalePending(request.data)) ? (
           <div className="flex items-center gap-3 rounded-2xl border border-primary/20 bg-primary/[0.06] p-4 text-sm">
             <Loader2 className="h-4 w-4 animate-spin text-primary" />
             <span>{t('fin.fetching', { symbol })}</span>
@@ -555,7 +752,7 @@ export default function CompanyFinancials({ symbol }: { symbol: string }) {
       ) : (
         <>
           <p className="-mt-2 mb-4 text-xs text-muted-foreground">{t('fin.intro', { currency: f.currency || 'USD' })}</p>
-          <Charts f={f} mode={hasQuarterly ? mode : 'annual'} symbol={symbol} />
+          <Charts f={f} mode={hasQuarterly ? mode : 'annual'} company={{ symbol, name: name ?? symbol }} />
           <p className="mt-4 text-[11px] text-muted-foreground/70">{t('fin.source', { date: fmtDay(f.fetchedAt.slice(0, 10)) })}</p>
         </>
       )}

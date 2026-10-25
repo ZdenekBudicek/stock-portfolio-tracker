@@ -26,14 +26,14 @@ const useAnnualGoalPct = () => {
   return { pct, save };
 };
 
-const CustomTooltip = ({ active, payload, label, hidden }: any) => {
+const CustomTooltip = ({ active, payload, label, hidden }: { active?: boolean; label?: string | number; hidden?: boolean; payload?: { dataKey?: string; color?: string; name?: string; value?: number }[] }) => {
   const { local } = useCurrency();
   const lang = currentLang() === 'en' ? 'en' : 'cs';
   if (!active || !payload?.length) return null;
   return (
     <div className="gradient-card border border-border rounded-lg px-3 py-2 shadow-lg">
       <p className="text-xs text-muted-foreground mb-1.5 font-medium">{label}</p>
-      {payload.map((p: any) => (
+      {payload.map((p) => (
         <p key={p.dataKey} className="text-xs font-medium" style={{ color: p.color }}>
           {p.name}: {p.dataKey === 'totalValueCzk' ? wrapSymbol(hidden ? '••••' : `${(p.value / 1_000_000).toLocaleString(currentLocale(), { minimumFractionDigits: 2, maximumFractionDigits: 2 })}M`, local, lang) : `${p.value > 0 ? '+' : ''}${p.value.toLocaleString(currentLocale(), { minimumFractionDigits: 2, maximumFractionDigits: 2 })}%`}
         </p>
@@ -143,13 +143,13 @@ const YearlyGrowth = () => {
             <>
               <Input type="number" step="0.1" value={draft} onChange={(e) => setDraft(e.target.value)} onKeyDown={(e) => { if (e.key === 'Enter') commit(); if (e.key === 'Escape') { setEditing(false); setDraft(String(pct)); } }} autoFocus className="h-7 w-20 text-xs" />
               <span className="text-xs font-display font-bold text-primary">{t('legacy.yearlyGrowth.annually')}</span>
-              <button onClick={commit} className="text-profit hover:opacity-80"><Check className="w-3.5 h-3.5" /></button>
-              <button onClick={() => { setEditing(false); setDraft(String(pct)); }} className="text-muted-foreground hover:text-foreground"><X className="w-3.5 h-3.5" /></button>
+              <button aria-label={t('legacy.yearlyGrowth.saveGoal')} onClick={commit} className="text-profit hover:opacity-80"><Check className="w-3.5 h-3.5" /></button>
+              <button aria-label={t('legacy.yearlyGrowth.cancelGoal')} onClick={() => { setEditing(false); setDraft(String(pct)); }} className="text-muted-foreground hover:text-foreground"><X className="w-3.5 h-3.5" /></button>
             </>
           ) : (
             <>
               <span className="text-xs font-display font-bold text-primary">+{pct}{t('legacy.yearlyGrowth.annually')}</span>
-              <button onClick={() => setEditing(true)} className="text-muted-foreground hover:text-primary"><Pencil className="w-3 h-3" /></button>
+              <button aria-label={t('legacy.yearlyGrowth.editGoal')} onClick={() => setEditing(true)} className="text-muted-foreground hover:text-primary"><Pencil className="w-3 h-3" /></button>
             </>
           )}
         </div>

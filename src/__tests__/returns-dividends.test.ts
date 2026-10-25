@@ -51,7 +51,7 @@ describe("returns (TWR)", () => {
 
 describe("dividendAnalytics", () => {
   const today = "2026-10-18";
-  const divs: any[] = [
+  const divs = [
     { ticker: "META", ex_date: "2026-12-14", pay_date: "2026-12-26", amount_per_share: 0.6, shares_held: 50, total_amount_usd: 30, status: "upcoming", broker: "auto" },
     { ticker: "META", ex_date: "2026-12-14", pay_date: "2026-12-26", amount_per_share: 0.6, shares_held: 10, total_amount_usd: 6, status: "upcoming", broker: "auto" },
     { ticker: "GOOGL", ex_date: "2026-12-08", pay_date: null, amount_per_share: 0.2, shares_held: 40, total_amount_usd: 8, status: "upcoming", broker: "manual" },
@@ -60,7 +60,7 @@ describe("dividendAnalytics", () => {
     { ticker: "MSFT", ex_date: "2026-03-01", pay_date: "2026-03-12", amount_per_share: 0.8, shares_held: 50, total_amount_usd: 34, status: "paid", broker: "T212", ext_id: "t212:div:1" },
     { ticker: "META", ex_date: "2026-06-01", pay_date: "2026-06-26", amount_per_share: 0.5, shares_held: 60, total_amount_usd: 30, status: "paid", broker: "auto" },
     { ticker: "META", ex_date: "2025-06-01", pay_date: "2025-06-26", amount_per_share: 0.5, shares_held: 60, total_amount_usd: 30, status: "paid", broker: "T212", ext_id: "t212:div:0" },
-  ];
+  ] as import("@/lib/dividendTax").DividendRecord[];
 
   it("groups the next 12 months by payment date and merges brokers", () => {
     const f = dividendForecast(divs, today);

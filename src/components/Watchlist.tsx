@@ -83,7 +83,7 @@ const Watchlist = () => {
                       <div className="font-mono">${w.target_price_usd.toLocaleString(currentLocale(), { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</div>
                     </div>
                   )}
-                  <button onClick={() => remove.mutate(w.id)} className="text-muted-foreground hover:text-loss">
+                  <button aria-label={t('legacy.watchlist.removeTicker', { ticker: w.ticker })} onClick={() => remove.mutate(w.id)} className="text-muted-foreground hover:text-loss">
                     <Trash2 className="w-3.5 h-3.5" />
                   </button>
                 </div>

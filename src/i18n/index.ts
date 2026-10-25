@@ -20,7 +20,8 @@ function storedLang(): Lang {
     const s = localStorage.getItem(STORAGE_KEY);
     if (s === "cs" || s === "en") return s;
   } catch { /* private mode */ }
-  return "cs";
+  // The public demo opens in English (the portfolio site passes ?lang=cs for Czech visitors).
+  return import.meta.env.MODE === "demo" ? "en" : "cs";
 }
 
 void i18n.use(initReactI18next).init({

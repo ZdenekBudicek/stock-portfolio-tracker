@@ -1,0 +1,3067 @@
+{
+  "schema_version": 2,
+  "status": "RUN",
+  "metadata": {
+    "mode": "live",
+    "git_sha": "dc2e1eccfdf3e3f817221fb642f962d0b737bfae",
+    "calculation_version": "0ded268542ed55062f347236df42b7c10f9e5d86f29ce7f4c422be8d4f7ed5ed",
+    "date": "2026-10-23T23:34:38+00:00",
+    "model": "openai/gpt-oss-120b",
+    "seed": 20261023,
+    "frozen_market_date": "2026-10-23",
+    "pace_seconds": 10,
+    "cases_sha256": "63cf4d6cf58f5bfc0e8eb9478cc1478e614ce31a8fcdbae66a302a10dc5a1680",
+    "case_ids": [
+      "tx-cs-1",
+      "tx-cs-ticker",
+      "realized-cs-1",
+      "tx-sk-1",
+      "tx-en-1",
+      "tax-cs-1",
+      "tax-cs-2025",
+      "tax-sk-1",
+      "tax-en-1",
+      "sim-cs-1",
+      "time-test-cs-1",
+      "ambiguous-account-cs-1",
+      "perf-cs-1",
+      "div-en-1",
+      "alloc-cs-1",
+      "price-cs-1",
+      "move-cs-1",
+      "crypto-en-1",
+      "buy-cs-1",
+      "buy-cs-no-analysts",
+      "buy-sk-1",
+      "buy-en-1",
+      "multi-cs-1",
+      "multi-sk-1",
+      "unknown-cs-1",
+      "method-cs-1",
+      "injection-cs-1",
+      "isolation-en-1",
+      "retry-sk-1",
+      "outage-en-1",
+      "other-residence-cs-1",
+      "missing-fx-en-1",
+      "empty-sk-1",
+      "neg-price-as-tax-cs",
+      "neg-period-sk",
+      "neg-sign-cs",
+      "neg-refusal-en"
+    ]
+  },
+  "summary": {
+    "cases": 37,
+    "passed": 36,
+    "pass_rate": 0.973,
+    "portfolio_text_cases": 27,
+    "portfolio_text_passed": 26,
+    "portfolio_text_pass_rate": 0.963,
+    "unverified_numbers": 0,
+    "technical_labels": 0,
+    "leaks": 0,
+    "isolation_other_failures": 0,
+    "unterminated": 0,
+    "verdict_cases": 6,
+    "verdict_ok": 6,
+    "outcomes": {
+      "ok": 24,
+      "fallback": 13
+    },
+    "template_share": 0.3514,
+    "rate_limited_runs": 0,
+    "timeouts": 0,
+    "wall_ms": {
+      "cold": {
+        "n": 37,
+        "p50": 1170.1,
+        "p95": 1892.2,
+        "max": 2000.8
+      },
+      "warm": {
+        "n": 2,
+        "p50": 1567.2,
+        "p95": 1567.2,
+        "max": 1567.2
+      }
+    },
+    "tokens": {
+      "max_call": 983,
+      "max_question": 2508,
+      "call_limit_violations": 0,
+      "question_limit_violations": 0,
+      "turns_without_attempts": 0
+    }
+  },
+  "results": [
+    {
+      "id": "tx-cs-1",
+      "scenario": "transactions",
+      "lang": "cs",
+      "user": "A",
+      "passed": true,
+      "failures": [],
+      "checks": {
+        "terminated": true,
+        "answered": true,
+        "technical": false,
+        "unverified_numbers": [],
+        "required_missing": [],
+        "golden_disagrees": [],
+        "refused": false,
+        "forbidden": [],
+        "required_text_missing": [],
+        "tools_missing": []
+      },
+      "model": "openai/gpt-oss-120b",
+      "failure": null,
+      "text": "Letos (1. 1. 2026 – 23. 10. 2026) jsi nic nenakoupil a prodal 2 kusy za 300,00 USD, celkem 1 obchod.\n\nZdroje: Trackora – výpočet portfolia (23. 10. 2026 14:00).",
+      "turns": [
+        {
+          "index": 0,
+          "phase": "cold",
+          "replay": false,
+          "request_id": "8ef75e87-c092-45e0-a741-c033a2a57b34",
+          "terminal": "done",
+          "http_status": 200,
+          "outcome": "ok",
+          "error_code": null,
+          "model": "openai/gpt-oss-120b",
+          "model_error": null,
+          "wall_ms": 1116.9,
+          "ttft_ms": 21.8,
+          "tokens": {
+            "in": 772,
+            "out": 242,
+            "max_call": 704
+          },
+          "attempts": [
+            {
+              "phase": "router",
+              "model": "openai/gpt-oss-20b",
+              "tokens_in": 245,
+              "tokens_out": 65,
+              "usage_source": "reported",
+              "finish_reason": "stop",
+              "outcome": "ok",
+              "rejection_reasons": []
+            },
+            {
+              "phase": "answer",
+              "model": "openai/gpt-oss-120b",
+              "tokens_in": 527,
+              "tokens_out": 177,
+              "usage_source": "reported",
+              "finish_reason": "stop",
+              "outcome": "ok",
+              "rejection_reasons": []
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "id": "tx-cs-ticker",
+      "scenario": "transactions",
+      "lang": "cs",
+      "user": "A",
+      "passed": true,
+      "failures": [],
+      "checks": {
+        "terminated": true,
+        "answered": true,
+        "technical": false,
+        "unverified_numbers": [],
+        "required_missing": [],
+        "golden_disagrees": [],
+        "refused": false,
+        "forbidden": [],
+        "required_text_missing": [],
+        "tools_missing": []
+      },
+      "model": "openai/gpt-oss-120b",
+      "failure": null,
+      "text": "Letos (1. 1. 2026 – 23. 10. 2026) jsi u SYNA nic nenakoupil a prodal 2 kusy za 300,00 USD, celkem 1 obchod.\n\nZdroje: Trackora – výpočet portfolia (23. 10. 2026 14:00).",
+      "turns": [
+        {
+          "index": 0,
+          "phase": "cold",
+          "replay": false,
+          "request_id": "bc68b183-629a-4cd5-843d-176acfe9a01d",
+          "terminal": "done",
+          "http_status": 200,
+          "outcome": "ok",
+          "error_code": null,
+          "model": "openai/gpt-oss-120b",
+          "model_error": null,
+          "wall_ms": 932.2,
+          "ttft_ms": 17.6,
+          "tokens": {
+            "in": 799,
+            "out": 226,
+            "max_call": 715
+          },
+          "attempts": [
+            {
+              "phase": "router",
+              "model": "openai/gpt-oss-20b",
+              "tokens_in": 245,
+              "tokens_out": 65,
+              "usage_source": "reported",
+              "finish_reason": "stop",
+              "outcome": "ok",
+              "rejection_reasons": []
+            },
+            {
+              "phase": "answer",
+              "model": "openai/gpt-oss-120b",
+              "tokens_in": 554,
+              "tokens_out": 161,
+              "usage_source": "reported",
+              "finish_reason": "stop",
+              "outcome": "ok",
+              "rejection_reasons": []
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "id": "realized-cs-1",
+      "scenario": "realized",
+      "lang": "cs",
+      "user": "A",
+      "passed": true,
+      "failures": [],
+      "checks": {
+        "terminated": true,
+        "answered": true,
+        "technical": false,
+        "unverified_numbers": [],
+        "required_missing": [],
+        "golden_disagrees": [],
+        "refused": false,
+        "forbidden": [],
+        "required_text_missing": [],
+        "tools_missing": []
+      },
+      "model": "openai/gpt-oss-120b",
+      "failure": null,
+      "text": "Letos (1. 1. 2026 – 23. 10. 2026) jsi realizoval zisk 1 506,95 Kč. Tržby z prodejů byly 6 221,10 Kč a žádné ztráty jsi neměl.\n\nZdroje: Trackora – výpočet portfolia (23. 10. 2026 14:00).",
+      "turns": [
+        {
+          "index": 0,
+          "phase": "cold",
+          "replay": false,
+          "request_id": "edb879af-4239-4874-82de-fe7727a14e09",
+          "terminal": "done",
+          "http_status": 200,
+          "outcome": "ok",
+          "error_code": null,
+          "model": "openai/gpt-oss-120b",
+          "model_error": null,
+          "wall_ms": 949.3,
+          "ttft_ms": 7.4,
+          "tokens": {
+            "in": 655,
+            "out": 225,
+            "max_call": 573
+          },
+          "attempts": [
+            {
+              "phase": "router",
+              "model": "openai/gpt-oss-20b",
+              "tokens_in": 243,
+              "tokens_out": 64,
+              "usage_source": "reported",
+              "finish_reason": "stop",
+              "outcome": "ok",
+              "rejection_reasons": []
+            },
+            {
+              "phase": "answer",
+              "model": "openai/gpt-oss-120b",
+              "tokens_in": 412,
+              "tokens_out": 161,
+              "usage_source": "reported",
+              "finish_reason": "stop",
+              "outcome": "ok",
+              "rejection_reasons": []
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "id": "tx-sk-1",
+      "scenario": "transactions",
+      "lang": "sk",
+      "user": "B",
+      "passed": true,
+      "failures": [],
+      "checks": {
+        "terminated": true,
+        "answered": true,
+        "technical": false,
+        "unverified_numbers": [],
+        "required_missing": [],
+        "golden_disagrees": [],
+        "refused": false,
+        "forbidden": [],
+        "required_text_missing": [],
+        "tools_missing": []
+      },
+      "model": "openai/gpt-oss-120b",
+      "failure": null,
+      "text": "Tento rok (1. 1. 2026 – 23. 10. 2026) si neurobil žiadny obchod.\n\nZdroje: Trackora – výpočet portfólia (23. 10. 2026, 14:00).",
+      "turns": [
+        {
+          "index": 0,
+          "phase": "cold",
+          "replay": false,
+          "request_id": "34debd7a-d1f0-4186-ba73-50161e8449c7",
+          "terminal": "done",
+          "http_status": 200,
+          "outcome": "ok",
+          "error_code": null,
+          "model": "openai/gpt-oss-120b",
+          "model_error": null,
+          "wall_ms": 966.9,
+          "ttft_ms": 6.0,
+          "tokens": {
+            "in": 776,
+            "out": 237,
+            "max_call": 694
+          },
+          "attempts": [
+            {
+              "phase": "router",
+              "model": "openai/gpt-oss-20b",
+              "tokens_in": 247,
+              "tokens_out": 72,
+              "usage_source": "reported",
+              "finish_reason": "stop",
+              "outcome": "ok",
+              "rejection_reasons": []
+            },
+            {
+              "phase": "answer",
+              "model": "openai/gpt-oss-120b",
+              "tokens_in": 529,
+              "tokens_out": 165,
+              "usage_source": "reported",
+              "finish_reason": "stop",
+              "outcome": "ok",
+              "rejection_reasons": []
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "id": "tx-en-1",
+      "scenario": "transactions",
+      "lang": "en",
+      "user": "A",
+      "passed": true,
+      "failures": [],
+      "checks": {
+        "terminated": true,
+        "answered": true,
+        "technical": false,
+        "unverified_numbers": [],
+        "required_missing": [],
+        "golden_disagrees": [],
+        "refused": false,
+        "forbidden": [],
+        "required_text_missing": [],
+        "tools_missing": []
+      },
+      "model": "openai/gpt-oss-120b",
+      "failure": null,
+      "text": "This year (Jan 1, 2026 – Oct 23, 2026), you did not buy anything and sold 2 units for USD 300.00, 1 trade in total.\n\nSources: Trackora – portfolio calculation (Oct 23, 2026, 2:00 PM).",
+      "turns": [
+        {
+          "index": 0,
+          "phase": "cold",
+          "replay": false,
+          "request_id": "c1058b18-48b9-4ceb-a4c9-ebfe0ad0e846",
+          "terminal": "done",
+          "http_status": 200,
+          "outcome": "ok",
+          "error_code": null,
+          "model": "openai/gpt-oss-120b",
+          "model_error": null,
+          "wall_ms": 977.5,
+          "ttft_ms": 5.9,
+          "tokens": {
+            "in": 757,
+            "out": 264,
+            "max_call": 713
+          },
+          "attempts": [
+            {
+              "phase": "router",
+              "model": "openai/gpt-oss-20b",
+              "tokens_in": 244,
+              "tokens_out": 64,
+              "usage_source": "reported",
+              "finish_reason": "stop",
+              "outcome": "ok",
+              "rejection_reasons": []
+            },
+            {
+              "phase": "answer",
+              "model": "openai/gpt-oss-120b",
+              "tokens_in": 513,
+              "tokens_out": 200,
+              "usage_source": "reported",
+              "finish_reason": "stop",
+              "outcome": "ok",
+              "rejection_reasons": []
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "id": "tax-cs-1",
+      "scenario": "tax",
+      "lang": "cs",
+      "user": "A",
+      "passed": true,
+      "failures": [],
+      "checks": {
+        "terminated": true,
+        "answered": true,
+        "technical": false,
+        "unverified_numbers": [],
+        "required_missing": [],
+        "golden_disagrees": [],
+        "refused": false,
+        "forbidden": [],
+        "required_text_missing": [],
+        "tools_missing": []
+      },
+      "model": "openai/gpt-oss-120b",
+      "failure": null,
+      "text": "Odhad daně za rok 2026 je 0,00 Kč, základ daně je 0,00 Kč. Příjmy z prodejů, které se počítají do limitu pro osvobození, jsou 6 221,10 Kč, takže jsi pod limitem.\n\nOmezení: U uložených cen a kurzů je uveden čas stažení od poskytovatele, ne přesný čas obchodu. Daň je odhad podle dostupných podkladů.\n\nZdroje: Trackora (23. 10. 2026 14:00).",
+      "turns": [
+        {
+          "index": 0,
+          "phase": "cold",
+          "replay": false,
+          "request_id": "f8affec5-2366-457c-b70a-d7f9cbb6a07d",
+          "terminal": "done",
+          "http_status": 200,
+          "outcome": "fallback",
+          "error_code": null,
+          "model": "openai/gpt-oss-120b",
+          "model_error": "invalid",
+          "wall_ms": 1892.2,
+          "ttft_ms": 3.1,
+          "tokens": {
+            "in": 1436,
+            "out": 388,
+            "max_call": 591
+          },
+          "attempts": [
+            {
+              "phase": "router",
+              "model": "openai/gpt-oss-20b",
+              "tokens_in": 250,
+              "tokens_out": 64,
+              "usage_source": "reported",
+              "finish_reason": "stop",
+              "outcome": "ok",
+              "rejection_reasons": []
+            },
+            {
+              "phase": "tools",
+              "model": "openai/gpt-oss-120b",
+              "tokens_in": 355,
+              "tokens_out": 45,
+              "usage_source": "reported",
+              "finish_reason": "tool_calls",
+              "outcome": "ok",
+              "rejection_reasons": []
+            },
+            {
+              "phase": "tools",
+              "model": "openai/gpt-oss-120b",
+              "tokens_in": 450,
+              "tokens_out": 141,
+              "usage_source": "reported",
+              "finish_reason": "stop",
+              "outcome": "invalid",
+              "rejection_reasons": [
+                "not_object"
+              ]
+            },
+            {
+              "phase": "repair",
+              "model": "openai/gpt-oss-120b",
+              "tokens_in": 381,
+              "tokens_out": 138,
+              "usage_source": "reported",
+              "finish_reason": "stop",
+              "outcome": "invalid",
+              "rejection_reasons": [
+                "empty_selection",
+                "intent_incomplete"
+              ]
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "id": "tax-cs-2025",
+      "scenario": "tax",
+      "lang": "cs",
+      "user": "A",
+      "passed": true,
+      "failures": [],
+      "checks": {
+        "terminated": true,
+        "answered": true,
+        "technical": false,
+        "unverified_numbers": [],
+        "required_missing": [],
+        "golden_disagrees": [],
+        "refused": false,
+        "forbidden": [],
+        "required_text_missing": [],
+        "tools_missing": []
+      },
+      "model": "openai/gpt-oss-120b",
+      "failure": null,
+      "text": "Odhad daně za rok 2025 je 0,00 Kč, základ daně je 0,00 Kč. Příjmy z prodejů, které se počítají do limitu pro osvobození, jsou 0,00 Kč, takže jsi pod limitem.\n\nOmezení: U uložených cen a kurzů je uveden čas stažení od poskytovatele, ne přesný čas obchodu. Daň je odhad podle dostupných podkladů.\n\nZdroje: Trackora (23. 10. 2026 14:00).",
+      "turns": [
+        {
+          "index": 0,
+          "phase": "cold",
+          "replay": false,
+          "request_id": "57de42c1-6339-44a0-b517-1245369f36c2",
+          "terminal": "done",
+          "http_status": 200,
+          "outcome": "ok",
+          "error_code": null,
+          "model": "openai/gpt-oss-120b",
+          "model_error": null,
+          "wall_ms": 1822.7,
+          "ttft_ms": 2.5,
+          "tokens": {
+            "in": 1396,
+            "out": 324,
+            "max_call": 547
+          },
+          "attempts": [
+            {
+              "phase": "router",
+              "model": "openai/gpt-oss-20b",
+              "tokens_in": 246,
+              "tokens_out": 51,
+              "usage_source": "reported",
+              "finish_reason": "stop",
+              "outcome": "ok",
+              "rejection_reasons": []
+            },
+            {
+              "phase": "tools",
+              "model": "openai/gpt-oss-120b",
+              "tokens_in": 351,
+              "tokens_out": 44,
+              "usage_source": "reported",
+              "finish_reason": "tool_calls",
+              "outcome": "ok",
+              "rejection_reasons": []
+            },
+            {
+              "phase": "tools",
+              "model": "openai/gpt-oss-120b",
+              "tokens_in": 434,
+              "tokens_out": 47,
+              "usage_source": "reported",
+              "finish_reason": "stop",
+              "outcome": "invalid",
+              "rejection_reasons": [
+                "not_object"
+              ]
+            },
+            {
+              "phase": "repair",
+              "model": "openai/gpt-oss-120b",
+              "tokens_in": 365,
+              "tokens_out": 182,
+              "usage_source": "reported",
+              "finish_reason": "stop",
+              "outcome": "ok",
+              "rejection_reasons": []
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "id": "tax-sk-1",
+      "scenario": "tax",
+      "lang": "sk",
+      "user": "B",
+      "passed": true,
+      "failures": [],
+      "checks": {
+        "terminated": true,
+        "answered": true,
+        "technical": false,
+        "unverified_numbers": [],
+        "required_missing": [],
+        "golden_disagrees": [],
+        "refused": false,
+        "forbidden": [],
+        "required_text_missing": [],
+        "tools_missing": []
+      },
+      "model": "openai/gpt-oss-120b",
+      "failure": null,
+      "text": "Odhad dane za rok 2026 je 0,00 EUR, základ dane je 0,00 EUR.\n\nObmedzenia: Daň je odhad podľa dostupných podkladov. Daňové podklady majú nevyriešené položky; výsledok nie je konečný.\n\nZdroje: Trackora (23. 10. 2026, 14:00).",
+      "turns": [
+        {
+          "index": 0,
+          "phase": "cold",
+          "replay": false,
+          "request_id": "3679b434-5d34-4e0e-a3ce-b30161d8216b",
+          "terminal": "done",
+          "http_status": 200,
+          "outcome": "fallback",
+          "error_code": null,
+          "model": "openai/gpt-oss-120b",
+          "model_error": "invalid",
+          "wall_ms": 1355.6,
+          "ttft_ms": 3.4,
+          "tokens": {
+            "in": 1292,
+            "out": 345,
+            "max_call": 522
+          },
+          "attempts": [
+            {
+              "phase": "router",
+              "model": "openai/gpt-oss-20b",
+              "tokens_in": 242,
+              "tokens_out": 77,
+              "usage_source": "reported",
+              "finish_reason": "stop",
+              "outcome": "ok",
+              "rejection_reasons": []
+            },
+            {
+              "phase": "tools",
+              "model": "openai/gpt-oss-120b",
+              "tokens_in": 347,
+              "tokens_out": 61,
+              "usage_source": "reported",
+              "finish_reason": "tool_calls",
+              "outcome": "ok",
+              "rejection_reasons": []
+            },
+            {
+              "phase": "tools",
+              "model": "openai/gpt-oss-120b",
+              "tokens_in": 416,
+              "tokens_out": 106,
+              "usage_source": "reported",
+              "finish_reason": "stop",
+              "outcome": "invalid",
+              "rejection_reasons": [
+                "not_object"
+              ]
+            },
+            {
+              "phase": "repair",
+              "model": "openai/gpt-oss-120b",
+              "tokens_in": 287,
+              "tokens_out": 101,
+              "usage_source": "reported",
+              "finish_reason": "stop",
+              "outcome": "invalid",
+              "rejection_reasons": [
+                "empty_selection",
+                "intent_incomplete"
+              ]
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "id": "tax-en-1",
+      "scenario": "tax",
+      "lang": "en",
+      "user": "A",
+      "passed": true,
+      "failures": [],
+      "checks": {
+        "terminated": true,
+        "answered": true,
+        "technical": false,
+        "unverified_numbers": [],
+        "required_missing": [],
+        "golden_disagrees": [],
+        "refused": false,
+        "forbidden": [],
+        "required_text_missing": [],
+        "tools_missing": []
+      },
+      "model": "openai/gpt-oss-120b",
+      "failure": null,
+      "text": "Your estimated tax for 2026 is CZK 0.00, with a tax base of CZK 0.00. Sale proceeds counted toward the exemption limit are CZK 6,221.10, so you are under the limit.\n\nLimitations: Stored prices and rates show when they were retrieved from the provider, not the exact trade time. Tax is an estimate based on the available evidence.\n\nSources: Trackora (Oct 23, 2026, 2:00 PM).",
+      "turns": [
+        {
+          "index": 0,
+          "phase": "cold",
+          "replay": false,
+          "request_id": "4a15793f-1ccc-490a-bf7f-6a8c40e6d9a3",
+          "terminal": "done",
+          "http_status": 200,
+          "outcome": "ok",
+          "error_code": null,
+          "model": "openai/gpt-oss-120b",
+          "model_error": null,
+          "wall_ms": 1647.2,
+          "ttft_ms": 3.7,
+          "tokens": {
+            "in": 1412,
+            "out": 333,
+            "max_call": 554
+          },
+          "attempts": [
+            {
+              "phase": "router",
+              "model": "openai/gpt-oss-20b",
+              "tokens_in": 244,
+              "tokens_out": 64,
+              "usage_source": "reported",
+              "finish_reason": "stop",
+              "outcome": "ok",
+              "rejection_reasons": []
+            },
+            {
+              "phase": "tools",
+              "model": "openai/gpt-oss-120b",
+              "tokens_in": 349,
+              "tokens_out": 48,
+              "usage_source": "reported",
+              "finish_reason": "tool_calls",
+              "outcome": "ok",
+              "rejection_reasons": []
+            },
+            {
+              "phase": "tools",
+              "model": "openai/gpt-oss-120b",
+              "tokens_in": 444,
+              "tokens_out": 42,
+              "usage_source": "reported",
+              "finish_reason": "stop",
+              "outcome": "invalid",
+              "rejection_reasons": [
+                "not_object"
+              ]
+            },
+            {
+              "phase": "repair",
+              "model": "openai/gpt-oss-120b",
+              "tokens_in": 375,
+              "tokens_out": 179,
+              "usage_source": "reported",
+              "finish_reason": "stop",
+              "outcome": "ok",
+              "rejection_reasons": []
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "id": "sim-cs-1",
+      "scenario": "simulation",
+      "lang": "cs",
+      "user": "A",
+      "passed": true,
+      "failures": [],
+      "checks": {
+        "terminated": true,
+        "answered": true,
+        "technical": false,
+        "unverified_numbers": [],
+        "required_missing": [],
+        "golden_disagrees": [],
+        "refused": false,
+        "forbidden": [],
+        "required_text_missing": [],
+        "tools_missing": []
+      },
+      "model": "openai/gpt-oss-120b",
+      "failure": null,
+      "text": "Kdybys 23. 10. 2026 prodal 1 kus SYNB za cenu 210,00 USD za kus s poplatkem 0,00 USD, příjem z prodeje by byl 4 935 Kč při kurzu 23,50. Zisk z prodeje by byl 565,64 Kč, zdanitelný zisk 565,64 Kč a daň navíc 0,00 Kč. Počítáno jen pro vybraný účet.\n\nOmezení: U uložených cen a kurzů je uveden čas stažení od poskytovatele, ne přesný čas obchodu. Jde o hypotetický prodej, nikoli uskutečněný obchod. Datum, poplatek a kurz označené jako předpoklad jsou odhady.\n\nZdroje: tvoje zadání (23. 10. 2026 14:00); předpoklad modelu (23. 10. 2026 14:00); Trackora (23. 10. 2026 14:00).",
+      "turns": [
+        {
+          "index": 0,
+          "phase": "cold",
+          "replay": false,
+          "request_id": "298d20ca-9423-45a6-b7f2-83710038edd0",
+          "terminal": "done",
+          "http_status": 200,
+          "outcome": "ok",
+          "error_code": null,
+          "model": "openai/gpt-oss-120b",
+          "model_error": null,
+          "wall_ms": 885.4,
+          "ttft_ms": 2.8,
+          "tokens": {
+            "in": 914,
+            "out": 291,
+            "max_call": 885
+          },
+          "attempts": [
+            {
+              "phase": "router",
+              "model": "openai/gpt-oss-20b",
+              "tokens_in": 260,
+              "tokens_out": 60,
+              "usage_source": "reported",
+              "finish_reason": "stop",
+              "outcome": "ok",
+              "rejection_reasons": []
+            },
+            {
+              "phase": "answer",
+              "model": "openai/gpt-oss-120b",
+              "tokens_in": 654,
+              "tokens_out": 231,
+              "usage_source": "reported",
+              "finish_reason": "stop",
+              "outcome": "ok",
+              "rejection_reasons": []
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "id": "time-test-cs-1",
+      "scenario": "simulation",
+      "lang": "cs",
+      "user": "A",
+      "passed": true,
+      "failures": [],
+      "checks": {
+        "terminated": true,
+        "answered": true,
+        "technical": false,
+        "unverified_numbers": [],
+        "required_missing": [],
+        "golden_disagrees": [],
+        "refused": false,
+        "forbidden": [],
+        "required_text_missing": [],
+        "tools_missing": []
+      },
+      "model": "openai/gpt-oss-120b",
+      "failure": null,
+      "text": "Máš 4 loty, celkem 15,00001234 kusu.\n• SYNA (lot 1): 4 kusy, nakoupeno 1. 3. 2024, osvobození od 2. 3. 2027, časový test zatím nesplněn.\n• SYNA (lot 2): 6 kusů, nakoupeno 1. 4. 2024, osvobození od 2. 4. 2027, časový test zatím nesplněn.\n• BTC (lot 3): 0,00001234 kusu, nakoupeno 10. 1. 2025, osvobození od 11. 1. 2028, časový test zatím nesplněn.\n• SYNB (lot 4): 5 kusů, nakoupeno 2. 6. 2025, osvobození od 3. 6. 2028, časový test zatím nesplněn.\n\nOmezení: U uložených cen a kurzů je uveden čas stažení od poskytovatele, ne přesný čas obchodu.\n\nZdroje: Trackora (23. 10. 2026 14:00).",
+      "turns": [
+        {
+          "index": 0,
+          "phase": "cold",
+          "replay": false,
+          "request_id": "bcee1857-b356-4575-ad15-d7a27b161b4c",
+          "terminal": "done",
+          "http_status": 200,
+          "outcome": "fallback",
+          "error_code": null,
+          "model": "openai/gpt-oss-120b",
+          "model_error": "invalid",
+          "wall_ms": 1615.3,
+          "ttft_ms": 18.4,
+          "tokens": {
+            "in": 1787,
+            "out": 420,
+            "max_call": 962
+          },
+          "attempts": [
+            {
+              "phase": "router",
+              "model": "openai/gpt-oss-20b",
+              "tokens_in": 252,
+              "tokens_out": 64,
+              "usage_source": "reported",
+              "finish_reason": "stop",
+              "outcome": "ok",
+              "rejection_reasons": []
+            },
+            {
+              "phase": "answer",
+              "model": "openai/gpt-oss-120b",
+              "tokens_in": 754,
+              "tokens_out": 175,
+              "usage_source": "reported",
+              "finish_reason": "stop",
+              "outcome": "invalid",
+              "rejection_reasons": [
+                "intent_incomplete"
+              ]
+            },
+            {
+              "phase": "repair",
+              "model": "openai/gpt-oss-120b",
+              "tokens_in": 781,
+              "tokens_out": 181,
+              "usage_source": "reported",
+              "finish_reason": "stop",
+              "outcome": "invalid",
+              "rejection_reasons": [
+                "intent_incomplete"
+              ]
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "id": "ambiguous-account-cs-1",
+      "scenario": "simulation",
+      "lang": "cs",
+      "user": "A",
+      "passed": true,
+      "failures": [],
+      "checks": {
+        "terminated": true,
+        "answered": true,
+        "technical": false,
+        "unverified_numbers": [],
+        "required_missing": [],
+        "golden_disagrees": [],
+        "refused": false,
+        "forbidden": [],
+        "required_text_missing": [],
+        "tools_missing": []
+      },
+      "model": null,
+      "failure": null,
+      "text": "Pro který účet chceš výpočet? Napiš znovu otázku a přesný název účtu i brokera:\n• SYNTHETIC / A1\n• SYNTHETIC / A2",
+      "turns": [
+        {
+          "index": 0,
+          "phase": "cold",
+          "replay": false,
+          "request_id": "b9dbea93-8174-492c-9040-c984d401d262",
+          "terminal": "done",
+          "http_status": 200,
+          "outcome": "ok",
+          "error_code": null,
+          "model": null,
+          "model_error": null,
+          "wall_ms": 159.9,
+          "ttft_ms": 3.9,
+          "tokens": {
+            "in": 251,
+            "out": 65,
+            "max_call": 316
+          },
+          "attempts": [
+            {
+              "phase": "router",
+              "model": "openai/gpt-oss-20b",
+              "tokens_in": 251,
+              "tokens_out": 65,
+              "usage_source": "reported",
+              "finish_reason": "stop",
+              "outcome": "ok",
+              "rejection_reasons": []
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "id": "perf-cs-1",
+      "scenario": "performance",
+      "lang": "cs",
+      "user": "A",
+      "passed": true,
+      "failures": [],
+      "checks": {
+        "terminated": true,
+        "answered": true,
+        "technical": false,
+        "unverified_numbers": [],
+        "required_missing": [],
+        "golden_disagrees": [],
+        "refused": false,
+        "forbidden": [],
+        "required_text_missing": [],
+        "tools_missing": []
+      },
+      "model": "openai/gpt-oss-120b",
+      "failure": null,
+      "text": "Od 20. 10. 2026 do 23. 10. 2026 má tvoje portfolio výnos 5,2 % a zisk 150,00 USD. Podklady jsou neúplné.\n\nOmezení: U uložených cen a kurzů je uveden čas stažení od poskytovatele, ne přesný čas obchodu. U části pozic chybí historie cen. Některé požadované údaje nejsou dostupné. Chybějící hodnoty nelze považovat za nulu.\n\nZdroje: Trackora – výpočet portfolia (23. 10. 2026 14:00).",
+      "turns": [
+        {
+          "index": 0,
+          "phase": "cold",
+          "replay": false,
+          "request_id": "98f5f620-0f74-4200-a4d2-28a5cdd3d41f",
+          "terminal": "done",
+          "http_status": 200,
+          "outcome": "fallback",
+          "error_code": null,
+          "model": "openai/gpt-oss-120b",
+          "model_error": "invalid",
+          "wall_ms": 1123.7,
+          "ttft_ms": 2.5,
+          "tokens": {
+            "in": 875,
+            "out": 218,
+            "max_call": 397
+          },
+          "attempts": [
+            {
+              "phase": "router",
+              "model": "openai/gpt-oss-20b",
+              "tokens_in": 244,
+              "tokens_out": 64,
+              "usage_source": "reported",
+              "finish_reason": "stop",
+              "outcome": "ok",
+              "rejection_reasons": []
+            },
+            {
+              "phase": "answer",
+              "model": "openai/gpt-oss-120b",
+              "tokens_in": 302,
+              "tokens_out": 86,
+              "usage_source": "reported",
+              "finish_reason": "stop",
+              "outcome": "invalid",
+              "rejection_reasons": [
+                "intent_incomplete"
+              ]
+            },
+            {
+              "phase": "repair",
+              "model": "openai/gpt-oss-120b",
+              "tokens_in": 329,
+              "tokens_out": 68,
+              "usage_source": "reported",
+              "finish_reason": "stop",
+              "outcome": "invalid",
+              "rejection_reasons": [
+                "intent_incomplete"
+              ]
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "id": "div-en-1",
+      "scenario": "dividends",
+      "lang": "en",
+      "user": "A",
+      "passed": true,
+      "failures": [],
+      "checks": {
+        "terminated": true,
+        "answered": true,
+        "technical": false,
+        "unverified_numbers": [],
+        "required_missing": [],
+        "golden_disagrees": [],
+        "refused": false,
+        "forbidden": [],
+        "required_text_missing": [],
+        "tools_missing": []
+      },
+      "model": "openai/gpt-oss-120b",
+      "failure": null,
+      "text": "This year (Jan 1, 2026 – Oct 23, 2026), you received dividends of USD 12.00.\n\nLimitations: Withholding tax is estimated for some dividends.\n\nSources: Trackora – portfolio calculation (Oct 23, 2026, 2:00 PM).",
+      "turns": [
+        {
+          "index": 0,
+          "phase": "cold",
+          "replay": false,
+          "request_id": "06b26c57-f06b-43e1-91d5-46ddbeba18ed",
+          "terminal": "done",
+          "http_status": 200,
+          "outcome": "ok",
+          "error_code": null,
+          "model": "openai/gpt-oss-120b",
+          "model_error": null,
+          "wall_ms": 339.0,
+          "ttft_ms": 2.3,
+          "tokens": {
+            "in": 492,
+            "out": 119,
+            "max_call": 312
+          },
+          "attempts": [
+            {
+              "phase": "router",
+              "model": "openai/gpt-oss-20b",
+              "tokens_in": 244,
+              "tokens_out": 68,
+              "usage_source": "reported",
+              "finish_reason": "stop",
+              "outcome": "ok",
+              "rejection_reasons": []
+            },
+            {
+              "phase": "answer",
+              "model": "openai/gpt-oss-120b",
+              "tokens_in": 248,
+              "tokens_out": 51,
+              "usage_source": "reported",
+              "finish_reason": "stop",
+              "outcome": "ok",
+              "rejection_reasons": []
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "id": "alloc-cs-1",
+      "scenario": "allocation",
+      "lang": "cs",
+      "user": "A",
+      "passed": true,
+      "failures": [],
+      "checks": {
+        "terminated": true,
+        "answered": true,
+        "technical": false,
+        "unverified_numbers": [],
+        "required_missing": [],
+        "golden_disagrees": [],
+        "refused": false,
+        "forbidden": [],
+        "required_text_missing": [],
+        "tools_missing": []
+      },
+      "model": "openai/gpt-oss-120b",
+      "failure": null,
+      "text": "Podíl podle sektorů: technology 58,8 %, ostatn 41,2 %. Podíl podle druhu aktiv: stock 58,8 %, etf 41,2 %. Podíl podle měny kotace: usd 100,0 %. Koncentrace portfolia je 0,52. Investovaná částka je 2 550 USD.\n\nOmezení: U uložených cen a kurzů je uveden čas stažení od poskytovatele, ne přesný čas obchodu.\n\nZdroje: Trackora – výpočet portfolia (23. 10. 2026 14:00).",
+      "turns": [
+        {
+          "index": 0,
+          "phase": "cold",
+          "replay": false,
+          "request_id": "1e021ebb-1569-4366-803f-4b2fc944e407",
+          "terminal": "done",
+          "http_status": 200,
+          "outcome": "ok",
+          "error_code": null,
+          "model": "openai/gpt-oss-120b",
+          "model_error": null,
+          "wall_ms": 831.0,
+          "ttft_ms": 3.0,
+          "tokens": {
+            "in": 692,
+            "out": 167,
+            "max_call": 557
+          },
+          "attempts": [
+            {
+              "phase": "router",
+              "model": "openai/gpt-oss-20b",
+              "tokens_in": 245,
+              "tokens_out": 57,
+              "usage_source": "reported",
+              "finish_reason": "stop",
+              "outcome": "ok",
+              "rejection_reasons": []
+            },
+            {
+              "phase": "answer",
+              "model": "openai/gpt-oss-120b",
+              "tokens_in": 447,
+              "tokens_out": 110,
+              "usage_source": "reported",
+              "finish_reason": "stop",
+              "outcome": "ok",
+              "rejection_reasons": []
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "id": "price-cs-1",
+      "scenario": "price",
+      "lang": "cs",
+      "user": "A",
+      "passed": true,
+      "failures": [],
+      "checks": {
+        "terminated": true,
+        "answered": true,
+        "technical": false,
+        "unverified_numbers": [],
+        "required_missing": [],
+        "golden_disagrees": [],
+        "refused": false,
+        "forbidden": [],
+        "required_text_missing": [],
+        "tools_missing": []
+      },
+      "model": "openai/gpt-oss-120b",
+      "failure": null,
+      "text": "Cena SYNA je 150,00 USD, předchozí zavírací cena byla 148,00 USD a dnešní změna je 1,4 %.\n\nZdroje: Finnhub (23. 10. 2026 13:55).",
+      "turns": [
+        {
+          "index": 0,
+          "phase": "cold",
+          "replay": false,
+          "request_id": "3fa0b88e-b325-4e06-b0d9-311d9cdfb594",
+          "terminal": "done",
+          "http_status": 200,
+          "outcome": "fallback",
+          "error_code": null,
+          "model": "openai/gpt-oss-120b",
+          "model_error": "invalid",
+          "wall_ms": 1430.4,
+          "ttft_ms": 3.5,
+          "tokens": {
+            "in": 1236,
+            "out": 239,
+            "max_call": 407
+          },
+          "attempts": [
+            {
+              "phase": "router",
+              "model": "openai/gpt-oss-20b",
+              "tokens_in": 241,
+              "tokens_out": 48,
+              "usage_source": "reported",
+              "finish_reason": "stop",
+              "outcome": "ok",
+              "rejection_reasons": []
+            },
+            {
+              "phase": "tools",
+              "model": "openai/gpt-oss-120b",
+              "tokens_in": 335,
+              "tokens_out": 37,
+              "usage_source": "reported",
+              "finish_reason": "tool_calls",
+              "outcome": "ok",
+              "rejection_reasons": []
+            },
+            {
+              "phase": "tools",
+              "model": "openai/gpt-oss-120b",
+              "tokens_in": 362,
+              "tokens_out": 45,
+              "usage_source": "reported",
+              "finish_reason": "stop",
+              "outcome": "invalid",
+              "rejection_reasons": [
+                "not_object"
+              ]
+            },
+            {
+              "phase": "repair",
+              "model": "openai/gpt-oss-120b",
+              "tokens_in": 298,
+              "tokens_out": 109,
+              "usage_source": "reported",
+              "finish_reason": "stop",
+              "outcome": "invalid",
+              "rejection_reasons": [
+                "empty_selection"
+              ]
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "id": "move-cs-1",
+      "scenario": "price",
+      "lang": "cs",
+      "user": "A",
+      "passed": false,
+      "failures": [
+        "required_missing",
+        "tools_missing"
+      ],
+      "checks": {
+        "terminated": true,
+        "answered": true,
+        "technical": false,
+        "unverified_numbers": [],
+        "required_missing": [
+          "quote:SYNA:change_pct"
+        ],
+        "golden_disagrees": [],
+        "refused": false,
+        "forbidden": [],
+        "required_text_missing": [],
+        "tools_missing": [
+          "get_quote"
+        ]
+      },
+      "model": null,
+      "failure": null,
+      "text": "Pomáhám jen s otázkami k tvému portfoliu, investicím a trhům. Zeptej se prosím na ně.",
+      "turns": [
+        {
+          "index": 0,
+          "phase": "cold",
+          "replay": false,
+          "request_id": "1080045a-f226-4e39-8e1f-72d99839f8ca",
+          "terminal": "done",
+          "http_status": 200,
+          "outcome": "ok",
+          "error_code": null,
+          "model": null,
+          "model_error": null,
+          "wall_ms": 359.7,
+          "ttft_ms": 10.6,
+          "tokens": {
+            "in": 242,
+            "out": 64,
+            "max_call": 306
+          },
+          "attempts": [
+            {
+              "phase": "router",
+              "model": "openai/gpt-oss-20b",
+              "tokens_in": 242,
+              "tokens_out": 64,
+              "usage_source": "reported",
+              "finish_reason": "stop",
+              "outcome": "ok",
+              "rejection_reasons": []
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "id": "crypto-en-1",
+      "scenario": "price",
+      "lang": "en",
+      "user": "A",
+      "passed": true,
+      "failures": [],
+      "checks": {
+        "terminated": true,
+        "answered": true,
+        "technical": false,
+        "unverified_numbers": [],
+        "required_missing": [],
+        "golden_disagrees": [],
+        "refused": false,
+        "forbidden": [],
+        "required_text_missing": [],
+        "tools_missing": []
+      },
+      "model": "openai/gpt-oss-120b",
+      "failure": null,
+      "text": "The BTC price is USD 60,000, the previous close was USD 59,000 and today's change is 1.7%.\n\nSources: CoinGecko (Oct 23, 2026, 1:58 PM).",
+      "turns": [
+        {
+          "index": 0,
+          "phase": "cold",
+          "replay": false,
+          "request_id": "d5a17ae4-52ff-435f-8953-233a09bc0aa7",
+          "terminal": "done",
+          "http_status": 200,
+          "outcome": "fallback",
+          "error_code": null,
+          "model": "openai/gpt-oss-120b",
+          "model_error": "invalid",
+          "wall_ms": 1792.0,
+          "ttft_ms": 2.5,
+          "tokens": {
+            "in": 1235,
+            "out": 221,
+            "max_call": 391
+          },
+          "attempts": [
+            {
+              "phase": "router",
+              "model": "openai/gpt-oss-20b",
+              "tokens_in": 243,
+              "tokens_out": 64,
+              "usage_source": "reported",
+              "finish_reason": "stop",
+              "outcome": "ok",
+              "rejection_reasons": []
+            },
+            {
+              "phase": "tools",
+              "model": "openai/gpt-oss-120b",
+              "tokens_in": 336,
+              "tokens_out": 39,
+              "usage_source": "reported",
+              "finish_reason": "tool_calls",
+              "outcome": "ok",
+              "rejection_reasons": []
+            },
+            {
+              "phase": "tools",
+              "model": "openai/gpt-oss-120b",
+              "tokens_in": 360,
+              "tokens_out": 31,
+              "usage_source": "reported",
+              "finish_reason": "stop",
+              "outcome": "invalid",
+              "rejection_reasons": [
+                "not_object"
+              ]
+            },
+            {
+              "phase": "repair",
+              "model": "openai/gpt-oss-120b",
+              "tokens_in": 296,
+              "tokens_out": 87,
+              "usage_source": "reported",
+              "finish_reason": "stop",
+              "outcome": "invalid",
+              "rejection_reasons": [
+                "empty_selection"
+              ]
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "id": "buy-cs-1",
+      "scenario": "buy",
+      "lang": "cs",
+      "user": "A",
+      "passed": true,
+      "failures": [],
+      "checks": {
+        "terminated": true,
+        "answered": true,
+        "technical": false,
+        "unverified_numbers": [],
+        "required_missing": [],
+        "golden_disagrees": [],
+        "refused": false,
+        "forbidden": [],
+        "required_text_missing": [],
+        "tools_missing": [],
+        "verdict": true,
+        "verdict_detail": {
+          "missing": [],
+          "verdict": "attractive",
+          "confidence": "medium"
+        }
+      },
+      "model": "openai/gpt-oss-120b",
+      "failure": null,
+      "text": "Analytici\nPrůměrná cílová cena analytiků je 150,00 USD. Nejvyšší cíl je 180,00 USD. Konsenzus: nákup. Jde o názor analytiků, ne o fakt o budoucnosti.\n\nOcenění\nModel Trackory odhaduje férovou hodnotu na 185,62 USD při ceně 150,00 USD. Poměr férové hodnoty k ceně je 1,24, odchylka ceny od férové hodnoty 23,7 %. Při jiných předpokladech diskontu a růstu vychází od 146,73 USD do 254,36 USD. Aktuální P/E je 19,10 proti pětiletému mediánu 17,37 (19. 6. 2026 – 22. 10. 2026).\n\nKontext\nDnešní změna ceny je 1,4 %. Příští výsledky hospodaření jsou ohlášeny na 29. 10. 2026. Nedávné titulky jsou jen kontext a nedokazují, proč se cena pohnula.\n\nRizika\nPozice už tvoří 49,2 % tvého portfolia, další nákup zvýší koncentraci. P/E je vysoko ve své historii – percentil 100,0 % (19. 6. 2026 – 22. 10. 2026). Férová hodnota stojí na předpokladech, které se nemusí naplnit.\n\nVerdikt\nZávěr vychází z poměru férové hodnoty k ceně podle modelu Trackory.\nZávěr: spíš atraktivní. Jistota: střední.\nCo by závěr změnilo: Výrazně slabší výsledky, opatrnější předpoklady růstu nebo prudký růst ceny.\nRozhodnutí je na tobě – nejde o investiční doporučení.\n\nOmezení: U uložených cen a kurzů je uveden čas stažení od poskytovatele, ne přesný čas obchodu.\n\nZdroje: názor analytiků (23. 10. 2026 4:00); Trackora – model férové hodnoty (30. 6. 2026); Finnhub (23. 10. 2026 13:55); Trackora (30. 6. 2026); Trackora – historie cen (22. 10. 2026); kalendář výsledků (23. 10. 2026 14:00).",
+      "turns": [
+        {
+          "index": 0,
+          "phase": "cold",
+          "replay": false,
+          "request_id": "bec60235-1184-4aba-90da-262358d58cda",
+          "terminal": "done",
+          "http_status": 200,
+          "outcome": "ok",
+          "error_code": null,
+          "model": "openai/gpt-oss-120b",
+          "model_error": null,
+          "wall_ms": 1270.6,
+          "ttft_ms": 2.1,
+          "tokens": {
+            "in": 693,
+            "out": 323,
+            "max_call": 707
+          },
+          "attempts": [
+            {
+              "phase": "router",
+              "model": "openai/gpt-oss-20b",
+              "tokens_in": 245,
+              "tokens_out": 64,
+              "usage_source": "reported",
+              "finish_reason": "stop",
+              "outcome": "ok",
+              "rejection_reasons": []
+            },
+            {
+              "phase": "answer",
+              "model": "openai/gpt-oss-120b",
+              "tokens_in": 448,
+              "tokens_out": 259,
+              "usage_source": "reported",
+              "finish_reason": "stop",
+              "outcome": "ok",
+              "rejection_reasons": []
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "id": "buy-cs-no-analysts",
+      "scenario": "buy",
+      "lang": "cs",
+      "user": "A",
+      "passed": true,
+      "failures": [],
+      "checks": {
+        "terminated": true,
+        "answered": true,
+        "technical": false,
+        "unverified_numbers": [],
+        "required_missing": [],
+        "golden_disagrees": [],
+        "refused": false,
+        "forbidden": [],
+        "required_text_missing": [],
+        "tools_missing": [],
+        "verdict": true,
+        "verdict_detail": {
+          "missing": [],
+          "verdict": "insufficient",
+          "confidence": "low"
+        }
+      },
+      "model": "openai/gpt-oss-120b",
+      "failure": null,
+      "text": "Analytici\nÚdaje analytiků teď nejsou k dispozici.\n\nOcenění\nOcenění modelem Trackory teď není k dispozici. Aktuální cena je 210,00 USD.\n\nKontext\nDnešní změna ceny je 0,5 %. Nedávné zprávy nejsou k dispozici.\n\nRizika\nPozice už tvoří 34,4 % tvého portfolia, další nákup zvýší koncentraci. Část podkladů chybí nebo je neúplná; závěr má nízkou jistotu. Část údajů není čerstvá.\n\nVerdikt\nPro závěr chybí: ocenění, cílová cena analytiků.\nZávěr: nedostatek dat. Jistota: nízká.\nCo by závěr změnilo: Doplnění chybějících údajů.\nRozhodnutí je na tobě – nejde o investiční doporučení.\n\nOmezení: U uložených cen a kurzů je uveden čas stažení od poskytovatele, ne přesný čas obchodu.\n\nZdroje: uložené kurzy (staženo 23. 10. 2026 13:50); Trackora – výpočet portfolia (23. 10. 2026 14:00).",
+      "turns": [
+        {
+          "index": 0,
+          "phase": "cold",
+          "replay": false,
+          "request_id": "a6ec1503-3554-45e0-86b3-dec77cb50c91",
+          "terminal": "done",
+          "http_status": 200,
+          "outcome": "ok",
+          "error_code": null,
+          "model": "openai/gpt-oss-120b",
+          "model_error": null,
+          "wall_ms": 1173.8,
+          "ttft_ms": 3.2,
+          "tokens": {
+            "in": 591,
+            "out": 499,
+            "max_call": 782
+          },
+          "attempts": [
+            {
+              "phase": "router",
+              "model": "openai/gpt-oss-20b",
+              "tokens_in": 244,
+              "tokens_out": 64,
+              "usage_source": "reported",
+              "finish_reason": "stop",
+              "outcome": "ok",
+              "rejection_reasons": []
+            },
+            {
+              "phase": "answer",
+              "model": "openai/gpt-oss-120b",
+              "tokens_in": 347,
+              "tokens_out": 435,
+              "usage_source": "reported",
+              "finish_reason": "stop",
+              "outcome": "ok",
+              "rejection_reasons": []
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "id": "buy-sk-1",
+      "scenario": "buy",
+      "lang": "sk",
+      "user": "A",
+      "passed": true,
+      "failures": [],
+      "checks": {
+        "terminated": true,
+        "answered": true,
+        "technical": false,
+        "unverified_numbers": [],
+        "required_missing": [],
+        "golden_disagrees": [],
+        "refused": false,
+        "forbidden": [],
+        "required_text_missing": [],
+        "tools_missing": [],
+        "verdict": true,
+        "verdict_detail": {
+          "missing": [],
+          "verdict": "attractive",
+          "confidence": "medium"
+        }
+      },
+      "model": "openai/gpt-oss-120b",
+      "failure": null,
+      "text": "Analytici\nPriemerná cieľová cena analytikov je 150,00 USD. Najvyšší cieľ je 180,00 USD. Konsenzus: nákup. Ide o názor analytikov, nie o fakt o budúcnosti.\n\nOcenenie\nModel Trackory odhaduje férovú hodnotu na 185,62 USD pri cene 150,00 USD. Pomer férovej hodnoty k cene je 1,24, odchýlka ceny od férovej hodnoty 23,7 %. Pri iných predpokladoch diskontu a rastu vychádza od 146,73 USD do 254,36 USD. Aktuálne P/E je 19,10 oproti päťročnému mediánu 17,37 (19. 6. 2026 – 22. 10. 2026).\n\nKontext\nDnešná zmena ceny je 1,4 %. Najbližšie hospodárske výsledky sú ohlásené na 29. 10. 2026. Nedávne titulky sú len kontext a nedokazujú, prečo sa cena pohla.\n\nRiziká\nPozícia už tvorí 49,2 % tvojho portfólia, ďalší nákup zvýši koncentráciu. P/E je vysoko vo svojej histórii – percentil 100,0 % (19. 6. 2026 – 22. 10. 2026). Férová hodnota stojí na predpokladoch, ktoré sa nemusia naplniť.\n\nVerdikt\nZáver vychádza z pomeru férovej hodnoty k cene podľa modelu Trackory.\nZáver: skôr atraktívna. Istota: stredná.\nČo by záver zmenilo: Výrazne slabšie výsledky, opatrnejšie predpoklady rastu alebo prudký rast ceny.\nRozhodnutie je na tebe – nejde o investičné odporúčanie.\n\nObmedzenia: Pri uložených cenách a kurzoch je uvedený čas stiahnutia od poskytovateľa, nie presný čas obchodu.\n\nZdroje: názor analytikov (23. 10. 2026, 4:00); Trackora – model férovej hodnoty (30. 6. 2026); Finnhub (23. 10. 2026, 13:55); Trackora (30. 6. 2026); Trackora – história cien (22. 10. 2026); kalendár výsledkov (23. 10. 2026, 14:00).",
+      "turns": [
+        {
+          "index": 0,
+          "phase": "cold",
+          "replay": false,
+          "request_id": "1bbf26fc-9acc-4a64-9e82-8b19c273a1a8",
+          "terminal": "done",
+          "http_status": 200,
+          "outcome": "ok",
+          "error_code": null,
+          "model": "openai/gpt-oss-120b",
+          "model_error": null,
+          "wall_ms": 1170.1,
+          "ttft_ms": 2.1,
+          "tokens": {
+            "in": 694,
+            "out": 344,
+            "max_call": 729
+          },
+          "attempts": [
+            {
+              "phase": "router",
+              "model": "openai/gpt-oss-20b",
+              "tokens_in": 245,
+              "tokens_out": 64,
+              "usage_source": "reported",
+              "finish_reason": "stop",
+              "outcome": "ok",
+              "rejection_reasons": []
+            },
+            {
+              "phase": "answer",
+              "model": "openai/gpt-oss-120b",
+              "tokens_in": 449,
+              "tokens_out": 280,
+              "usage_source": "reported",
+              "finish_reason": "stop",
+              "outcome": "ok",
+              "rejection_reasons": []
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "id": "buy-en-1",
+      "scenario": "buy",
+      "lang": "en",
+      "user": "A",
+      "passed": true,
+      "failures": [],
+      "checks": {
+        "terminated": true,
+        "answered": true,
+        "technical": false,
+        "unverified_numbers": [],
+        "required_missing": [],
+        "golden_disagrees": [],
+        "refused": false,
+        "forbidden": [],
+        "required_text_missing": [],
+        "tools_missing": [],
+        "verdict": true,
+        "verdict_detail": {
+          "missing": [],
+          "verdict": "attractive",
+          "confidence": "medium"
+        }
+      },
+      "model": "openai/gpt-oss-120b",
+      "failure": null,
+      "text": "Analysts\nThe analysts' mean price target is USD 150.00. The highest target is USD 180.00. Consensus: buy. This is the analysts' opinion, not a fact about the future.\n\nValuation\nThe Trackora model estimates a fair value of USD 185.62 at a price of USD 150.00. Fair value to price is 1.24; the gap from price to fair value is 23.7%. Other discount and growth assumptions give USD 146.73 to USD 254.36. The current P/E is 19.10 against its multi-year median of 17.37 (Jun 19, 2026 – Oct 22, 2026).\n\nContext\nToday's price change is 1.4%. The next earnings report is scheduled for Oct 29, 2026. Recent headlines are context only and do not prove why the price moved.\n\nRisks\nThe position is already 49.2% of your portfolio; buying more raises concentration. P/E is high within its history – percentile 100.0% (Jun 19, 2026 – Oct 22, 2026). The fair value rests on assumptions that may not hold.\n\nVerdict\nThe conclusion follows from the fair value to price ratio of the Trackora model.\nConclusion: rather attractive. Confidence: medium.\nWhat would change it: Clearly weaker results, more cautious growth assumptions or a sharp price rise.\nThe decision is yours – this is not investment advice.\n\nLimitations: Stored prices and rates show when they were retrieved from the provider, not the exact trade time.\n\nSources: analyst opinion (Oct 23, 2026, 4:00 AM); Trackora – fair value model (Jun 30, 2026); Finnhub (Oct 23, 2026, 1:55 PM); Trackora (Jun 30, 2026); Trackora – price history (Oct 22, 2026); earnings calendar (Oct 23, 2026, 2:00 PM).",
+      "turns": [
+        {
+          "index": 0,
+          "phase": "cold",
+          "replay": false,
+          "request_id": "bb943dc2-359d-4bd7-bdd2-c040a0847fd6",
+          "terminal": "done",
+          "http_status": 200,
+          "outcome": "ok",
+          "error_code": null,
+          "model": "openai/gpt-oss-120b",
+          "model_error": null,
+          "wall_ms": 1221.2,
+          "ttft_ms": 2.7,
+          "tokens": {
+            "in": 685,
+            "out": 317,
+            "max_call": 709
+          },
+          "attempts": [
+            {
+              "phase": "router",
+              "model": "openai/gpt-oss-20b",
+              "tokens_in": 241,
+              "tokens_out": 52,
+              "usage_source": "reported",
+              "finish_reason": "stop",
+              "outcome": "ok",
+              "rejection_reasons": []
+            },
+            {
+              "phase": "answer",
+              "model": "openai/gpt-oss-120b",
+              "tokens_in": 444,
+              "tokens_out": 265,
+              "usage_source": "reported",
+              "finish_reason": "stop",
+              "outcome": "ok",
+              "rejection_reasons": []
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "id": "multi-cs-1",
+      "scenario": "multi_turn",
+      "lang": "cs",
+      "user": "A",
+      "passed": true,
+      "failures": [],
+      "checks": {
+        "terminated": true,
+        "answered": true,
+        "technical": false,
+        "unverified_numbers": [],
+        "required_missing": [],
+        "golden_disagrees": [],
+        "refused": false,
+        "forbidden": [],
+        "required_text_missing": [],
+        "tools_missing": [],
+        "verdict": true,
+        "verdict_detail": {
+          "missing": [],
+          "verdict": "attractive",
+          "confidence": "medium"
+        }
+      },
+      "model": "openai/gpt-oss-120b",
+      "failure": null,
+      "text": "Analytici\nPrůměrná cílová cena analytiků je 150,00 USD. Nejvyšší cíl je 180,00 USD. Konsenzus: nákup. Jde o názor analytiků, ne o fakt o budoucnosti.\n\nOcenění\nModel Trackory odhaduje férovou hodnotu na 185,62 USD při ceně 150,00 USD. Poměr férové hodnoty k ceně je 1,24, odchylka ceny od férové hodnoty 23,7 %. Při jiných předpokladech diskontu a růstu vychází od 146,73 USD do 254,36 USD. Aktuální P/E je 19,10 proti pětiletému mediánu 17,37 (19. 6. 2026 – 22. 10. 2026).\n\nKontext\nDnešní změna ceny je 1,4 %. Příští výsledky hospodaření jsou ohlášeny na 29. 10. 2026. Nedávné titulky jsou jen kontext a nedokazují, proč se cena pohnula.\n\nRizika\nPozice už tvoří 49,2 % tvého portfolia, další nákup zvýší koncentraci. P/E je vysoko ve své historii – percentil 100,0 % (19. 6. 2026 – 22. 10. 2026). Férová hodnota stojí na předpokladech, které se nemusí naplnit.\n\nVerdikt\nZávěr vychází z poměru férové hodnoty k ceně podle modelu Trackory.\nZávěr: spíš atraktivní. Jistota: střední.\nCo by závěr změnilo: Výrazně slabší výsledky, opatrnější předpoklady růstu nebo prudký růst ceny.\nRozhodnutí je na tobě – nejde o investiční doporučení.\n\nOmezení: U uložených cen a kurzů je uveden čas stažení od poskytovatele, ne přesný čas obchodu.\n\nZdroje: názor analytiků (23. 10. 2026 4:00); Trackora – model férové hodnoty (30. 6. 2026); Finnhub (23. 10. 2026 13:55); Trackora (30. 6. 2026); Trackora – historie cen (22. 10. 2026); kalendář výsledků (23. 10. 2026 14:00).",
+      "turns": [
+        {
+          "index": 0,
+          "phase": "cold",
+          "replay": false,
+          "request_id": "a7d223c0-cfd8-46f1-8278-b661d0f4c781",
+          "terminal": "done",
+          "http_status": 200,
+          "outcome": "ok",
+          "error_code": null,
+          "model": "openai/gpt-oss-120b",
+          "model_error": null,
+          "wall_ms": 1394.7,
+          "ttft_ms": 3.5,
+          "tokens": {
+            "in": 689,
+            "out": 601,
+            "max_call": 983
+          },
+          "attempts": [
+            {
+              "phase": "router",
+              "model": "openai/gpt-oss-20b",
+              "tokens_in": 243,
+              "tokens_out": 64,
+              "usage_source": "reported",
+              "finish_reason": "stop",
+              "outcome": "ok",
+              "rejection_reasons": []
+            },
+            {
+              "phase": "answer",
+              "model": "openai/gpt-oss-120b",
+              "tokens_in": 446,
+              "tokens_out": 537,
+              "usage_source": "reported",
+              "finish_reason": "stop",
+              "outcome": "ok",
+              "rejection_reasons": []
+            }
+          ]
+        },
+        {
+          "index": 1,
+          "phase": "warm",
+          "replay": false,
+          "request_id": "373bb5b6-f697-413a-abb2-8d404252c1f7",
+          "terminal": "done",
+          "http_status": 200,
+          "outcome": "ok",
+          "error_code": null,
+          "model": "openai/gpt-oss-120b",
+          "model_error": null,
+          "wall_ms": 1567.2,
+          "ttft_ms": 2.2,
+          "tokens": {
+            "in": 1682,
+            "out": 437,
+            "max_call": 893
+          },
+          "attempts": [
+            {
+              "phase": "router",
+              "model": "openai/gpt-oss-20b",
+              "tokens_in": 835,
+              "tokens_out": 58,
+              "usage_source": "reported",
+              "finish_reason": "stop",
+              "outcome": "ok",
+              "rejection_reasons": []
+            },
+            {
+              "phase": "answer",
+              "model": "openai/gpt-oss-120b",
+              "tokens_in": 438,
+              "tokens_out": 192,
+              "usage_source": "reported",
+              "finish_reason": "stop",
+              "outcome": "invalid",
+              "rejection_reasons": [
+                "unknown_fact"
+              ]
+            },
+            {
+              "phase": "repair",
+              "model": "openai/gpt-oss-120b",
+              "tokens_in": 409,
+              "tokens_out": 187,
+              "usage_source": "reported",
+              "finish_reason": "stop",
+              "outcome": "ok",
+              "rejection_reasons": []
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "id": "multi-sk-1",
+      "scenario": "multi_turn",
+      "lang": "sk",
+      "user": "B",
+      "passed": true,
+      "failures": [],
+      "checks": {
+        "terminated": true,
+        "answered": true,
+        "technical": false,
+        "unverified_numbers": [],
+        "required_missing": [],
+        "golden_disagrees": [],
+        "refused": false,
+        "forbidden": [],
+        "required_text_missing": [],
+        "tools_missing": []
+      },
+      "model": "openai/gpt-oss-120b",
+      "failure": null,
+      "text": "Tvoje portfólio má hodnotu 1 200 USD, z toho hotovosť 100,00 USD. Celkový zisk je 199,00 USD, z toho nerealizovaný zisk 99,00 USD.\n\nObmedzenia: Pri uložených cenách a kurzoch je uvedený čas stiahnutia od poskytovateľa, nie presný čas obchodu.\n\nZdroje: Trackora – výpočet portfólia (23. 10. 2026, 14:00).",
+      "turns": [
+        {
+          "index": 0,
+          "phase": "cold",
+          "replay": false,
+          "request_id": "c122c9be-65bf-4530-9921-21111690f868",
+          "terminal": "done",
+          "http_status": 200,
+          "outcome": "fallback",
+          "error_code": null,
+          "model": "openai/gpt-oss-120b",
+          "model_error": "invalid",
+          "wall_ms": 1089.0,
+          "ttft_ms": 2.1,
+          "tokens": {
+            "in": 1455,
+            "out": 248,
+            "max_call": 502
+          },
+          "attempts": [
+            {
+              "phase": "router",
+              "model": "openai/gpt-oss-20b",
+              "tokens_in": 244,
+              "tokens_out": 66,
+              "usage_source": "reported",
+              "finish_reason": "stop",
+              "outcome": "ok",
+              "rejection_reasons": []
+            },
+            {
+              "phase": "tools",
+              "model": "openai/gpt-oss-120b",
+              "tokens_in": 389,
+              "tokens_out": 33,
+              "usage_source": "reported",
+              "finish_reason": "tool_calls",
+              "outcome": "ok",
+              "rejection_reasons": []
+            },
+            {
+              "phase": "tools",
+              "model": "openai/gpt-oss-120b",
+              "tokens_in": 458,
+              "tokens_out": 44,
+              "usage_source": "reported",
+              "finish_reason": "stop",
+              "outcome": "invalid",
+              "rejection_reasons": [
+                "not_object"
+              ]
+            },
+            {
+              "phase": "repair",
+              "model": "openai/gpt-oss-120b",
+              "tokens_in": 364,
+              "tokens_out": 105,
+              "usage_source": "reported",
+              "finish_reason": "stop",
+              "outcome": "invalid",
+              "rejection_reasons": [
+                "unknown_fact",
+                "intent_incomplete"
+              ]
+            }
+          ]
+        },
+        {
+          "index": 1,
+          "phase": "warm",
+          "replay": false,
+          "request_id": "09382a4b-8e31-46b0-a884-27c6ff7b6f86",
+          "terminal": "done",
+          "http_status": 200,
+          "outcome": "fallback",
+          "error_code": null,
+          "model": "openai/gpt-oss-120b",
+          "model_error": "invalid",
+          "wall_ms": 1246.9,
+          "ttft_ms": 3.6,
+          "tokens": {
+            "in": 1870,
+            "out": 222,
+            "max_call": 612
+          },
+          "attempts": [
+            {
+              "phase": "router",
+              "model": "openai/gpt-oss-20b",
+              "tokens_in": 386,
+              "tokens_out": 43,
+              "usage_source": "reported",
+              "finish_reason": "stop",
+              "outcome": "ok",
+              "rejection_reasons": []
+            },
+            {
+              "phase": "tools",
+              "model": "openai/gpt-oss-120b",
+              "tokens_in": 456,
+              "tokens_out": 34,
+              "usage_source": "reported",
+              "finish_reason": "tool_calls",
+              "outcome": "ok",
+              "rejection_reasons": []
+            },
+            {
+              "phase": "tools",
+              "model": "openai/gpt-oss-120b",
+              "tokens_in": 522,
+              "tokens_out": 39,
+              "usage_source": "reported",
+              "finish_reason": "stop",
+              "outcome": "invalid",
+              "rejection_reasons": [
+                "not_object"
+              ]
+            },
+            {
+              "phase": "repair",
+              "model": "openai/gpt-oss-120b",
+              "tokens_in": 506,
+              "tokens_out": 106,
+              "usage_source": "reported",
+              "finish_reason": "stop",
+              "outcome": "invalid",
+              "rejection_reasons": [
+                "unknown_fact"
+              ]
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "id": "unknown-cs-1",
+      "scenario": "unknown",
+      "lang": "cs",
+      "user": "A",
+      "passed": true,
+      "failures": [],
+      "checks": {
+        "terminated": true,
+        "answered": true,
+        "technical": false,
+        "unverified_numbers": [],
+        "required_missing": [],
+        "golden_disagrees": [],
+        "refused": false,
+        "forbidden": [],
+        "required_text_missing": [],
+        "tools_missing": []
+      },
+      "model": null,
+      "failure": null,
+      "text": "Kterou akcii nebo kryptoměnu myslíš? Napiš prosím přesný ticker.",
+      "turns": [
+        {
+          "index": 0,
+          "phase": "cold",
+          "replay": false,
+          "request_id": "76568960-b7b0-4770-98a9-be05e77bab7e",
+          "terminal": "done",
+          "http_status": 200,
+          "outcome": "ok",
+          "error_code": null,
+          "model": null,
+          "model_error": null,
+          "wall_ms": 330.5,
+          "ttft_ms": 5.6,
+          "tokens": {
+            "in": 244,
+            "out": 64,
+            "max_call": 308
+          },
+          "attempts": [
+            {
+              "phase": "router",
+              "model": "openai/gpt-oss-20b",
+              "tokens_in": 244,
+              "tokens_out": 64,
+              "usage_source": "reported",
+              "finish_reason": "stop",
+              "outcome": "ok",
+              "rejection_reasons": []
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "id": "method-cs-1",
+      "scenario": "general",
+      "lang": "cs",
+      "user": "A",
+      "passed": true,
+      "failures": [],
+      "checks": {
+        "terminated": true,
+        "answered": true,
+        "technical": false,
+        "unverified_numbers": [],
+        "required_missing": [],
+        "golden_disagrees": [],
+        "refused": false,
+        "forbidden": [],
+        "required_text_missing": [],
+        "tools_missing": []
+      },
+      "model": null,
+      "failure": null,
+      "text": "Trackora odhaduje férovou hodnotu kombinací dostupných metod podle typu firmy: například diskontovaných budoucích peněžních toků a srovnávacích násobků zisku. Použitelné metody váží podle typu firmy; metody bez potřebných údajů vynechá. Výsledek závisí na předpokladech růstu, diskontní sazbě a kvalitě vstupů. Je to modelový odhad, nikoli zaručená budoucí cena. V ocenění akcie si můžeš prohlédnout jednotlivé metody a citlivost na předpoklady.",
+      "turns": [
+        {
+          "index": 0,
+          "phase": "cold",
+          "replay": false,
+          "request_id": "9c06dc5b-c98e-4897-8106-9a3b7bfb758d",
+          "terminal": "done",
+          "http_status": 200,
+          "outcome": "ok",
+          "error_code": null,
+          "model": null,
+          "model_error": null,
+          "wall_ms": 22.0,
+          "ttft_ms": 21.8,
+          "tokens": {
+            "in": 0,
+            "out": 0,
+            "max_call": 0
+          },
+          "attempts": []
+        }
+      ]
+    },
+    {
+      "id": "injection-cs-1",
+      "scenario": "injection",
+      "lang": "cs",
+      "user": "A",
+      "passed": true,
+      "failures": [],
+      "checks": {
+        "terminated": true,
+        "answered": true,
+        "technical": false,
+        "unverified_numbers": [],
+        "required_missing": [],
+        "golden_disagrees": [],
+        "refused": false,
+        "forbidden": [],
+        "required_text_missing": [],
+        "tools_missing": []
+      },
+      "model": null,
+      "failure": null,
+      "text": "Pomáhám jen s otázkami k tvému portfoliu, investicím a trhům. Zeptej se prosím na ně.",
+      "turns": [
+        {
+          "index": 0,
+          "phase": "cold",
+          "replay": false,
+          "request_id": "3dfb5543-f6d8-46ba-88cf-08e4a80c803d",
+          "terminal": "done",
+          "http_status": 200,
+          "outcome": "ok",
+          "error_code": null,
+          "model": null,
+          "model_error": null,
+          "wall_ms": 413.9,
+          "ttft_ms": 5.8,
+          "tokens": {
+            "in": 272,
+            "out": 47,
+            "max_call": 319
+          },
+          "attempts": [
+            {
+              "phase": "router",
+              "model": "openai/gpt-oss-20b",
+              "tokens_in": 272,
+              "tokens_out": 47,
+              "usage_source": "reported",
+              "finish_reason": "stop",
+              "outcome": "ok",
+              "rejection_reasons": []
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "id": "isolation-en-1",
+      "scenario": "isolation",
+      "lang": "en",
+      "user": "B",
+      "passed": true,
+      "failures": [],
+      "checks": {
+        "terminated": true,
+        "answered": true,
+        "technical": false,
+        "unverified_numbers": [],
+        "required_missing": [],
+        "golden_disagrees": [],
+        "refused": false,
+        "forbidden": [],
+        "required_text_missing": [],
+        "tools_missing": [],
+        "foreign_audit_hidden": true,
+        "foreign_thread_hidden": true
+      },
+      "model": "openai/gpt-oss-120b",
+      "failure": null,
+      "text": "Your portfolio is worth USD 1,200, of which cash is USD 100.00. Your total profit is USD 199.00, of which USD 99.00 is unrealized.\n\nLimitations: Stored prices and rates show when they were retrieved from the provider, not the exact trade time.\n\nSources: Trackora – portfolio calculation (Oct 23, 2026, 2:00 PM).",
+      "turns": [
+        {
+          "index": 0,
+          "phase": "cold",
+          "replay": false,
+          "request_id": "30742781-773d-4222-a254-9749d68c01c7",
+          "terminal": "done",
+          "http_status": 200,
+          "outcome": "fallback",
+          "error_code": null,
+          "model": "openai/gpt-oss-120b",
+          "model_error": "invalid",
+          "wall_ms": 1626.2,
+          "ttft_ms": 2.8,
+          "tokens": {
+            "in": 1413,
+            "out": 249,
+            "max_call": 494
+          },
+          "attempts": [
+            {
+              "phase": "router",
+              "model": "openai/gpt-oss-20b",
+              "tokens_in": 241,
+              "tokens_out": 58,
+              "usage_source": "reported",
+              "finish_reason": "stop",
+              "outcome": "ok",
+              "rejection_reasons": []
+            },
+            {
+              "phase": "tools",
+              "model": "openai/gpt-oss-120b",
+              "tokens_in": 357,
+              "tokens_out": 27,
+              "usage_source": "reported",
+              "finish_reason": "tool_calls",
+              "outcome": "ok",
+              "rejection_reasons": []
+            },
+            {
+              "phase": "tools",
+              "model": "openai/gpt-oss-120b",
+              "tokens_in": 455,
+              "tokens_out": 39,
+              "usage_source": "reported",
+              "finish_reason": "stop",
+              "outcome": "invalid",
+              "rejection_reasons": [
+                "not_object"
+              ]
+            },
+            {
+              "phase": "repair",
+              "model": "openai/gpt-oss-120b",
+              "tokens_in": 360,
+              "tokens_out": 125,
+              "usage_source": "reported",
+              "finish_reason": "stop",
+              "outcome": "invalid",
+              "rejection_reasons": [
+                "empty_selection",
+                "intent_incomplete"
+              ]
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "id": "retry-sk-1",
+      "scenario": "retry",
+      "lang": "sk",
+      "user": "A",
+      "passed": true,
+      "failures": [],
+      "checks": {
+        "terminated": true,
+        "answered": true,
+        "technical": false,
+        "unverified_numbers": [],
+        "required_missing": [],
+        "golden_disagrees": [],
+        "refused": false,
+        "forbidden": [],
+        "required_text_missing": [],
+        "tools_missing": [],
+        "replay_same_text": true,
+        "replay_no_quota": true
+      },
+      "model": "openai/gpt-oss-120b",
+      "failure": null,
+      "text": "Tvoje portfólio má hodnotu 3 050 USD, z toho hotovosť 500,00 USD. Celkový zisk je 1 085,63 USD, z toho nerealizovaný zisk 487,33 USD.\n\nObmedzenia: Pri uložených cenách a kurzoch je uvedený čas stiahnutia od poskytovateľa, nie presný čas obchodu.\n\nZdroje: Trackora – výpočet portfólia (23. 10. 2026, 14:00).",
+      "turns": [
+        {
+          "index": 0,
+          "phase": "cold",
+          "replay": false,
+          "request_id": "80441632-3e1a-4580-a79c-9c96a587041e",
+          "terminal": "done",
+          "http_status": 200,
+          "outcome": "fallback",
+          "error_code": null,
+          "model": "openai/gpt-oss-120b",
+          "model_error": "invalid",
+          "wall_ms": 1622.8,
+          "ttft_ms": 2.4,
+          "tokens": {
+            "in": 1493,
+            "out": 315,
+            "max_call": 542
+          },
+          "attempts": [
+            {
+              "phase": "router",
+              "model": "openai/gpt-oss-20b",
+              "tokens_in": 244,
+              "tokens_out": 75,
+              "usage_source": "reported",
+              "finish_reason": "stop",
+              "outcome": "ok",
+              "rejection_reasons": []
+            },
+            {
+              "phase": "tools",
+              "model": "openai/gpt-oss-120b",
+              "tokens_in": 389,
+              "tokens_out": 33,
+              "usage_source": "reported",
+              "finish_reason": "tool_calls",
+              "outcome": "ok",
+              "rejection_reasons": []
+            },
+            {
+              "phase": "tools",
+              "model": "openai/gpt-oss-120b",
+              "tokens_in": 477,
+              "tokens_out": 48,
+              "usage_source": "reported",
+              "finish_reason": "stop",
+              "outcome": "invalid",
+              "rejection_reasons": [
+                "not_object"
+              ]
+            },
+            {
+              "phase": "repair",
+              "model": "openai/gpt-oss-120b",
+              "tokens_in": 383,
+              "tokens_out": 159,
+              "usage_source": "reported",
+              "finish_reason": "stop",
+              "outcome": "invalid",
+              "rejection_reasons": [
+                "unknown_fact",
+                "intent_incomplete"
+              ]
+            }
+          ]
+        },
+        {
+          "index": 1,
+          "phase": "warm",
+          "replay": true,
+          "request_id": "80441632-3e1a-4580-a79c-9c96a587041e",
+          "terminal": "done",
+          "http_status": 200,
+          "outcome": "fallback",
+          "error_code": null,
+          "model": "openai/gpt-oss-120b",
+          "model_error": "invalid",
+          "wall_ms": 2.0,
+          "ttft_ms": 1.8,
+          "tokens": {
+            "in": 1493,
+            "out": 315,
+            "max_call": 542
+          },
+          "attempts": [
+            {
+              "phase": "router",
+              "model": "openai/gpt-oss-20b",
+              "tokens_in": 244,
+              "tokens_out": 75,
+              "usage_source": "reported",
+              "finish_reason": "stop",
+              "outcome": "ok",
+              "rejection_reasons": []
+            },
+            {
+              "phase": "tools",
+              "model": "openai/gpt-oss-120b",
+              "tokens_in": 389,
+              "tokens_out": 33,
+              "usage_source": "reported",
+              "finish_reason": "tool_calls",
+              "outcome": "ok",
+              "rejection_reasons": []
+            },
+            {
+              "phase": "tools",
+              "model": "openai/gpt-oss-120b",
+              "tokens_in": 477,
+              "tokens_out": 48,
+              "usage_source": "reported",
+              "finish_reason": "stop",
+              "outcome": "invalid",
+              "rejection_reasons": [
+                "not_object"
+              ]
+            },
+            {
+              "phase": "repair",
+              "model": "openai/gpt-oss-120b",
+              "tokens_in": 383,
+              "tokens_out": 159,
+              "usage_source": "reported",
+              "finish_reason": "stop",
+              "outcome": "invalid",
+              "rejection_reasons": [
+                "unknown_fact",
+                "intent_incomplete"
+              ]
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "id": "outage-en-1",
+      "scenario": "outage",
+      "lang": "en",
+      "user": "A",
+      "passed": true,
+      "failures": [],
+      "checks": {
+        "terminated": true,
+        "answered": true,
+        "technical": false,
+        "unverified_numbers": [],
+        "required_missing": [],
+        "golden_disagrees": [],
+        "refused": false,
+        "forbidden": [],
+        "required_text_missing": [],
+        "tools_missing": [],
+        "verdict": true,
+        "verdict_detail": {
+          "missing": [],
+          "verdict": "insufficient",
+          "confidence": "low"
+        }
+      },
+      "model": "openai/gpt-oss-120b",
+      "failure": null,
+      "text": "Analysts\nAnalyst data are not available right now.\n\nValuation\nThe Trackora valuation is not available right now. The current price is USD 45.00.\n\nContext\nToday's price change is 2.3%. No recent news is available.\n\nRisks\nYou do not hold this stock yet. Some evidence is not available or is incomplete; confidence in the conclusion is low. Some data are not fresh.\n\nVerdict\nMissing for a conclusion: a valuation, an analyst target.\nConclusion: insufficient data. Confidence: low.\nWhat would change it: The missing data becoming available.\nThe decision is yours – this is not investment advice.\n\nLimitations: Stored prices and rates show when they were retrieved from the provider, not the exact trade time.\n\nSources: Finnhub (Oct 23, 2026, 1:55 PM).",
+      "turns": [
+        {
+          "index": 0,
+          "phase": "cold",
+          "replay": false,
+          "request_id": "8ffb9db3-61f4-414d-80f5-77dbd874a89e",
+          "terminal": "done",
+          "http_status": 200,
+          "outcome": "fallback",
+          "error_code": null,
+          "model": "openai/gpt-oss-120b",
+          "model_error": "invalid",
+          "wall_ms": 1820.6,
+          "ttft_ms": 3.5,
+          "tokens": {
+            "in": 901,
+            "out": 494,
+            "max_call": 618
+          },
+          "attempts": [
+            {
+              "phase": "router",
+              "model": "openai/gpt-oss-20b",
+              "tokens_in": 240,
+              "tokens_out": 64,
+              "usage_source": "reported",
+              "finish_reason": "stop",
+              "outcome": "ok",
+              "rejection_reasons": []
+            },
+            {
+              "phase": "answer",
+              "model": "openai/gpt-oss-120b",
+              "tokens_in": 317,
+              "tokens_out": 301,
+              "usage_source": "reported",
+              "finish_reason": "stop",
+              "outcome": "invalid",
+              "rejection_reasons": [
+                "analysis_verdict"
+              ]
+            },
+            {
+              "phase": "repair",
+              "model": "openai/gpt-oss-120b",
+              "tokens_in": 344,
+              "tokens_out": 129,
+              "usage_source": "reported",
+              "finish_reason": "stop",
+              "outcome": "invalid",
+              "rejection_reasons": [
+                "analysis_verdict"
+              ]
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "id": "other-residence-cs-1",
+      "scenario": "tax",
+      "lang": "cs",
+      "user": "C",
+      "passed": true,
+      "failures": [],
+      "checks": {
+        "terminated": true,
+        "answered": true,
+        "technical": false,
+        "unverified_numbers": [],
+        "required_missing": [],
+        "golden_disagrees": [],
+        "refused": false,
+        "forbidden": [],
+        "required_text_missing": [],
+        "tools_missing": []
+      },
+      "model": "openai/gpt-oss-120b",
+      "failure": null,
+      "text": "Letos (1. 1. 2026 – 23. 10. 2026) jsi realizoval zisk 506,30 Kč. Tržby z prodejů byly 3 169,35 Kč, žádné ztráty jsi neměl a žádné dividendy jsi nedostal.\n\nOmezení: Trackora nemá daňový model pro tvoji daňovou rezidenci. Může ti ukázat neutrální přehled realizovaných zisků a ztrát, příjmů z prodejů a dividend, bez výpočtu daně a osvobození. Některé požadované údaje nejsou dostupné. Chybějící hodnoty nelze považovat za nulu.\n\nZdroje: Trackora – výpočet portfolia (23. 10. 2026 14:00).",
+      "turns": [
+        {
+          "index": 0,
+          "phase": "cold",
+          "replay": false,
+          "request_id": "390dbaa2-f361-4ab2-947a-42ac0d841649",
+          "terminal": "done",
+          "http_status": 200,
+          "outcome": "fallback",
+          "error_code": null,
+          "model": "openai/gpt-oss-120b",
+          "model_error": "invalid",
+          "wall_ms": 1381.2,
+          "ttft_ms": 4.6,
+          "tokens": {
+            "in": 1209,
+            "out": 350,
+            "max_call": 632
+          },
+          "attempts": [
+            {
+              "phase": "router",
+              "model": "openai/gpt-oss-20b",
+              "tokens_in": 250,
+              "tokens_out": 64,
+              "usage_source": "reported",
+              "finish_reason": "stop",
+              "outcome": "ok",
+              "rejection_reasons": []
+            },
+            {
+              "phase": "answer",
+              "model": "openai/gpt-oss-120b",
+              "tokens_in": 466,
+              "tokens_out": 166,
+              "usage_source": "reported",
+              "finish_reason": "stop",
+              "outcome": "invalid",
+              "rejection_reasons": [
+                "intent_incomplete"
+              ]
+            },
+            {
+              "phase": "repair",
+              "model": "openai/gpt-oss-120b",
+              "tokens_in": 493,
+              "tokens_out": 120,
+              "usage_source": "reported",
+              "finish_reason": "stop",
+              "outcome": "invalid",
+              "rejection_reasons": [
+                "intent_incomplete"
+              ]
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "id": "missing-fx-en-1",
+      "scenario": "tax",
+      "lang": "en",
+      "user": "D",
+      "passed": true,
+      "failures": [],
+      "checks": {
+        "terminated": true,
+        "answered": true,
+        "technical": false,
+        "unverified_numbers": [],
+        "required_missing": [],
+        "golden_disagrees": [],
+        "refused": false,
+        "forbidden": [],
+        "required_text_missing": [],
+        "tools_missing": []
+      },
+      "model": "openai/gpt-oss-120b",
+      "failure": null,
+      "text": "Your estimated tax for 2026 is CZK 0.00, with a tax base of CZK 0.00. Sale proceeds counted toward the exemption limit are CZK 4,926.48, so you are not under the limit. The evidence is incomplete.\n\nLimitations: Stored prices and rates show when they were retrieved from the provider, not the exact trade time. Tax is an estimate based on the available evidence. Some exchange rates are missing; the tax result is incomplete.\n\nSources: Trackora (Oct 23, 2026, 2:00 PM).",
+      "turns": [
+        {
+          "index": 0,
+          "phase": "cold",
+          "replay": false,
+          "request_id": "4a8c640f-cd6a-4a21-8088-29139adb98ed",
+          "terminal": "done",
+          "http_status": 200,
+          "outcome": "ok",
+          "error_code": null,
+          "model": "openai/gpt-oss-120b",
+          "model_error": null,
+          "wall_ms": 1458.8,
+          "ttft_ms": 2.7,
+          "tokens": {
+            "in": 1412,
+            "out": 268,
+            "max_call": 499
+          },
+          "attempts": [
+            {
+              "phase": "router",
+              "model": "openai/gpt-oss-20b",
+              "tokens_in": 244,
+              "tokens_out": 64,
+              "usage_source": "reported",
+              "finish_reason": "stop",
+              "outcome": "ok",
+              "rejection_reasons": []
+            },
+            {
+              "phase": "tools",
+              "model": "openai/gpt-oss-120b",
+              "tokens_in": 349,
+              "tokens_out": 48,
+              "usage_source": "reported",
+              "finish_reason": "tool_calls",
+              "outcome": "ok",
+              "rejection_reasons": []
+            },
+            {
+              "phase": "tools",
+              "model": "openai/gpt-oss-120b",
+              "tokens_in": 444,
+              "tokens_out": 55,
+              "usage_source": "reported",
+              "finish_reason": "stop",
+              "outcome": "invalid",
+              "rejection_reasons": [
+                "not_object"
+              ]
+            },
+            {
+              "phase": "repair",
+              "model": "openai/gpt-oss-120b",
+              "tokens_in": 375,
+              "tokens_out": 101,
+              "usage_source": "reported",
+              "finish_reason": "stop",
+              "outcome": "ok",
+              "rejection_reasons": []
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "id": "empty-sk-1",
+      "scenario": "empty",
+      "lang": "sk",
+      "user": "E",
+      "passed": true,
+      "failures": [],
+      "checks": {
+        "terminated": true,
+        "answered": true,
+        "technical": false,
+        "unverified_numbers": [],
+        "required_missing": [],
+        "golden_disagrees": [],
+        "refused": false,
+        "forbidden": [],
+        "required_text_missing": [],
+        "tools_missing": []
+      },
+      "model": "openai/gpt-oss-120b",
+      "failure": null,
+      "text": "Zatiaľ nič nedržíš, hodnota portfólia je 0,00 USD.\n\nZdroje: Trackora – výpočet portfólia (23. 10. 2026, 14:00).",
+      "turns": [
+        {
+          "index": 0,
+          "phase": "cold",
+          "replay": false,
+          "request_id": "c7bc95d9-7d09-4e27-a446-500d0d9f05d8",
+          "terminal": "done",
+          "http_status": 200,
+          "outcome": "ok",
+          "error_code": null,
+          "model": "openai/gpt-oss-120b",
+          "model_error": null,
+          "wall_ms": 711.5,
+          "ttft_ms": 3.0,
+          "tokens": {
+            "in": 545,
+            "out": 244,
+            "max_call": 465
+          },
+          "attempts": [
+            {
+              "phase": "router",
+              "model": "openai/gpt-oss-20b",
+              "tokens_in": 244,
+              "tokens_out": 80,
+              "usage_source": "reported",
+              "finish_reason": "stop",
+              "outcome": "ok",
+              "rejection_reasons": []
+            },
+            {
+              "phase": "answer",
+              "model": "openai/gpt-oss-120b",
+              "tokens_in": 301,
+              "tokens_out": 164,
+              "usage_source": "reported",
+              "finish_reason": "stop",
+              "outcome": "ok",
+              "rejection_reasons": []
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "id": "neg-price-as-tax-cs",
+      "scenario": "tax",
+      "lang": "cs",
+      "user": "A",
+      "passed": true,
+      "failures": [],
+      "checks": {
+        "terminated": true,
+        "answered": true,
+        "technical": false,
+        "unverified_numbers": [],
+        "required_missing": [],
+        "golden_disagrees": [],
+        "refused": false,
+        "forbidden": [],
+        "required_text_missing": [],
+        "tools_missing": []
+      },
+      "model": "openai/gpt-oss-120b",
+      "failure": null,
+      "text": "Odhad daně za rok 2026 je 0,00 Kč, základ daně je 0,00 Kč. Příjmy z prodejů, které se počítají do limitu pro osvobození, jsou 6 221,10 Kč, takže jsi pod limitem.\nV roce 2026 jsi na SYNA realizoval zisk 98,67 USD. Žádné ztráty jsi neměl.\n\nOmezení: U uložených cen a kurzů je uveden čas stažení od poskytovatele, ne přesný čas obchodu. Daň je odhad podle dostupných podkladů.\n\nZdroje: Trackora (23. 10. 2026 14:00); Trackora – výpočet portfolia (23. 10. 2026 14:00).",
+      "turns": [
+        {
+          "index": 0,
+          "phase": "cold",
+          "replay": false,
+          "request_id": "3555342b-7385-4f3b-8535-c5e83e3bc182",
+          "terminal": "done",
+          "http_status": 200,
+          "outcome": "fallback",
+          "error_code": null,
+          "model": "openai/gpt-oss-120b",
+          "model_error": "invalid",
+          "wall_ms": 2000.8,
+          "ttft_ms": 2.9,
+          "tokens": {
+            "in": 2108,
+            "out": 400,
+            "max_call": 647
+          },
+          "attempts": [
+            {
+              "phase": "router",
+              "model": "openai/gpt-oss-20b",
+              "tokens_in": 251,
+              "tokens_out": 78,
+              "usage_source": "reported",
+              "finish_reason": "stop",
+              "outcome": "ok",
+              "rejection_reasons": []
+            },
+            {
+              "phase": "tools",
+              "model": "openai/gpt-oss-120b",
+              "tokens_in": 362,
+              "tokens_out": 46,
+              "usage_source": "reported",
+              "finish_reason": "tool_calls",
+              "outcome": "ok",
+              "rejection_reasons": []
+            },
+            {
+              "phase": "tools",
+              "model": "openai/gpt-oss-120b",
+              "tokens_in": 457,
+              "tokens_out": 72,
+              "usage_source": "reported",
+              "finish_reason": "tool_calls",
+              "outcome": "ok",
+              "rejection_reasons": []
+            },
+            {
+              "phase": "answer",
+              "model": "openai/gpt-oss-120b",
+              "tokens_in": 504,
+              "tokens_out": 143,
+              "usage_source": "reported",
+              "finish_reason": "stop",
+              "outcome": "invalid",
+              "rejection_reasons": [
+                "unknown_fact",
+                "intent_incomplete"
+              ]
+            },
+            {
+              "phase": "repair",
+              "model": "openai/gpt-oss-120b",
+              "tokens_in": 534,
+              "tokens_out": 61,
+              "usage_source": "reported",
+              "finish_reason": "stop",
+              "outcome": "invalid",
+              "rejection_reasons": [
+                "unknown_fact",
+                "intent_incomplete"
+              ]
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "id": "neg-period-sk",
+      "scenario": "realized",
+      "lang": "sk",
+      "user": "A",
+      "passed": true,
+      "failures": [],
+      "checks": {
+        "terminated": true,
+        "answered": true,
+        "technical": false,
+        "unverified_numbers": [],
+        "required_missing": [],
+        "golden_disagrees": [],
+        "refused": false,
+        "forbidden": [],
+        "required_text_missing": [],
+        "tools_missing": []
+      },
+      "model": "openai/gpt-oss-120b",
+      "failure": null,
+      "text": "V roku 2025 si nerealizoval žiadny zisk ani stratu, výsledok je 0,00 CZK. Nemal si žiadne tržby z predajov.\n\nZdroje: Trackora – výpočet portfólia (23. 10. 2026, 14:00).",
+      "turns": [
+        {
+          "index": 0,
+          "phase": "cold",
+          "replay": false,
+          "request_id": "45313214-3e65-4d58-bb2f-d1104418b5cf",
+          "terminal": "done",
+          "http_status": 200,
+          "outcome": "ok",
+          "error_code": null,
+          "model": "openai/gpt-oss-120b",
+          "model_error": null,
+          "wall_ms": 796.8,
+          "ttft_ms": 2.5,
+          "tokens": {
+            "in": 656,
+            "out": 157,
+            "max_call": 499
+          },
+          "attempts": [
+            {
+              "phase": "router",
+              "model": "openai/gpt-oss-20b",
+              "tokens_in": 250,
+              "tokens_out": 64,
+              "usage_source": "reported",
+              "finish_reason": "stop",
+              "outcome": "ok",
+              "rejection_reasons": []
+            },
+            {
+              "phase": "answer",
+              "model": "openai/gpt-oss-120b",
+              "tokens_in": 406,
+              "tokens_out": 93,
+              "usage_source": "reported",
+              "finish_reason": "stop",
+              "outcome": "ok",
+              "rejection_reasons": []
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "id": "neg-sign-cs",
+      "scenario": "realized",
+      "lang": "cs",
+      "user": "A",
+      "passed": true,
+      "failures": [],
+      "checks": {
+        "terminated": true,
+        "answered": true,
+        "technical": false,
+        "unverified_numbers": [],
+        "required_missing": [],
+        "golden_disagrees": [],
+        "refused": false,
+        "forbidden": [],
+        "required_text_missing": [],
+        "tools_missing": []
+      },
+      "model": "openai/gpt-oss-120b",
+      "failure": null,
+      "text": "Letos (1. 1. 2026 – 23. 10. 2026) jsi na SYNA realizoval zisk 1 506,95 Kč. Tržby z prodejů byly 6 221,10 Kč a žádné ztráty jsi neměl.\n\nZdroje: Trackora – výpočet portfolia (23. 10. 2026 14:00).",
+      "turns": [
+        {
+          "index": 0,
+          "phase": "cold",
+          "replay": false,
+          "request_id": "43569e28-dbc4-4464-9dce-bbc7ec5b8c7d",
+          "terminal": "done",
+          "http_status": 200,
+          "outcome": "ok",
+          "error_code": null,
+          "model": "openai/gpt-oss-120b",
+          "model_error": null,
+          "wall_ms": 966.7,
+          "ttft_ms": 3.3,
+          "tokens": {
+            "in": 673,
+            "out": 225,
+            "max_call": 589
+          },
+          "attempts": [
+            {
+              "phase": "router",
+              "model": "openai/gpt-oss-20b",
+              "tokens_in": 245,
+              "tokens_out": 64,
+              "usage_source": "reported",
+              "finish_reason": "stop",
+              "outcome": "ok",
+              "rejection_reasons": []
+            },
+            {
+              "phase": "answer",
+              "model": "openai/gpt-oss-120b",
+              "tokens_in": 428,
+              "tokens_out": 161,
+              "usage_source": "reported",
+              "finish_reason": "stop",
+              "outcome": "ok",
+              "rejection_reasons": []
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "id": "neg-refusal-en",
+      "scenario": "price",
+      "lang": "en",
+      "user": "B",
+      "passed": true,
+      "failures": [],
+      "checks": {
+        "terminated": true,
+        "answered": true,
+        "technical": false,
+        "unverified_numbers": [],
+        "required_missing": [],
+        "golden_disagrees": [],
+        "refused": false,
+        "forbidden": [],
+        "required_text_missing": [],
+        "tools_missing": []
+      },
+      "model": "openai/gpt-oss-120b",
+      "failure": null,
+      "text": "Your portfolio is worth USD 1,200, of which cash is USD 100.00. Your total profit is USD 199.00, of which USD 99.00 is unrealized.\n\nLimitations: Stored prices and rates show when they were retrieved from the provider, not the exact trade time.\n\nSources: Trackora – portfolio calculation (Oct 23, 2026, 2:00 PM).",
+      "turns": [
+        {
+          "index": 0,
+          "phase": "cold",
+          "replay": false,
+          "request_id": "15d47a4e-04b1-400d-9f8c-c9f6f5f16b61",
+          "terminal": "done",
+          "http_status": 200,
+          "outcome": "fallback",
+          "error_code": null,
+          "model": "openai/gpt-oss-120b",
+          "model_error": "invalid",
+          "wall_ms": 1301.9,
+          "ttft_ms": 2.5,
+          "tokens": {
+            "in": 1433,
+            "out": 226,
+            "max_call": 495
+          },
+          "attempts": [
+            {
+              "phase": "router",
+              "model": "openai/gpt-oss-20b",
+              "tokens_in": 246,
+              "tokens_out": 50,
+              "usage_source": "reported",
+              "finish_reason": "stop",
+              "outcome": "ok",
+              "rejection_reasons": []
+            },
+            {
+              "phase": "tools",
+              "model": "openai/gpt-oss-120b",
+              "tokens_in": 362,
+              "tokens_out": 33,
+              "usage_source": "reported",
+              "finish_reason": "tool_calls",
+              "outcome": "ok",
+              "rejection_reasons": []
+            },
+            {
+              "phase": "tools",
+              "model": "openai/gpt-oss-120b",
+              "tokens_in": 460,
+              "tokens_out": 35,
+              "usage_source": "reported",
+              "finish_reason": "stop",
+              "outcome": "invalid",
+              "rejection_reasons": [
+                "not_object"
+              ]
+            },
+            {
+              "phase": "repair",
+              "model": "openai/gpt-oss-120b",
+              "tokens_in": 365,
+              "tokens_out": 108,
+              "usage_source": "reported",
+              "finish_reason": "stop",
+              "outcome": "invalid",
+              "rejection_reasons": [
+                "empty_selection",
+                "intent_incomplete"
+              ]
+            }
+          ]
+        }
+      ]
+    }
+  ]
+}

@@ -39,6 +39,31 @@ async function rest(path) {
   }
   return rows;
 }
+/**
+ * Declared instrument type per ticker (price_history is shared, so one answer per symbol), by the majority of the
+ * holders who chose a type explicitly (audit: one account typing a coin-named ETF "Crypto" re-priced it for everyone).
+ * "Stock" is the default and says nothing (isCryptoHolding reads it as "decide by the ticker"), so it does not vote;
+ * each user counts once per ticker and a tie keeps the non-crypto type. Curated aliases (yahoo_symbol) still win later.
+ */
+export function declaredTypes(posRows) {
+  const votes = new Map(); // ticker -> Map(type -> Set(user))
+  for (const p of posRows) {
+    if (!p.type || /^\s*stock\s*$/i.test(p.type)) continue;
+    const byType = votes.get(p.ticker) ?? new Map();
+    const users = byType.get(p.type) ?? new Set();
+    users.add(p.user_id ?? "");
+    byType.set(p.type, users);
+    votes.set(p.ticker, byType);
+  }
+  const out = new Map();
+  for (const [ticker, byType] of votes) {
+    const ranked = [...byType].map(([type, users]) => ({ type, n: users.size, crypto: /crypto/i.test(type) }))
+      .sort((a, b) => b.n - a.n || Number(a.crypto) - Number(b.crypto));
+    out.set(ticker, ranked[0].type);
+  }
+  return out;
+}
+
 async function upsert(table, rows, onConflict) {
   for (let i = 0; i < rows.length; i += 1000) {
     const r = await fetch(`${U}/rest/v1/${table}?on_conflict=${onConflict}`, {
@@ -46,7 +71,8 @@ async function upsert(table, rows, onConflict) {
       headers: { ...H, "Content-Type": "application/json", Prefer: "resolution=merge-duplicates,return=minimal" },
       body: JSON.stringify(rows.slice(i, i + 1000)),
     });
-    if (!r.ok) { console.log(`upsert ${table} err`, await r.text()); break; }
+    // A failed write fails the run (exit code), so the workflow shows it instead of a green check.
+    if (!r.ok) { console.log(`upsert ${table} err`, await r.text()); process.exitCode = 1; break; }
   }
 }
 
@@ -159,14 +185,7 @@ async function main() {
   const allPos = await rest(`positions?select=user_id,ticker,shares,type,holding_start_date&order=id.asc`);
   const isCash = (p) => p.ticker === "CASH" || String(p.type ?? "") === "Cash";
   const posRows = allPos.filter((p) => !isCash(p));
-  // Declared instrument type per ticker (price_history is shared, so one answer per symbol):
-  // any holder typing it Crypto wins, otherwise the first non-empty type.
-  const typeByTicker = new Map();
-  for (const p of posRows) {
-    if (!p.type) continue;
-    const cur = typeByTicker.get(p.ticker);
-    if (!cur || /crypto/i.test(p.type)) typeByTicker.set(p.ticker, p.type);
-  }
+  const typeByTicker = declaredTypes(posRows);
   // Today's cash balance per user. This job stamps it on today's snapshot so the balance
   // accumulates a day at a time — daily-snapshot-cron was supposed to do it, but it depends
   // on an external scheduler that is not running (the S&P benchmark it also refreshes had
@@ -195,21 +214,30 @@ async function main() {
   const fxGbp = (await yahoo("GBPUSD=X", fromUnix))?.map ?? new Map();
   const fxEur = (await yahoo("EURUSD=X", fromUnix))?.map ?? new Map();
   const fxCzk = (await yahoo("CZK=X", fromUnix))?.map ?? new Map();
-  const nearest = (m, day, fallback) => { // last value on/before day
+  // Last rate on/before day, at most a week older (audit B6): no constant fallback rate, no rate carried for months.
+  const nearest = (m, day) => {
     if (m.has(day)) return m.get(day);
-    let best = fallback, bestD = "";
+    let best = null, bestD = "";
     for (const [d, v] of m) if (d <= day && d > bestD) { bestD = d; best = v; }
-    return best;
+    return best !== null && Date.parse(day) - Date.parse(bestD) <= 7 * 86_400_000 ? best : null;
   };
+  // Null when the close cannot be converted: an unknown currency or no rate for its day is left out, never taken as USD.
   const toUsd = (close, currency, day) => {
+    const rate = (m) => nearest(m, day);
     switch (currency) {
       case "USD": return close;
-      case "EUR": return close * nearest(fxEur, day, 1.08);
-      case "GBP": return close * nearest(fxGbp, day, 1.27);
-      case "GBp": case "GBX": return (close / 100) * nearest(fxGbp, day, 1.27);
-      case "CZK": return close / nearest(fxCzk, day, 21.3); // Prague-listed (e.g. Colt CZ COLT.PR)
-      default: return close; // unknown -> assume already USD
+      case "EUR": return rate(fxEur) === null ? null : close * rate(fxEur);
+      case "GBP": return rate(fxGbp) === null ? null : close * rate(fxGbp);
+      case "GBp": case "GBX": return rate(fxGbp) === null ? null : (close / 100) * rate(fxGbp);
+      case "CZK": return rate(fxCzk) === null ? null : close / rate(fxCzk); // Prague-listed (e.g. Colt CZ COLT.PR)
+      default: return null;
     }
+  };
+  const convert = (map, currency) => {
+    const usd = new Map();
+    for (const [d, c] of sanitize(map)) { const v = toUsd(c, currency, d); if (v !== null && Number.isFinite(v) && v > 0) usd.set(d, v); }
+    if (!usd.size && map.size) console.log(`  ! no ${currency} rate to convert to USD`);
+    return usd;
   };
 
   // 4) fetch each ticker (Yahoo primary -> Twelve Data fallback), convert, validate, store
@@ -242,10 +270,9 @@ async function main() {
 
     let picked = null, src = "";
     const y = ysym ? await yahoo(ysym, fromUnix).catch(() => null) : null;
-    if (y) {
-      const usd = new Map();
-      for (const [d, c] of sanitize(y.map)) usd.set(d, toUsd(c, y.currency, d));
-      picked = usd; src = `yahoo(${ysym}${y.currency !== "USD" ? "," + y.currency : ""})`; okY++;
+    const yUsd = y ? convert(y.map, y.currency) : null;
+    if (yUsd?.size) {
+      picked = yUsd; src = `yahoo(${ysym}${y.currency !== "USD" ? "," + y.currency : ""})`; okY++;
     } else {
       const tw = tdsym ? await twelve(tdsym, globalFirst).catch(() => null) : null;
       if (tw) { picked = sanitize(tw.map); src = `twelve(${tdsym})`; okT++; }
@@ -259,8 +286,8 @@ async function main() {
         if (cs === ysym) continue;
         const y2 = await yahoo(cs, fromUnix).catch(() => null);
         if (y2) {
-          const usd = new Map();
-          for (const [d, c] of sanitize(y2.map)) usd.set(d, toUsd(c, y2.currency, d));
+          const usd = convert(y2.map, y2.currency);
+          if (!usd.size) continue;
           picked = usd; src = `yahoo*auto(${cs}${y2.currency !== "USD" ? "," + y2.currency : ""})`; okY++;
           await upsert("ticker_alias", [{ alias: t, canonical: a?.canonical ?? t, isin: a.isin, yahoo_symbol: cs, source: "openfigi-auto" }], "alias");
           break;
@@ -283,6 +310,13 @@ async function main() {
     if (picked && picked.size) {
       series[t] = picked;
       await upsert("price_history", [...picked.entries()].map(([date, close]) => ({ symbol: t, date, close })), "symbol,date");
+    } else if (y?.map?.size) {
+      // Prices came but no FX to convert them (audit B6 review): value the holding from the USD history earlier runs
+      // stored, so a missing rate never drops it from everyone's daily snapshots. Nothing new is written.
+      const stored = new Map((await rest(`price_history?select=date,close&symbol=eq.${encodeURIComponent(t)}&close=gt.0&order=date.asc`))
+        .map((r) => [String(r.date).slice(0, 10), Number(r.close)]));
+      if (stored.size) { series[t] = stored; src = "stored USD history (FX missing)"; picked = stored; }
+      else fail.push(t);
     } else {
       fail.push(t);
     }

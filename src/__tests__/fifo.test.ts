@@ -302,7 +302,7 @@ describe("CZK conversion and the 100 000 Kč limit", () => {
     expect(buildSalesReport(loss.disposals, 2024).taxBaseCzk).toBe(0);
   });
 
-  it("time-test-exempt proceeds count towards the limit only when the setting says so", () => {
+  it("time-test-exempt proceeds always count towards the limit; the old setting is ignored (audit B11)", () => {
     const sellDay = "2024-03-15";
     const exemptShares = Math.ceil(150_000 / rate(sellDay) / 10);
     const r = runFifo([
@@ -314,10 +314,11 @@ describe("CZK conversion and the 100 000 Kč limit", () => {
     expect(strict.limitBaseCzk).toBeGreaterThan(100_000);
     expect(strict.underLimit).toBe(false);
     expect(strict.taxBaseCzk).toBeGreaterThan(0);
+    // The two exemptions do not combine: leaving the exempt lots out of the value test is not allowed.
     const lenient = buildSalesReport(r.disposals, 2024, { ...DEFAULT_TAX_SETTINGS, limitIncludesExempt: false });
-    expect(lenient.limitBaseCzk).toBeLessThan(100_000);
-    expect(lenient.underLimit).toBe(true);
-    expect(lenient.taxBaseCzk).toBe(0);
+    expect(lenient.limitBaseCzk).toBe(strict.limitBaseCzk);
+    expect(lenient.underLimit).toBe(false);
+    expect(lenient.taxBaseCzk).toBe(strict.taxBaseCzk);
   });
 
   it("marks the report incomplete instead of using today's rate when a rate is missing", () => {

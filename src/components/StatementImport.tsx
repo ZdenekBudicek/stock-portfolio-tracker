@@ -34,7 +34,8 @@ const StatementImport = () => {
       }
       setBroker(parsed.broker); setFileName(file.name);
       setPlan(await planImport(parsed));
-    } catch (e: any) {
+    } catch (error: unknown) {
+      const e = error as { message?: string } | null;
       toast.error(t('legacy.statementImport.readError') + (e?.message ?? t('legacy.statementImport.unknown'))); reset();
     } finally { setBusy(false); }
   };
@@ -48,7 +49,7 @@ const StatementImport = () => {
       // ticker-profiles is in the list because an import can introduce new tickers, and the
       // hook holds a 24h staleTime — without this an open tab keeps showing them in
       // "Ostatní" long after the sector sync has filled them in.
-      ["positions", "transactions", "dividends", "live-prices", "ticker-profiles"]
+      ["positions", "transactions", "deposits", "dividends", "live-prices", "ticker-profiles"]
         .forEach((k) => qc.invalidateQueries({ queryKey: [k] }));
       const msg = plan.mode === "holdings"
         ? t('legacy.statementImport.uploadedCount', { count: s.holdings, suffix: s.removed ? t('legacy.statementImport.removedCount', { count: s.removed }) : "" })
@@ -63,13 +64,16 @@ const StatementImport = () => {
       // portfolio silently short of trades.
       if (s.failed) toast.error(t('legacy.statementImport.failedCount', { count: s.failed, error: s.error ?? t('legacy.statementImport.unknownError'), message: msg }), { id: toastId, duration: 15000 });
       else toast.success(t('legacy.statementImport.done') + msg, { id: toastId, duration: 8000 });
-      reset();
-    } catch (e: any) {
+      if (!s.failed) reset();
+    } catch (error: unknown) {
+      const e = error as { message?: string } | null;
+      ["positions", "transactions", "deposits", "dividends"].forEach((k) => qc.invalidateQueries({ queryKey: [k] }));
+      setPlan(null);
       toast.error(t('legacy.statementImport.importFailed') + (e?.message ?? t('legacy.statementImport.unknown')), { id: toastId });
     } finally { setBusy(false); }
   };
 
-  const Stat = ({ icon, label, n }: { icon: any; label: string; n: number }) => (
+  const Stat = ({ icon, label, n }: { icon: React.ReactNode; label: string; n: number }) => (
     <div className="rounded-lg border border-border bg-background/40 p-3 text-center">
       <div className="flex items-center justify-center gap-1.5 text-muted-foreground mb-1">{icon}<span className="text-[10px] uppercase tracking-wider font-semibold">{label}</span></div>
       <p className="font-display text-xl font-bold tabular-nums">{n}</p>
@@ -84,21 +88,26 @@ const StatementImport = () => {
       </div>
 
       {!plan && (
-        <div
-          onClick={() => inputRef.current?.click()}
-          onDragOver={(e) => e.preventDefault()}
-          onDrop={(e) => { e.preventDefault(); const f = e.dataTransfer.files?.[0]; if (f) onFile(f); }}
-          className="cursor-pointer rounded-xl border-2 border-dashed border-border hover:border-primary/50 transition-colors p-8 text-center"
-        >
-          {busy ? <Loader2 className="w-7 h-7 mx-auto animate-spin text-primary" /> : (
-            <>
-              <FileText className="w-7 h-7 mx-auto text-muted-foreground mb-2" />
-              <p className="text-sm font-medium">{t('legacy.statementImport.dropAStatementHereOrClickToSelect')}</p>
-              <p className="text-xs text-muted-foreground mt-1">{t('legacy.statementImport.processedOnlyInYourBrowserTheFileIs')}</p>
-            </>
-          )}
+        <>
+          <button
+            type="button"
+            disabled={busy}
+            aria-label={t('legacy.statementImport.dropAStatementHereOrClickToSelect')}
+            onClick={() => inputRef.current?.click()}
+            onDragOver={(e) => e.preventDefault()}
+            onDrop={(e) => { e.preventDefault(); const f = e.dataTransfer.files?.[0]; if (f) onFile(f); }}
+            className="w-full focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 cursor-pointer rounded-xl border-2 border-dashed border-border hover:border-primary/50 transition-colors p-8 text-center"
+          >
+            {busy ? <Loader2 className="w-7 h-7 mx-auto animate-spin text-primary" /> : (
+              <>
+                <FileText className="w-7 h-7 mx-auto text-muted-foreground mb-2" />
+                <p className="text-sm font-medium">{t('legacy.statementImport.dropAStatementHereOrClickToSelect')}</p>
+                <p className="text-xs text-muted-foreground mt-1">{t('legacy.statementImport.processedOnlyInYourBrowserTheFileIs')}</p>
+              </>
+            )}
+          </button>
           <input ref={inputRef} type="file" accept=".xlsx,.xls,.pdf" className="hidden" onChange={(e) => { const f = e.target.files?.[0]; if (f) onFile(f); }} />
-        </div>
+        </>
       )}
 
       {plan && (
@@ -112,6 +121,7 @@ const StatementImport = () => {
           {/* A statement of a DIFFERENT account at the same broker is the single easiest way
               to corrupt a portfolio (it used to overwrite the other account's positions), so
               say it out loud before anything is written. */}
+          {!!plan.warnings?.length && <div role="alert" className="text-xs text-amber-600">{plan.warnings.map((w, i) => <p key={i}>{w}</p>)}</div>}
           {plan.otherAccounts.length > 0 && (
             <div className="rounded-lg border border-amber-500/40 bg-amber-500/10 px-3 py-2 text-xs text-amber-600 dark:text-amber-400">
               {t('legacy.statementImport.thisStatementIsForAccount')}{" "}<b>{plan.account ?? "?"}</b>{t('legacy.statementImport.butYourPortfolioAlreadyHas')}{" "}{broker} {t('legacy.statementImport.accountCount', { count: plan.otherAccounts.length })}{" "}

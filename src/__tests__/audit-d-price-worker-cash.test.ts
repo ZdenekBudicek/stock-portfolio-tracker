@@ -1,7 +1,7 @@
 import { beforeAll, describe, expect, it } from 'vitest';
 
 // price-worker reads its env at import; give it dummies (main() only runs when executed directly).
-let planDailySnapshots: any;
+let planDailySnapshots: (input: { uid: string; uFirst: string; todayMs: number; fxCzk: Map<string, number>; valueOn: (day: string) => number; prevCash: Map<string, number>; todayCash: number | undefined }) => { snaps: { snapshot_date: string; cash_usd: number | null; value_usd: number }[] };
 beforeAll(async () => {
   const env = (globalThis as { process?: { env: Record<string, string | undefined> } }).process!.env;
   env.SUPABASE_URL ??= 'http://localhost';
@@ -20,13 +20,13 @@ describe('price-worker snapshot plan keeps cash-only days (audit D #12)', () => 
       uid: 'u', uFirst: '2026-10-14', todayMs, fxCzk: new Map(), valueOn,
       prevCash: new Map([['2026-10-15', 5], ['2026-10-17', 500]]), todayCash: 520,
     });
-    const by = new Map(snaps.map((s: any) => [s.snapshot_date, s]));
+    const by = new Map(snaps.map((s) => [s.snapshot_date, s]));
     expect([...by.keys()]).toEqual(['2026-10-14', '2026-10-15', '2026-10-16', '2026-10-17', '2026-10-19']);
-    expect((by.get('2026-10-17') as any).cash_usd).toBe(500);
-    expect((by.get('2026-10-17') as any).value_usd).toBe(0);
-    expect((by.get('2026-10-16') as any).cash_usd).toBeNull(); // today's cash not pushed to an older row
-    expect((by.get('2026-10-19') as any).cash_usd).toBe(520);
-    expect((by.get('2026-10-15') as any).cash_usd).toBe(5);
+    expect((by.get('2026-10-17')).cash_usd).toBe(500);
+    expect((by.get('2026-10-17')).value_usd).toBe(0);
+    expect((by.get('2026-10-16')).cash_usd).toBeNull(); // today's cash not pushed to an older row
+    expect((by.get('2026-10-19')).cash_usd).toBe(520);
+    expect((by.get('2026-10-15')).cash_usd).toBe(5);
     // every row carries the same keys (PostgREST bulk insert)
     for (const s of snaps) expect(Object.keys(s).sort()).toEqual(Object.keys(snaps[0]).sort());
   });

@@ -64,8 +64,9 @@ describe('25-company default calibration (no quote-based value clamping)', () =>
       expect(r.weights.graham).toBe(0);
       expect(r.methods.graham.value).toBeGreaterThan(0);
     }
-    expect(report('GOOGL').value).toBeCloseTo(370.5004800044, 6);
-    expect(report('GOOGL').potential).toBeCloseTo(0.0878196072, 7);
+    // Ocenění v2 regression pin (growth model without estimates: the latest four quarters' growth).
+    expect(report('GOOGL').value).toBeCloseTo(302.1894494899, 6);
+    expect(report('GOOGL').potential).toBeCloseTo(-0.1127471462, 7);
   });
 
   it.each(['GOOGL', 'MSFT', 'META', 'AMZN'])('%s normalizes observable capex surges, with a manual latest override', symbol => {
@@ -92,14 +93,19 @@ describe('25-company default calibration (no quote-based value clamping)', () =>
     const c = company('GOOGL');
     const points = valuationSeries(c.fundamentals, c.closes).filter(p => p.date >= '2021-10-18' && p.date <= '2026-10-18');
     const d = defaultAssumptions(c.fundamentals, c.closes);
-    expect(d.assumptions.pe).toBeCloseTo(medianOf(points, 'pe')!, 10);
+    // GOOGL is a growth company: its P/E default is growth-based, the median stays visible in `history`.
+    expect(d.history.pe.median).toBeCloseTo(medianOf(points, 'pe')!, 10);
     expect(d.assumptions.pfcf).toBeCloseTo(medianOf(points, 'pfcf')!, 10);
     expect(d.assumptions.ps).toBeCloseTo(medianOf(points, 'ps')!, 10);
     const noisy = [...c.closes, { date: '2021-10-17', close: 1e9 }, { date: '2027-01-01', close: 1e9 }, { date: '2026-10-18', close: NaN }];
     expect(historicalMultiples(c.fundamentals, noisy)).toEqual(d.history);
     expect(defaultAssumptions(c.fundamentals, c.closes.slice(-20)).history.pe.median).toBeNull();
     expect(defaultAssumptions(c.fundamentals, Array(100).fill(c.closes[c.closes.length - 1])).history.pe.median).toBeNull();
-    expect(defaultAssumptions(company('NVDA').fundamentals, company('NVDA').closes).assumptions.pe).toBe(45);
+    // A growth company's P/E comes from the growth ahead, not from its own (here far higher) past.
+    const nvda = defaultAssumptions(company('NVDA').fundamentals, company('NVDA').closes);
+    expect(nvda.growthModel).toBe(true);
+    expect(nvda.history.pe.median).toBeGreaterThan(45);
+    expect(nvda.assumptions.pe).toBeCloseTo(30.3889148326, 8);
     expect(defaultAssumptions(company('PLTR').fundamentals, company('PLTR').closes).assumptions.pfcf).toBe(50);
   });
 
@@ -115,9 +121,9 @@ describe('25-company default calibration (no quote-based value clamping)', () =>
     const c = company('GOOGL');
     const a = defaultAssumptions(c.fundamentals, c.closes).assumptions;
     const r = calculateFairValue(c.fundamentals, c.price, { ...a, discount: 0.01 }, c.closes);
+    expect(r.methods.dcf.reason).toBe('invalidRates');
     expect(r.weights.dcf).toBe(0);
-    expect(r.weights.pe).toBeCloseTo(4 / 7);
-    expect(r.weights.pfcf).toBeCloseTo(2 / 7);
+    expect(r.weights.pe).toBe(1);
     expect(r.weights.graham).toBe(0);
   });
 

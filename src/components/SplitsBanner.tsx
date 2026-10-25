@@ -81,7 +81,7 @@ const SplitsBanner = () => {
                 </div>
                 <div className="flex gap-1">
                   <Button size="sm" variant="ghost" className="h-7 px-2 text-loss hover:text-loss"
-                    onClick={() => dismiss.mutate(s.id)}>
+                    aria-label={t('legacy.splitsBanner.dismissTicker', { ticker: s.ticker })} onClick={() => dismiss.mutate(s.id)}>
                     <X className="w-3.5 h-3.5" />
                   </Button>
                   <Button size="sm" className="h-7 px-2 bg-profit hover:bg-profit/90 text-background"

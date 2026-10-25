@@ -47,8 +47,9 @@ async function translate(text: string): Promise<string> {
   try {
     const r = await fetch(`https://translate.googleapis.com/translate_a/single?client=gtx&sl=en&tl=cs&dt=t&q=${encodeURIComponent(text)}`, { headers: UA });
     if (!r.ok) return text;
-    const j = await r.json();
-    return (j?.[0] ?? []).map((x: any) => x[0]).join("") || text;
+    const j: unknown = await r.json();
+    if (!Array.isArray(j) || !Array.isArray(j[0])) return text;
+    return j[0].map((x: unknown) => Array.isArray(x) && typeof x[0] === "string" ? x[0] : "").join("") || text;
   } catch { return text; }
 }
 
@@ -68,15 +69,15 @@ Deno.serve(async (req) => {
       fetchAllRows("watchlist", (f, t) => svc.from("watchlist").select("ticker").order("id", { ascending: true }).range(f, t)),
       fetchAllRows("ticker_alias", (f, t) => svc.from("ticker_alias").select("alias,yahoo_symbol").not("yahoo_symbol", "is", null).order("alias", { ascending: true }).range(f, t)),
     ]);
-    const aliasMap = new Map<string, string>((aliases ?? []).map((a: any) => [a.alias, a.yahoo_symbol]));
+    const aliasMap = new Map<string, string>((aliases ?? []).map((a) => [a.alias, a.yahoo_symbol]));
     const tickers = Array.from(new Set([
-      ...(pos ?? []).map((p: any) => p.ticker),
-      ...(watch ?? []).map((w: any) => w.ticker),
+      ...(pos ?? []).map((p) => p.ticker),
+      ...(watch ?? []).map((w) => w.ticker),
     ])).filter((t: string) => t && t.toUpperCase() !== "CASH");
     // Process the stalest (and never-fetched) tickers first, so if a run hits the time budget
     // the next run continues with the ones it missed instead of always the same tail.
     const existing = await fetchAllRows("stock_news", (f, t) => svc.from("stock_news").select("symbol,fetched_at").order("symbol", { ascending: true }).range(f, t));
-    const fetchedAt = new Map<string, number>((existing ?? []).map((r: any) => [r.symbol, new Date(r.fetched_at).getTime()]));
+    const fetchedAt = new Map<string, number>((existing ?? []).map((r) => [r.symbol, new Date(r.fetched_at).getTime()]));
     tickers.sort((a, b) => (fetchedAt.get(a) ?? 0) - (fetchedAt.get(b) ?? 0));
 
     let updated = 0, empty = 0, skipped = 0;
@@ -86,7 +87,7 @@ Deno.serve(async (req) => {
       let raw = await fetchRss(q);
       if (!raw.length && q !== t) raw = await fetchRss(t);
       raw = raw.slice(0, 3);
-      const items: any[] = [];
+      const items: { en: string; cs: string; sumEn: string; sumCs: string; publisher: string; url: string; ts: number | null }[] = [];
       for (const x of raw) {
         // One translate call per item: title + summary joined, then split back.
         const joined = x.summary ? `${x.title}\n\n${x.summary}` : x.title;

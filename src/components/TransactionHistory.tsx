@@ -57,7 +57,7 @@ const TransactionHistory = () => {
       setShowForm(false);
       setForm({ date: new Date().toISOString().slice(0, 10), ticker: '', side: 'BUY', shares: '', price: '', note: '' });
     },
-    onError: (e: any) => toast.error(t('legacy.transactionHistory.errorDetail', { message: e.message })),
+    onError: (e) => toast.error(t('legacy.transactionHistory.errorDetail', { message: e.message })),
   });
 
   const updateTx = useMutation({
@@ -77,7 +77,7 @@ const TransactionHistory = () => {
       invalidateAll();
       setEditingId(null);
     },
-    onError: (e: any) => toast.error(t('legacy.transactionHistory.errorDetail', { message: e.message })),
+    onError: (e) => toast.error(t('legacy.transactionHistory.errorDetail', { message: e.message })),
   });
 
   const deleteTx = useMutation({
@@ -89,15 +89,15 @@ const TransactionHistory = () => {
       toast.success(t('legacy.transactionHistory.transactionDeletedHoldingsRecalculated'));
       invalidateAll();
     },
-    onError: (e: any) => toast.error(t('legacy.transactionHistory.errorDetail', { message: e.message })),
+    onError: (e) => toast.error(t('legacy.transactionHistory.errorDetail', { message: e.message })),
   });
 
-  const startEdit = (row: any) => {
+  const startEdit = (row: { executed_at: string; ticker: string; side: string; shares: number; price_usd: number; note?: string; id: string }) => {
     setEditingId(row.id);
     setEditForm({
       date: new Date(row.executed_at).toISOString().slice(0, 10),
       ticker: row.ticker,
-      side: row.side,
+      side: row.side as "BUY" | "SELL",
       shares: String(row.shares),
       price: String(row.price_usd),
       note: row.note ?? '',
@@ -108,7 +108,7 @@ const TransactionHistory = () => {
     // real trades (hide reconciliation/cash plumbing) + dividends shown as "Dividenda"
     const trades = txns
       .filter(row => {
-        const ext = String((row as any).ext_id ?? '');
+        const ext = String(row.ext_id ?? '');
         if (ext.includes(':adj:') || ext.includes(':pos:')) return false;
         if (row.ticker === 'CASH') return false;
         return true;
@@ -116,7 +116,7 @@ const TransactionHistory = () => {
       .map(row => ({ id: row.id, executed_at: row.executed_at, ticker: row.ticker, side: row.side as string, shares: Number(row.shares), price_usd: Number(row.price_usd), total: Number(row.shares) * Number(row.price_usd), note: row.note ?? null, _div: false }));
     // Only PAID dividends belong in the transaction history (future/projected ones stay
     // in the Dividends section, not here).
-    const divs = dividends.filter(d => d.status === 'paid').map(d => ({ id: 'div-' + d.id, executed_at: (d as any).pay_date ?? d.ex_date, ticker: d.ticker, side: 'DIVIDEND', shares: Number(d.shares_held ?? 0), price_usd: Number(d.amount_per_share ?? 0), total: Number(d.total_amount_usd ?? 0), note: t('legacy.transactionHistory.dividend'), _div: true }));
+    const divs = dividends.filter(d => d.status === 'paid').map(d => ({ id: 'div-' + d.id, executed_at: d.pay_date ?? d.ex_date, ticker: d.ticker, side: 'DIVIDEND', shares: Number(d.shares_held ?? 0), price_usd: Number(d.amount_per_share ?? 0), total: Number(d.total_amount_usd ?? 0), note: t('legacy.transactionHistory.dividend'), _div: true }));
     return [...trades, ...divs]
       .filter(row => {
         if (search && !row.ticker.toLowerCase().includes(search.toLowerCase())) return false;
@@ -143,7 +143,7 @@ const TransactionHistory = () => {
             <Search className="absolute left-2.5 top-1/2 -translate-y-1/2 w-3.5 h-3.5 text-muted-foreground" />
             <input type="text" placeholder={t('legacy.transactionHistory.searchTicker')} value={search} onChange={e => { setSearch(e.target.value); setPage(0); }} className="pl-8 pr-3 py-1.5 text-xs rounded-md bg-input border border-border text-foreground placeholder:text-muted-foreground focus:outline-none focus:ring-1 focus:ring-ring w-32" />
           </div>
-          <select value={filterAction} onChange={e => { setFilterAction(e.target.value as any); setPage(0); }} className="px-2 py-1.5 text-xs rounded-md bg-input border border-border text-foreground focus:outline-none">
+          <select value={filterAction} onChange={e => { setFilterAction(e.target.value as typeof filterAction); setPage(0); }} className="px-2 py-1.5 text-xs rounded-md bg-input border border-border text-foreground focus:outline-none">
             <option value="All">{t('legacy.transactionHistory.all')}</option>
             <option value="BUY">{t('legacy.transactionHistory.buy')}</option>
             <option value="SELL">{t('legacy.transactionHistory.sell')}</option>
@@ -160,7 +160,7 @@ const TransactionHistory = () => {
           <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 gap-3">
             <input type="date" required value={form.date} onChange={e => setForm({ ...form, date: e.target.value })} className="px-2 py-1.5 text-xs rounded-md bg-input border border-border text-foreground" />
             <input type="text" required placeholder={t('legacy.transactionHistory.ticker')} value={form.ticker} onChange={e => setForm({ ...form, ticker: e.target.value })} className="px-2 py-1.5 text-xs rounded-md bg-input border border-border text-foreground placeholder:text-muted-foreground" />
-            <select value={form.side} onChange={e => setForm({ ...form, side: e.target.value as any })} className="px-2 py-1.5 text-xs rounded-md bg-input border border-border text-foreground">
+            <select value={form.side} onChange={e => setForm({ ...form, side: e.target.value as "BUY" | "SELL" })} className="px-2 py-1.5 text-xs rounded-md bg-input border border-border text-foreground">
               <option value="BUY">{t('legacy.transactionHistory.buy')}</option>
               <option value="SELL">{t('legacy.transactionHistory.sell')}</option>
             </select>
@@ -193,7 +193,7 @@ const TransactionHistory = () => {
                 <td className="px-2 py-2"><input type="date" value={editForm.date} onChange={e => setEditForm({ ...editForm, date: e.target.value })} className="w-full px-1.5 py-1 text-xs rounded bg-input border border-border" /></td>
                 <td className="px-2 py-2"><input type="text" value={editForm.ticker} onChange={e => setEditForm({ ...editForm, ticker: e.target.value.toUpperCase() })} className="w-20 px-1.5 py-1 text-xs rounded bg-input border border-border font-mono uppercase" /></td>
                 <td className="px-2 py-2">
-                  <select value={editForm.side} onChange={e => setEditForm({ ...editForm, side: e.target.value as any })} className="px-1.5 py-1 text-xs rounded bg-input border border-border">
+                  <select value={editForm.side} onChange={e => setEditForm({ ...editForm, side: e.target.value as "BUY" | "SELL" })} className="px-1.5 py-1 text-xs rounded bg-input border border-border">
                     <option value="BUY">{t('legacy.transactionHistory.buy')}</option>
                     <option value="SELL">{t('legacy.transactionHistory.sell')}</option>
                   </select>
@@ -253,9 +253,9 @@ const TransactionHistory = () => {
         <div className="px-5 py-3 border-t border-border flex items-center justify-between">
           <span className="text-xs text-muted-foreground">{t('legacy.transactionHistory.transactionCount', { count: filtered.length })}</span>
           <div className="flex gap-1">
-            <button disabled={page === 0} onClick={() => setPage(p => p - 1)} className="px-3 py-1 text-xs rounded-md bg-secondary text-secondary-foreground disabled:opacity-30 hover:bg-accent transition-colors">←</button>
+            <button aria-label={t('legacy.transactionHistory.previousPage')} disabled={page === 0} onClick={() => setPage(p => p - 1)} className="px-3 py-1 text-xs rounded-md bg-secondary text-secondary-foreground disabled:opacity-30 hover:bg-accent transition-colors">←</button>
             <span className="px-3 py-1 text-xs text-muted-foreground">{page + 1}/{totalPages}</span>
-            <button disabled={page >= totalPages - 1} onClick={() => setPage(p => p + 1)} className="px-3 py-1 text-xs rounded-md bg-secondary text-secondary-foreground disabled:opacity-30 hover:bg-accent transition-colors">→</button>
+            <button aria-label={t('legacy.transactionHistory.nextPage')} disabled={page >= totalPages - 1} onClick={() => setPage(p => p + 1)} className="px-3 py-1 text-xs rounded-md bg-secondary text-secondary-foreground disabled:opacity-30 hover:bg-accent transition-colors">→</button>
           </div>
         </div>
       )}

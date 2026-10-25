@@ -55,8 +55,8 @@ Deno.serve(async (req) => {
 
   try {
     let used = "Yahoo ^GSPC";
-    let values: any[] = await fetchYahooGspc().catch(() => []);
-    let lastError: any = null;
+    let values: { datetime: string; close: string }[] = await fetchYahooGspc().catch(() => []);
+    let lastError: unknown = null;
 
     if (values.length === 0) {
       // Twelve Data index symbols (SPX is on paid plans only).
@@ -83,7 +83,7 @@ Deno.serve(async (req) => {
     // Sanity-filter glitch points (e.g. a provider returning 690 instead of 6930, or a
     // market-closed row): drop any close that jumps >40% from the previous kept value.
     const clean = values
-      .map((v: any) => ({ date: v.datetime as string, close: parseFloat(v.close) }))
+      .map((v) => ({ date: v.datetime as string, close: parseFloat(v.close) }))
       .filter((v) => Number.isFinite(v.close) && v.close > 0)
       .sort((a, b) => a.date.localeCompare(b.date));
     const kept: { date: string; close: number }[] = [];

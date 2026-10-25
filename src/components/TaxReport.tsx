@@ -57,7 +57,6 @@ interface LotView extends OpenLot {
 export interface TaxControls {
   year: number; setYear: (y: number) => void;
   fxMethod: FxMethod; setFxMethod: (m: FxMethod) => void;
-  limitIncludesExempt: boolean; setLimitIncludesExempt: (v: boolean) => void;
 }
 
 /** `controls`: year and settings owned by the parent (Daně page) so its summary cards match. */
@@ -72,10 +71,10 @@ const TaxReport = ({ controls }: { controls?: TaxControls } = {}) => {
   const { positions: livePositions } = useComputedPortfolio();
   const [yearS, setYearS] = useState<number>(new Date().getFullYear());
   const [fxMethodS, setFxMethodS] = useState<FxMethod>("cnb-daily");
-  const [limitS, setLimitS] = useState(true);
   const year = controls?.year ?? yearS, setYear = controls?.setYear ?? setYearS;
   const fxMethod = controls?.fxMethod ?? fxMethodS, setFxMethod = controls?.setFxMethod ?? setFxMethodS;
-  const limitIncludesExempt = controls?.limitIncludesExempt ?? limitS, setLimitIncludesExempt = controls?.setLimitIncludesExempt ?? setLimitS;
+  // The 100 000 Kč test always counts every sale (audit B11); no switch.
+  const limitIncludesExempt = true;
   const [openTickers, setOpenTickers] = useState<Set<string>>(new Set());
   const toggleTicker = (ticker: string) =>
     setOpenTickers((prev) => {
@@ -203,12 +202,6 @@ const TaxReport = ({ controls }: { controls?: TaxControls } = {}) => {
             <Download className="w-3 h-3" /> {t('legacy.taxReport.dividendsCsv')}</button>
         </div>
       </div>
-
-      <label className="flex items-start gap-2 text-[11px] text-muted-foreground mb-4 cursor-pointer max-w-2xl">
-        <input type="checkbox" className="mt-0.5" checked={limitIncludesExempt} onChange={(e) => setLimitIncludesExempt(e.target.checked)} />
-        <span>
-          {t('legacy.taxReport.includeProceedsFromLotsExemptUnderTheHolding')}</span>
-      </label>
 
       {hasWarnings && (
         <div className="rounded-xl border border-warning/40 bg-warning/5 p-3 mb-5 text-[11px] space-y-1.5">
@@ -532,7 +525,7 @@ const TaxReport = ({ controls }: { controls?: TaxControls } = {}) => {
       )}
       <p className="text-[10px] text-muted-foreground mt-4">
         {t('legacy.taxReport.indicativeCalculationNotTaxAdviceCostBasisIncludes')}{" "}{fmtDate(CNB_DATA_TO)}.
-        {settings.limitIncludesExempt ? t('legacy.taxReport.theCzk100000LimitIncludesAllSale') : t('legacy.taxReport.theCzk100000LimitExcludesProceedsFrom')}
+        {t('legacy.taxReport.theCzk100000LimitIncludesAllSale')}
         {t('legacy.taxReport.capRule')}
       </p>
     </div>

@@ -25,6 +25,8 @@ const corsHeaders = {
   "Access-Control-Allow-Headers": "authorization, x-client-info, apikey, content-type",
 };
 
+interface DividendInsert { user_id: string; ticker: string; ex_date: string; pay_date: string | null; amount_per_share: number; shares_held: number; total_amount_usd: number; status: string; broker: string }
+
 const NASDAQ_HEADERS = {
   "User-Agent":
     "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0 Safari/537.36",
@@ -44,7 +46,7 @@ function parseUSDate(s: string | undefined | null): string | null {
 }
 function parseAmount(s: string | undefined | null): number | null {
   if (!s) return null;
-  const n = parseFloat(String(s).replace(/[^0-9.\-]/g, ""));
+  const n = parseFloat(String(s).replace(/[^0-9.-]/g, ""));
   return isFinite(n) ? n : null;
 }
 
@@ -66,14 +68,11 @@ Deno.serve(async (req) => {
       });
     }
   }
-  // Narrows a user-data query to `onlyUser` (no-op for the scheduler's all-users run).
-  const scoped = (q: any) => (onlyUser ? q.eq("user_id", onlyUser) : q);
-
   const supabase = createClient(url, serviceKey);
 
   // PostgREST caps a single select at 1000 rows; heavy accounts have more, so page through.
-  const fetchAll = async (make: () => any) => {
-    const out: any[] = [];
+  const fetchAll = async <T>(make: () => { range(from: number, to: number): PromiseLike<{ data: T[] | null }> }) => {
+    const out: T[] = [];
     for (let from = 0; ; from += 1000) {
       const { data } = await make().range(from, from + 999);
       if (!data || data.length === 0) break;
@@ -85,25 +84,28 @@ Deno.serve(async (req) => {
 
   try {
     // All positions (every user, or just the caller) — used to know which tickers to fetch at all.
-    const positions = await fetchAll(() => scoped(supabase.from("positions").select("ticker, shares, user_id").neq("type", "Cash")));
+    const positions = await fetchAll(() => {
+      const query = supabase.from("positions").select("ticker, shares, user_id").neq("type", "Cash");
+      return onlyUser ? query.eq("user_id", onlyUser) : query;
+    });
     const heldTickers = Array.from(new Set(
-      (positions || []).filter((p: any) => Number(p.shares) > 0).map((p: any) => String(p.ticker)),
+      (positions || []).filter((p) => Number(p.shares) > 0).map((p) => String(p.ticker)),
     ));
     const tickerSet = new Set(heldTickers.map((t) => t.toUpperCase()));
 
     // All trades with broker + user, so we can compute NON-T212 holdings per user/ticker
     // (T212 dividends come from its own API; we must not double-count them here).
-    const allTx = await fetchAll(() => scoped(supabase
-      .from("transactions")
-      .select("ticker, side, shares, executed_at, broker, ext_id, user_id")
-      .neq("ticker", "CASH"))
-      .order("executed_at", { ascending: true }));
-    const nonT212 = (allTx || []).filter((t: any) => {
+    const allTx = await fetchAll(() => {
+      const query = supabase.from("transactions").select("ticker, side, shares, executed_at, broker, ext_id, user_id")
+        .neq("ticker", "CASH").order("executed_at", { ascending: true });
+      return onlyUser ? query.eq("user_id", onlyUser) : query;
+    });
+    const nonT212 = (allTx || []).filter((t) => {
       const ext = String(t.ext_id ?? "");
       return String(t.broker ?? "").toUpperCase() !== "T212" && !ext.includes(":adj:") && !ext.includes(":pos:");
     });
     // userId|ticker -> trades (chronological), and current net shares
-    const txByUT = new Map<string, any[]>();
+    const txByUT = new Map<string, typeof allTx>();
     const nowByUT = new Map<string, number>();
     for (const t of nonT212) {
       const key = `${t.user_id}|${t.ticker}`;
@@ -151,7 +153,7 @@ Deno.serve(async (req) => {
 
     // ===== EARNINGS calendar (global / broker-agnostic): scan next ~60 trading days =====
     const today = new Date();
-    const earningsByKey = new Map<string, any>();
+    const earningsByKey = new Map<string, { ticker: string; earnings_date: string; time_of_day: string | null; eps_estimate: number | null }>();
     const days: string[] = [];
     for (let i = 0; i < 60; i++) {
       const d = new Date(today.getTime() + i * 86400000);
@@ -179,9 +181,12 @@ Deno.serve(async (req) => {
 
     // ===== DIVIDENDS (per user, non-T212 holdings) =====
     // Seed cadence from existing PAST dividends per user+ticker (resilient to provider gaps).
-    const existingDivs = await fetchAll(() => scoped(supabase
-      .from("dividends").select("ticker, ex_date, pay_date, amount_per_share, user_id, broker")).order("ex_date", { ascending: true }));
-    const existingByUT = new Map<string, any[]>();
+    const existingDivs = await fetchAll(() => {
+      const query = supabase.from("dividends").select("ticker, ex_date, pay_date, amount_per_share, user_id, broker")
+        .order("ex_date", { ascending: true });
+      return onlyUser ? query.eq("user_id", onlyUser) : query;
+    });
+    const existingByUT = new Map<string, typeof existingDivs>();
     // Keys (user|ticker|ex_date) that ALREADY exist from ANY source (T212 API or a broker
     // statement) — we never duplicate those; auto only fills what's genuinely missing.
     const existingKeys = new Set<string>();
@@ -207,7 +212,7 @@ Deno.serve(async (req) => {
     }
     const pushedKeys = new Set<string>();
     const shiftDays = (day: string, n: number) => dateStr(new Date(new Date(day).getTime() + n * 86400000));
-    const pushDiv = (row: any) => {
+    const pushDiv = (row: DividendInsert) => {
       const k = `${row.user_id}|${row.ticker}|${row.ex_date}`;
       if (existingKeys.has(k) || pushedKeys.has(k)) return; // statement/T212/dup already covers it
       // Same window as dedupeDividends (src/lib/dividendTax.ts): a recorded payment from 3 days
@@ -220,8 +225,8 @@ Deno.serve(async (req) => {
     };
 
     const todayStr = dateStr(today);
-    const nasdaqCache = new Map<string, any>();
-    const dividendInserts: any[] = [];
+    const nasdaqCache = new Map<string, { exDividendDate?: string; dividendPaymentDate?: string; annualizedDividend?: string; dividendYield?: string; dividendPayout?: string; dividends?: { rows?: { exOrEffDate?: string; paymentDate?: string; amount?: string; type?: string }[] } } | null>();
+    const dividendInserts: DividendInsert[] = [];
 
     for (const [ticker, users] of usersByTicker) {
       // Fetch the dividend schedule once per ticker.
@@ -232,7 +237,7 @@ Deno.serve(async (req) => {
           const r = await fetch(`https://api.nasdaq.com/api/quote/${sym}/dividends?assetclass=stocks`, { headers: NASDAQ_HEADERS });
           data = r.ok ? ((await r.json())?.data ?? null) : null;
         } catch (_e) { data = null; }
-        nasdaqCache.set(sym, data);
+        nasdaqCache.set(sym, data ?? null);
       }
       if (!data) continue;
       const rows = data?.dividends?.rows ?? [];
@@ -318,7 +323,7 @@ Deno.serve(async (req) => {
       await supabase.from("earnings_calendar").insert(earningsInserts);
     }
     const oldest = dateStr(new Date(Date.now() - 365 * 86400000));
-    const userIds = Array.from(new Set((positions || []).map((p: any) => p.user_id).filter(Boolean)));
+    const userIds = Array.from(new Set((positions || []).map((p) => p.user_id).filter(Boolean)));
     for (const uid of userIds) {
       // Only replace our own auto rows — never the exact T212-API or statement dividends.
       await supabase.from("dividends").delete().eq("user_id", uid).eq("broker", "auto").gte("ex_date", oldest);

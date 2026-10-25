@@ -1,3 +1,4 @@
+import type { T212Client } from "../../supabase/functions/_shared/t212-types";
 import { describe, it, expect, vi } from "vitest";
 import {
   t212NextPage, rateNear, reconcileAvgUsd, tickersLinked, applyRenameGuard, isMissingRpc, syncCashFromApi,
@@ -5,21 +6,21 @@ import {
 } from "../../supabase/functions/_shared/t212";
 
 // Minimal PostgREST-like mock: every builder method chains, awaiting yields `result(table, calls)`.
-type Res = { data?: any; error?: any };
-function mockSvc(opts: { tables?: (table: string, calls: [string, any[]][]) => Res; rpc?: (fn: string, args: any) => Res }) {
-  const rpcCalls: [string, any][] = [];
-  const updates: [string, any][] = [];
+type Res = { data?: unknown; error?: { message?: string; code?: string } };
+function mockSvc(opts: { tables?: (table: string, calls: [string, unknown[]][]) => Res; rpc?: (fn: string, args: Record<string, unknown>) => Res }) {
+  const rpcCalls: [string, Record<string, unknown>][] = [];
+  const updates: [string, Record<string, unknown>][] = [];
   const from = (table: string) => {
-    const calls: [string, any[]][] = [];
-    const b: any = new Proxy({}, {
+    const calls: [string, unknown[]][] = [];
+    const b: Record<string, unknown> = new Proxy({}, {
       get(_t, prop: string) {
         if (prop === "then") {
           const r = opts.tables?.(table, calls) ?? { data: null, error: null };
-          return (ok: any, ko: any) => Promise.resolve({ data: r.data ?? null, error: r.error ?? null }).then(ok, ko);
+          return (ok: (value: Res) => unknown, ko: (reason: unknown) => unknown) => Promise.resolve({ data: r.data ?? null, error: r.error ?? null }).then(ok, ko);
         }
-        return (...args: any[]) => {
+        return (...args: unknown[]) => {
           calls.push([prop, args]);
-          if (prop === "update") updates.push([table, args[0]]);
+          if (prop === "update") updates.push([table, args[0] as Record<string, unknown>]);
           return b;
         };
       },
@@ -28,13 +29,13 @@ function mockSvc(opts: { tables?: (table: string, calls: [string, any[]][]) => R
   };
   const svc = {
     from,
-    rpc: (fn: string, args: any) => {
+    rpc: (fn: string, args: Record<string, unknown>) => {
       rpcCalls.push([fn, args]);
       const r = opts.rpc?.(fn, args) ?? { data: null, error: null };
       return Promise.resolve({ data: r.data ?? null, error: r.error ?? null });
     },
   };
-  return { svc, rpcCalls, updates };
+  return { svc: svc as unknown as T212Client, rpcCalls, updates };
 }
 
 describe("t212NextPage (finding 18)", () => {
@@ -56,11 +57,11 @@ describe("rateNear (finding 19)", () => {
   const fx = [{ date: "2024-01-02", close: 22.5 }, { date: "2024-01-03", close: 22.7 }, { date: "2026-10-16", close: 20.9 }];
   it("uses the rate of the flow's own day (or the last before it), not today's", () => {
     expect(rateNear(fx, "2024-01-03")).toBe(22.7);
-    expect(rateNear(fx, "2024-06-01")).toBe(22.7);
+    expect(rateNear(fx, "2024-06-01")).toBeNull();
     expect(rateNear(fx, "2026-10-19")).toBe(20.9);
   });
-  it("falls back to the earliest later rate when history starts after the flow", () => {
-    expect(rateNear(fx, "2023-12-01")).toBe(22.5);
+  it("does not use a future rate", () => {
+    expect(rateNear(fx, "2023-12-01")).toBeNull();
   });
   it("returns null without any usable rate", () => {
     expect(rateNear([], "2024-01-01")).toBeNull();

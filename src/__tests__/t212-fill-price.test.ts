@@ -22,8 +22,8 @@ describe("t212FillPriceUsd", () => {
   it("uses a USD wallet amount directly", () => {
     expect(t212FillPriceUsd({ instrumentCurrency: "EUR", price: 40, quantity: 2, walletCurrency: "USD", walletNetValue: 90 }, usdCzk, noClose, "2026-04-08")).toBe(45);
   });
-  it("falls back to the USD close for other wallets, and never returns the native price", () => {
-    expect(t212FillPriceUsd({ instrumentCurrency: "GBX", price: 395.5, quantity: 2.57, walletCurrency: "GBP", walletNetValue: 10.16 }, usdCzk, () => 5.31, "2025-09-09")).toBe(5.31);
+  it("requires execution conversion even when a market close exists", () => {
+    expect(t212FillPriceUsd({ instrumentCurrency: "GBX", price: 395.5, quantity: 2.57, walletCurrency: "GBP", walletNetValue: 10.16 }, usdCzk, () => 5.31, "2025-09-09")).toBeNull();
     expect(t212FillPriceUsd({ instrumentCurrency: "GBX", price: 395.5, quantity: 2.57, walletCurrency: "GBP", walletNetValue: 10.16 }, usdCzk, noClose, "2025-09-09")).toBeNull();
     expect(t212FillPriceUsd({ instrumentCurrency: "EUR", price: 41, quantity: 1, walletCurrency: "CZK", walletNetValue: 900 }, () => null, noClose, "1999-01-01")).toBeNull();
   });
@@ -34,8 +34,8 @@ describe("t212FillPriceUsd — close fallback sanity", () => {
     // pre-split fill at 400 pence; adjusted close $0.53 (10:1 later split) -> skip, not $0.53
     expect(t212FillPriceUsd({ instrumentCurrency: "GBX", price: 400, quantity: 1, walletCurrency: "GBP", walletNetValue: 4 }, () => null, () => 0.53, "2020-01-02")).toBeNull();
   });
-  it("uses the close when a CZK fill has no rate, if it fits the native price", () => {
-    expect(t212FillPriceUsd({ instrumentCurrency: "EUR", price: 41.5, quantity: 1, walletCurrency: "CZK", walletNetValue: 1000 }, () => null, () => 45.7, "2026-04-08")).toBe(45.7);
+  it("rejects a plausible market close when execution FX is missing", () => {
+    expect(t212FillPriceUsd({ instrumentCurrency: "EUR", price: 41.5, quantity: 1, walletCurrency: "CZK", walletNetValue: 1000 }, () => null, () => 45.7, "2026-04-08")).toBeNull();
   });
 });
 

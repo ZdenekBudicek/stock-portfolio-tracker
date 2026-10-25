@@ -17,11 +17,13 @@ verify_jwt = true
 
 # Same as the CLI default, pinned rather than implied because this one is about to go to a
 # live project. auto-sync calls it with the service-role key, which satisfies this; so does
-# the anon key from a browser. Note that any authenticated caller can therefore also pass
-# ?force=TICKER — that only re-asks Finnhub about tickers somebody already holds or
-# watches, and returns no user data, so the worst case is spent API quota.
+# the anon key from a browser (the app runs a normal ranked pass after a broker sync).
+# ?force=TICKER is refused unless the caller holds the scheduler key (service role or CRON_SECRET).
 [functions.sync-sectors]
 verify_jwt = true
 
 [functions.request-fundamentals]
+verify_jwt = true
+
+[functions.agent]
 verify_jwt = true

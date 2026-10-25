@@ -10,7 +10,7 @@ import { Button } from '@/components/ui/button';
 import { Skeleton } from '@/components/ui/skeleton';
 import QuickTradeDialog from '@/components/QuickTradeDialog';
 import BrokerConnect from '@/components/BrokerConnect';
-import StatementImport from '@/components/StatementImport';
+import { lazy, Suspense } from 'react';
 import PerformanceChart from '@/components/PerformanceChart';
 import { TickerLogo } from '@/components/TickerLogo';
 import { AllocationCard, AttentionCard, MoversCard, UpcomingCard, fmtDate, holdingsOf, monthShort } from '@/components/v2/widgets';
@@ -22,6 +22,9 @@ import { fmtCzk, fmtNum, fmtPercent } from '@/i18n/format';
 import { formatMoney, wrapSymbol } from '@/lib/displayCurrency';
 import { useTaxResidence } from '@/hooks/useTaxResidence';
 import { RealizedMini } from '@/components/RealizedGains';
+import { AssistantAskBar, assistantBuyTicker } from '@/components/assistant/AssistantAskBar';
+
+const StatementImport = lazy(() => import('@/components/StatementImport'));
 
 const PageSkeleton = () => (
   <div className="space-y-4">
@@ -59,7 +62,7 @@ function Onboarding() {
       </Panel>
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
         <BrokerConnect />
-        <StatementImport />
+        <Suspense fallback={<div role="status">{t('common.loading')}</div>}><StatementImport /></Suspense>
       </div>
     </div>
   );
@@ -221,11 +224,13 @@ const Index = () => {
   const hasData = positions.some((x) => x.ticker !== 'CASH') || txs.length > 0;
 
   if (isLoading || p.loading) return <PageSkeleton />;
+  if (p.error) return <div role="alert" className="rounded-xl border border-destructive p-5">{t('overview.unavailable')}</div>;
   if (!hasData) return <Onboarding />;
 
   const fetched = live.data?.fetchedAt ? new Date(live.data.fetchedAt).toLocaleTimeString(currentLocale(), { hour: '2-digit', minute: '2-digit' }) : null;
   return (
     <div className="space-y-4">
+      <AssistantAskBar buyTicker={assistantBuyTicker(p.positions)} />
       <div className="grid grid-cols-1 gap-4 lg:grid-cols-3">
         <Hero />
         <div className="flex flex-col gap-4">

@@ -28,7 +28,7 @@ describe("normalizeOrder", () => {
 });
 
 describe("matchManual", () => {
-  const tx = (o: any) => ({ id: "x", ticker: "AAPL", side: "BUY", shares: 3, executed_at: "2026-06-01T00:00:00Z", broker: "manual", t212_id: null, ...o });
+  const tx = (o: Partial<import("../../supabase/functions/_shared/t212").MatchableTx>) => ({ id: "x", ticker: "AAPL", side: "BUY", shares: 3, executed_at: "2026-06-01T00:00:00Z", broker: "manual", t212_id: null, ...o });
   it("matches same ticker/side, shares within tolerance, date within 3 days", () => {
     const cand = { ticker: "AAPL", side: "BUY" as const, shares: 3.001, executed_at: "2026-06-03T10:00:00Z" };
     expect(matchManual(cand, [tx({})])?.id).toBe("x");

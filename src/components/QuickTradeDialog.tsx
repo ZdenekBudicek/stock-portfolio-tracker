@@ -88,7 +88,8 @@ const QuickTradeDialog = () => {
       });
       reset();
       setOpen(false);
-    } catch (e: any) {
+    } catch (error: unknown) {
+      const e = error as { message?: string } | null;
       toast({ title: t('legacy.quickTradeDialog.error'), description: t('legacy.quickTradeDialog.errorDetail', { message: e.message }), variant: "destructive" });
     }
   };

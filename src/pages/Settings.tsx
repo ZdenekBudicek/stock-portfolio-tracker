@@ -43,10 +43,6 @@ function TaxPrefsPanel() {
         <Segmented value={prefs.fxMethod} onChange={(v) => update({ fxMethod: v })}
           options={[{ value: 'cnb-daily', label: t('settings.tax.fxDaily') }, { value: 'gfr-annual', label: t('settings.tax.fxAnnual') }]} />
       </Row>
-      <Row title={t('settings.tax.limit')} sub={t('settings.tax.limitSub')}>
-        <Segmented value={prefs.limitIncludesExempt ? 'all' : 'taxable'} onChange={(v) => update({ limitIncludesExempt: v === 'all' })}
-          options={[{ value: 'all', label: t('settings.tax.limitAll') }, { value: 'taxable', label: t('settings.tax.limitTaxable') }]} />
-      </Row>
     </Panel>
   );
 }

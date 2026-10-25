@@ -13,6 +13,7 @@ A full-stack tracker for a stock & crypto portfolio spread across several broker
 - **Fair-value calculator** — DCF with a sensitivity table, valuation multiples, reverse DCF, Graham number and a dividend model, with adjustable assumptions.
 - **Czech tax report** — per-lot FIFO with ČNB exchange rates, the 3-year holding test for securities and crypto-assets and a breakdown against the CZK 100,000 sales limit.
 - **Tax estimates for other countries** — the United States, Slovakia, Germany, the United Kingdom and Poland, each with its own rules (wash sales and short/long-term rates, share pooling, the German partial exemption, the Polish annual crypto cost pool …) and a yearly profile per user. The stock page shows the holding-period rule of the user's tax residence.
+- **AI assistant** — a chat that answers questions about your own portfolio, taxes and companies (for example "should I buy more NVDA at this price?"). Every number in an answer comes from a calculation tool over your data, not from the model; the model only words the answer, and a validator rejects any figure that no tool produced. It runs on free LLM tiers (Groq) with per-user and shared daily limits.
 
 ## How it is built
 
@@ -20,9 +21,9 @@ A full-stack tracker for a stock & crypto portfolio spread across several broker
 |---|---|
 | Frontend | TypeScript, React, Vite, TanStack Query, Tailwind CSS, shadcn/ui, Recharts, i18next |
 | Database | PostgreSQL on Supabase — row-level security on every table, triggers that keep positions and cash consistent with the transaction ledger, RPC functions for imports and reconciliation |
-| Backend | Supabase Edge Functions (Deno) for price refresh, broker sync, snapshots, splits, news, sectors and on-demand fundamentals |
+| Backend | Supabase Edge Functions (Deno) for price refresh, broker sync, snapshots, splits, news, sectors and on-demand fundamentals, plus the assistant (tool-calling agent with grounded answers, per-user rate limits and a calculation bundle built from the same `src/lib` code as the UI) |
 | Scheduling | `pg_cron` inside the database + GitHub Actions workers (`scripts/*.mjs`) for price history and company financials |
-| Tests | Vitest (760 tests) |
+| Tests | Vitest (2,205 tests), plus a Python eval harness for the assistant over synthetic fixtures |
 
 Some design decisions worth a look:
 
@@ -59,6 +60,6 @@ The database schema lives in `supabase/migrations/`; with the Supabase CLI you c
 
 ## Public snapshot validation
 
-This snapshot (October 2026) passed 760 tests, the TypeScript checks and both production builds (app and demo). `npm audit` currently reports advisories in Tailwind CSS 3 build tooling (`braces`, `postcss-selector-parser`); they affect the development/build toolchain, not the shipped bundle, and fixing them needs a Tailwind 4 migration. Live broker synchronization and a deployment against a new Supabase project were not exercised; those require your own configured backend and credentials. The browser demo uses a separate in-memory data adapter and does not prove the live integrations.
+This snapshot (late October 2026) passed 2,205 tests, the TypeScript checks, the calculation-bundle check and both production builds (app and demo). `npm audit` currently reports advisories in Tailwind CSS 3 build tooling (`braces`, `postcss-selector-parser`); they affect the development/build toolchain, not the shipped bundle, and fixing them needs a Tailwind 4 migration. Live broker synchronization and a deployment against a new Supabase project were not exercised; those require your own configured backend and credentials. The browser demo uses a separate in-memory data adapter and does not prove the live integrations.
 
-Scheduled data workers are disabled unless the repository variable ENABLE_PORTFOLIO_WORKERS is set to true. Configure the required repository secrets for your own backend before opting in.
+Scheduled data workers (price history, company financials, ČNB rates) are disabled unless the repository variable ENABLE_PORTFOLIO_WORKERS is set to true. Configure the required repository secrets for your own backend before opting in.

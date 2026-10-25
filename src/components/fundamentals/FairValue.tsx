@@ -1,34 +1,48 @@
-import { useId, useMemo, useState } from 'react';
+import { useEffect, useId, useMemo, useRef, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import { Panel, Kpi, Pill, Segmented } from '@/components/v2/ui';
 import { useCompanyFundamentals } from '@/hooks/useCompanyFundamentals';
 import { usePriceHistory } from '@/hooks/usePriceHistory';
+import { useAnalystSnapshot } from '@/hooks/useAnalystSnapshot';
+import { fetchCompanyData } from '@/hooks/useFundamentalsRequests';
+import { useQueryClient } from '@tanstack/react-query';
 import type { CompanyFundamentals } from '@/types/fundamentals';
-import { calculateFairValue, defaultAssumptions, METHOD_IDS, type Assumptions, type PriceClose } from '@/lib/fairValue';
+import { calculateFairValue, defaultAssumptions, METHOD_IDS, type Assumptions, type MarketContext, type PriceClose } from '@/lib/fairValue';
 import { fmtNum, fmtPercent } from '@/i18n/format';
 import { cn } from '@/lib/utils';
 
-interface Props { fundamentals: CompanyFundamentals; price: number | null; closes?: PriceClose[] }
+interface Props { fundamentals: CompanyFundamentals; price: number | null; closes?: PriceClose[]; market?: MarketContext | null }
 const NO_CLOSES: PriceClose[] = [];
 
 /** Keeps the stock page integration local and shares the existing query cache with the charts. */
 export function FairValueForSymbol({ symbol, price }: { symbol: string; price: number | null }) {
   const { data } = useCompanyFundamentals(symbol);
   const { data: closes } = usePriceHistory(symbol);
-  return data ? <FairValue fundamentals={data} price={price} closes={closes} /> : null;
+  const { data: market, isFetched } = useAnalystSnapshot(symbol);
+  // Ocenění v3: no analyst consensus stored yet → fetch it now (seconds), then the card recalculates.
+  const qc = useQueryClient();
+  const asked = useRef('');
+  useEffect(() => {
+    if (!data || !isFetched || market || asked.current === symbol) return;
+    asked.current = symbol;
+    fetchCompanyData(symbol).then(answer => {
+      if (answer?.analysts === 'loaded') void qc.invalidateQueries({ queryKey: ['analyst-snapshot', symbol.trim().toUpperCase()] });
+    }).catch(() => {});
+  }, [data, isFetched, market, symbol, qc]);
+  return data ? <FairValue fundamentals={data} price={price} closes={closes} market={market} /> : null;
 }
 
 export default function FairValue(props: Props) {
   return <Calculator key={props.fundamentals.symbol} {...props} />;
 }
 
-function Calculator({ fundamentals, price, closes = NO_CLOSES }: Props) {
+function Calculator({ fundamentals, price, closes = NO_CLOSES, market = null }: Props) {
   const { t } = useTranslation();
   const id = useId();
-  const defaults = useMemo(() => defaultAssumptions(fundamentals, closes), [fundamentals, closes]);
+  const defaults = useMemo(() => defaultAssumptions(fundamentals, closes, market), [fundamentals, closes, market]);
   const [overrides, setOverrides] = useState<Partial<Assumptions>>({});
   const assumptions = useMemo(() => ({ ...defaults.assumptions, ...overrides }), [defaults, overrides]);
-  const report = useMemo(() => calculateFairValue(fundamentals, price, assumptions, closes), [fundamentals, price, assumptions, closes]);
+  const report = useMemo(() => calculateFairValue(fundamentals, price, assumptions, closes, market), [fundamentals, price, assumptions, closes, market]);
   const set = <K extends keyof Assumptions>(key: K, value: Assumptions[K]) => setOverrides(prev => ({ ...prev, [key]: value }));
   const money = (value: number | null) => value == null || !Number.isFinite(value) ? t('fair.unavailable')
     // Same look as prices elsewhere in the app: $1,234.56 in either language.
@@ -37,8 +51,15 @@ function Calculator({ fundamentals, price, closes = NO_CLOSES }: Props) {
   const potential = report.potential;
   const position = potential == null ? null : Math.max(0, Math.min(100, 50 - potential * 100));
   const currencyBlocked = report.methods.dcf.reason === 'currency';
-  const controls: { key: 'growth' | 'discount' | 'terminalGrowth' | 'pe' | 'pfcf' | 'pb' | 'ps' | 'epsGrowth' | 'years' | 'dividendGrowth'; min: number; max: number; step: number; percent?: boolean }[] = [
+  // Ocenění v2: the growth model has its own revenue, margin and dilution inputs; each model hides the other's.
+  const revenueModel = report.model === 'revenue';
+  const typeKey = revenueModel && report.companyType === 'growth' ? 'growthModel' : report.companyType;
+  type ControlKey = 'growth' | 'revenueGrowth' | 'targetMargin' | 'dilution' | 'discount' | 'terminalGrowth' | 'pe' | 'pfcf' | 'pb' | 'ps' | 'epsGrowth' | 'years' | 'dividendGrowth';
+  const allControls: { key: ControlKey; min: number; max: number; step: number; percent?: boolean }[] = [
     { key: 'growth', min: -50, max: 50, step: 0.5, percent: true },
+    { key: 'revenueGrowth', min: -50, max: 150, step: 0.5, percent: true },
+    { key: 'targetMargin', min: 1, max: 60, step: 0.5, percent: true },
+    { key: 'dilution', min: 0, max: 5, step: 0.25, percent: true },
     { key: 'discount', min: 1, max: 25, step: 0.5, percent: true },
     { key: 'terminalGrowth', min: -2, max: 6, step: 0.25, percent: true },
     { key: 'pe', min: 1, max: 60, step: 0.5 },
@@ -49,13 +70,19 @@ function Calculator({ fundamentals, price, closes = NO_CLOSES }: Props) {
     { key: 'years', min: 1, max: 10, step: 1 },
     { key: 'dividendGrowth', min: -10, max: 6, step: 0.25, percent: true },
   ];
+  const controls = allControls.filter(c => revenueModel ? c.key !== 'growth' : !['revenueGrowth', 'targetMargin', 'dilution'].includes(c.key));
+  const usd = (value: number | null | undefined) => value == null ? t('fair.unavailable') : money(value);
+  const billions = (value: number | null) => value == null ? t('fair.unavailable') : `$${fmtNum(value / 1e9, 1)} B`;
+  const check = report.analystCheck;
+  const methodKey = (method: typeof METHOD_IDS[number]) => revenueModel && method === 'dcf' ? 'dcfRevenue'
+    : revenueModel && method === 'pe' && report.forward ? 'peForward' : method;
 
   return (
     <Panel className="lg:col-span-12" title={t('fair.title')} glow="primary"
       action={<button type="button" className="rounded-full border border-white/10 px-3 py-1.5 text-xs hover:bg-white/10" onClick={() => setOverrides({})}>{t('fair.reset')}</button>}>
       <p className="mb-4 text-sm text-muted-foreground">{t('fair.intro')}</p>
-      <p className="mb-2 text-sm font-semibold">{t('fair.companyType', { type: t(`fair.types.${report.companyType}.title`) })}</p>
-      <p className="mb-4 text-xs text-muted-foreground">{t(`fair.types.${report.companyType}.explain`)}</p>
+      <p className="mb-2 text-sm font-semibold">{t('fair.companyType', { type: t(`fair.types.${typeKey}.title`) })}</p>
+      <p className="mb-4 text-xs text-muted-foreground">{t(`fair.types.${typeKey}.explain`)}</p>
       {fundamentals.status === 'error' && <p className="mb-4 text-sm text-warning">{t('fair.stale')}</p>}
       {currencyBlocked && <p role="status" className="mb-4 rounded-2xl bg-warning/10 p-4 text-sm text-warning">{t('fair.reason.currency', { currency: fundamentals.currency || t('fair.unknownCurrency') })}</p>}
 
@@ -67,9 +94,11 @@ function Calculator({ fundamentals, price, closes = NO_CLOSES }: Props) {
       </div>
       {report.reason && !currencyBlocked && <p role="status" className="mt-3 text-sm text-warning">{t(`fair.reason.${report.reason}`, { currency: fundamentals.currency || t('fair.unknownCurrency') })}</p>}
       {report.priceDeviation != null && <p className="mt-3 text-sm">{t(report.priceDeviation === 0 ? 'fair.priceEqual' : report.priceDeviation < 0 ? 'fair.priceBelow' : 'fair.priceAbove', { percent: fmtPercent(Math.abs(report.priceDeviation) * 100, 1) })}</p>}
+      {check && <p role="status" className={cn('mt-2 text-sm', check.status === 'outside' && 'text-warning')}>{t(`fair.analysts.${check.status}`, {
+        mean: usd(check.mean), low: usd(check.low), high: usd(check.high), percent: fmtPercent(Math.abs(check.ratio - 1) * 100, 1) })}</p>}
       {report.marginOfSafety != null && <p className="mt-2 text-xs text-profit">{t('fair.margin')}: {fmtPercent(report.marginOfSafety * 100, 1)} · {t('fair.marginExplain')}</p>}
       <p className="mt-3 text-xs text-muted-foreground">{t('fair.summaryExplain')}</p>
-      <p className="mt-2 text-xs text-muted-foreground">{report.included.map(method => `${t(`fair.methods.${method}.title`)}: ${fmtPercent(report.weights[method] * 100, 1)}`).join(' · ')}</p>
+      <p className="mt-2 text-xs text-muted-foreground">{report.included.map(method => `${t(`fair.methods.${methodKey(method)}.title`)}: ${fmtPercent(report.weights[method] * 100, 1)}`).join(' · ')}</p>
       {position != null ? (
         <div className="my-5" role="img" aria-label={t('fair.gauge', { potential: fmtPercent(potential! * 100, 1) })}>
           <div className="relative h-3 rounded-full bg-gradient-to-r from-profit/60 via-primary/40 to-loss/60">
@@ -82,33 +111,53 @@ function Calculator({ fundamentals, price, closes = NO_CLOSES }: Props) {
         </div>
       ) : <p className="my-4 text-xs text-muted-foreground">{t('fair.noComparison')}</p>}
 
-      <fieldset disabled={currencyBlocked} className="my-5 rounded-2xl border border-white/10 bg-white/[0.025] p-4 disabled:opacity-50">
+      {revenueModel && <div className="my-4 rounded-2xl border border-white/10 bg-white/[0.025] p-4 text-xs">
+        <p className="mb-2 text-sm font-semibold">{t('fair.consensus.title')}</p>
+        {report.estimates.length ? report.estimates.map(e => <p key={e.period} className="text-muted-foreground">{t('fair.consensus.row', {
+          date: e.endDate ?? t('fair.unavailable'), revenue: billions(e.revenue),
+          growth: e.revenueGrowth == null ? t('fair.unavailable') : fmtPercent(e.revenueGrowth * 100, 1, true),
+          eps: usd(e.eps), analysts: e.analysts ?? t('fair.unavailable') })}</p>)
+          : <p className="text-muted-foreground">{t('fair.consensus.none')}</p>}
+      </div>}
+
+      {/* min-w-0: a fieldset defaults to min-width: min-content and would widen the page on phones. */}
+      <fieldset disabled={currencyBlocked} className="my-5 min-w-0 rounded-2xl border border-white/10 bg-white/[0.025] p-4 disabled:opacity-50">
         <legend className="px-2 text-sm font-semibold">{t('fair.assumptions')}</legend>
-        <p className="mb-2 text-xs leading-relaxed text-muted-foreground">{t(`fair.defaults.${defaults.rationale}`, {
+        {revenueModel ? <p className="mb-2 text-xs leading-relaxed text-muted-foreground">{t(`fair.defaults.${defaults.rationale}`, {
+          growth: fmtPercent(defaults.assumptions.revenueGrowth * 100, 1), terminal: fmtPercent(defaults.assumptions.terminalGrowth * 100, 1),
+        })} {t(report.companyType === 'cyclical' ? 'fair.defaults.cycleModel' : 'fair.defaults.growthModel', { margin: fmtPercent(defaults.assumptions.targetMargin * 100, 1), pe: fmtNum(defaults.assumptions.pe, 1),
+          discount: fmtPercent(defaults.assumptions.discount * 100, 1), dilution: fmtPercent(defaults.assumptions.dilution * 100, 2) })}</p>
+        : <p className="mb-2 text-xs leading-relaxed text-muted-foreground">{t(`fair.defaults.${defaults.rationale}`, {
           historical: defaults.historicalGrowth == null ? t('fair.unavailable') : fmtPercent(defaults.historicalGrowth * 100, 1),
           growth: fmtPercent(defaults.assumptions.growth * 100, 1),
-        })} {t('fair.defaults.common', { discount: fmtPercent(defaults.assumptions.discount * 100, 1), terminal: fmtPercent(defaults.assumptions.terminalGrowth * 100, 1) })}</p>
+        })} {t('fair.defaults.common', { discount: fmtPercent(defaults.assumptions.discount * 100, 1), terminal: fmtPercent(defaults.assumptions.terminalGrowth * 100, 1) })}</p>}
         {(['pe', 'pfcf', 'ps'] as const).map(metric => <p key={metric} className="mb-2 text-xs text-muted-foreground">{t(defaults.history[metric].median == null ? 'fair.multipleFallback' : 'fair.multipleHistory', {
           method: t(`fair.controls.${metric}`), value: fmtNum(defaults.assumptions[metric], 2),
           median: defaults.history[metric].median == null ? '' : fmtNum(defaults.history[metric].median!, 2),
           count: defaults.history[metric].count, from: defaults.history[metric].from, to: defaults.history[metric].to,
         })}</p>)}
         <p className="mb-3 text-xs text-muted-foreground">{t('fair.pbDefault')}</p>
+        {!currencyBlocked && controls.some(control => !report.affectsSummary[control.key]) && <p className="mb-3 text-xs text-warning">
+          {t('fair.inactiveControls', { type: t(`fair.types.${typeKey}.title`) })}</p>}
         <div className="grid gap-x-6 gap-y-4 sm:grid-cols-2 lg:grid-cols-4">
           {controls.map(control => {
             const value = assumptions[control.key] * (control.percent ? 100 : 1);
             const label = t(`fair.controls.${control.key}`);
             const display = control.percent ? fmtPercent(value, 2) : control.key === 'years' ? t('fair.years', { count: value }) : fmtNum(value, 1);
-            return <div key={control.key}>
+            const inactive = !currencyBlocked && !report.affectsSummary[control.key];
+            return <div key={control.key} className={cn(inactive && 'opacity-50')}>
               <div className="mb-2 flex justify-between gap-2 text-xs"><label htmlFor={`${id}-${control.key}`}>{label}</label><output htmlFor={`${id}-${control.key}`} className="num text-primary">{display}</output></div>
               <input id={`${id}-${control.key}`} type="range" className="w-full accent-primary" min={control.min} max={control.max} step={control.step}
-                value={value} aria-valuetext={display} onChange={event => set(control.key, Number(event.target.value) / (control.percent ? 100 : 1))} />
+                value={value} aria-valuetext={display} aria-describedby={inactive ? `${id}-inactive` : undefined}
+                onChange={event => set(control.key, Number(event.target.value) / (control.percent ? 100 : 1))} />
+              {inactive && <p className="mt-1 text-[11px] text-muted-foreground">{t('fair.outsideSummary')}</p>}
             </div>;
           })}
         </div>
-        <div className="mt-4 flex flex-wrap items-center gap-4">
+        <span id={`${id}-inactive`} hidden>{t('fair.outsideSummary')}</span>
+        <div className={cn('mt-4 flex flex-wrap items-center gap-4', !currencyBlocked && !report.affectsSummary.fcfMode && !report.affectsSummary.includeNetCash && 'opacity-50')}>
           <div className="flex flex-wrap items-center gap-2 text-xs"><span>{t('fair.fcfBase')}</span>
-            <Segmented value={assumptions.fcfMode} onChange={value => set('fcfMode', value)} options={[
+            <Segmented className="max-w-full flex-wrap rounded-2xl" value={assumptions.fcfMode} onChange={value => set('fcfMode', value)} options={[
               { value: 'latest', label: t('fair.latest') }, { value: 'average3', label: t('fair.average3') }, { value: 'normalized', label: t('fair.normalized') },
             ]} />
           </div>
@@ -127,16 +176,17 @@ function Calculator({ fundamentals, price, closes = NO_CLOSES }: Props) {
         {METHOD_IDS.map(method => {
           const estimate = report.methods[method];
           const tone = estimate.value == null ? 'warning' : validPrice == null || estimate.value === validPrice ? 'primary' : estimate.value > validPrice ? 'profit' : 'loss';
+          const key = methodKey(method);
           return <div key={method} className="rounded-2xl border border-white/[0.07] bg-white/[0.025] p-4">
-            <Kpi label={t(`fair.methods.${method}.title`)} value={money(estimate.value)} tone={tone} />
+            <Kpi label={t(`fair.methods.${key}.title`)} value={money(estimate.value)} tone={tone} />
             <p className="mt-2 text-xs font-semibold">{report.weights[method] > 0 ? t('fair.methodWeight', { weight: fmtPercent(report.weights[method] * 100, 1) }) : t('fair.comparisonOnly')}</p>
-            <p className="mt-2 text-xs leading-relaxed text-muted-foreground">{t(`fair.methods.${method}.explain`)}</p>
+            <p className="mt-2 text-xs leading-relaxed text-muted-foreground">{t(`fair.methods.${key}.explain`)}</p>
             {estimate.reason && <p className="mt-2 text-xs text-warning">{t(`fair.reason.${estimate.reason}`, { currency: fundamentals.currency || t('fair.unknownCurrency') })}</p>}
           </div>;
         })}
         <div className="rounded-2xl border border-primary/20 bg-primary/[0.06] p-4">
-          <Kpi label={t('fair.reverse.title')} value={report.reverse.value == null ? t('fair.unavailable') : fmtPercent(report.reverse.value * 100, 1)} tone="primary" />
-          <p className="mt-2 text-xs leading-relaxed text-muted-foreground">{t('fair.reverse.explain')}</p>
+          <Kpi label={t(revenueModel ? 'fair.reverseRevenue.title' : 'fair.reverse.title')} value={report.reverse.value == null ? t('fair.unavailable') : fmtPercent(report.reverse.value * 100, 1)} tone="primary" />
+          <p className="mt-2 text-xs leading-relaxed text-muted-foreground">{t(revenueModel ? 'fair.reverseRevenue.explain' : 'fair.reverse.explain')}</p>
           {report.reverse.reason && <p className="mt-2 text-xs text-warning">{t(`fair.reason.${report.reverse.reason}`, { currency: fundamentals.currency || t('fair.unknownCurrency') })}</p>}
         </div>
       </div>
@@ -144,7 +194,7 @@ function Calculator({ fundamentals, price, closes = NO_CLOSES }: Props) {
       <div className="mt-5 overflow-x-auto">
         <table className="w-full min-w-[360px] border-separate border-spacing-1 text-xs num">
           <caption className="mb-2 text-left text-sm font-semibold">{t('fair.sensitivity')}</caption>
-          <thead><tr><th scope="col" className="p-2 text-left font-medium text-muted-foreground">{t('fair.sensitivityAxes')}</th>
+          <thead><tr><th scope="col" className="p-2 text-left font-medium text-muted-foreground">{t(revenueModel ? 'fair.sensitivityAxesRevenue' : 'fair.sensitivityAxes')}</th>
             {report.sensitivity.growths.map(growth => <th scope="col" key={growth} className="p-2 font-medium">{fmtPercent(growth * 100, 1)}</th>)}
           </tr></thead>
           <tbody>{report.sensitivity.cells.map((row, i) => <tr key={i}>

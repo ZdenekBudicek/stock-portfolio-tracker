@@ -6,11 +6,13 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { supabase } from "@/integrations/supabase/client";
 import { useAuth } from "@/contexts/AuthContext";
-import { validateTaxProfile, type Country, type TaxProfile } from "@/lib/tax/engines";
+import type { Json } from "@/integrations/supabase/types";
+import type { TaxProfile } from "@/lib/tax/engines";
+import { parseStoredProfiles, profileKey } from "@/lib/taxProfiles";
+export { profileKey } from "@/lib/taxProfiles";
 
 const KEY = "tax-profiles";
-export const profileKey = (country: Country, year: number) => `${country}-${year}`;
-type Stored = { profiles?: Record<string, unknown> };
+type Stored = { profiles?: Record<string, Json> };
 
 export function useTaxProfiles() {
   const { user } = useAuth();
@@ -18,15 +20,9 @@ export function useTaxProfiles() {
     queryKey: [KEY, user?.id ?? null],
     enabled: !!user,
     queryFn: async (): Promise<Record<string, TaxProfile>> => {
-      const { data, error } = await (supabase as any).from("user_settings").select("tax_profile").eq("user_id", user!.id).maybeSingle();
+      const { data, error } = await supabase.from("user_settings").select("tax_profile").eq("user_id", user!.id).maybeSingle();
       if (error) throw error;
-      const raw = ((data?.tax_profile ?? {}) as Stored).profiles ?? {};
-      const out: Record<string, TaxProfile> = {};
-      for (const [k, v] of Object.entries(raw)) {
-        const parsed = validateTaxProfile(v);
-        if (parsed.success) out[k] = parsed.data as TaxProfile; // an invalid stored entry is ignored, not trusted
-      }
-      return out;
+      return parseStoredProfiles(data?.tax_profile);
     },
   });
 }
@@ -36,12 +32,12 @@ export function useSaveTaxProfile() {
   const qc = useQueryClient();
   return useMutation({
     mutationFn: async (profile: TaxProfile) => {
-      const { data, error: readError } = await (supabase as any).from("user_settings").select("tax_profile").eq("user_id", user!.id).maybeSingle();
+      const { data, error: readError } = await supabase.from("user_settings").select("tax_profile").eq("user_id", user!.id).maybeSingle();
       if (readError) throw readError;
       const current = ((data?.tax_profile ?? {}) as Stored).profiles ?? {};
       // Other root keys of tax_profile are kept; only this country+year entry changes.
-      const next = { ...((data?.tax_profile ?? {}) as Record<string, unknown>), profiles: { ...current, [profileKey(profile.residence, profile.year)]: profile } };
-      const { error } = await (supabase as any).from("user_settings").update({ tax_profile: next }).eq("user_id", user!.id);
+      const next = { ...((data?.tax_profile ?? {}) as Record<string, unknown>), profiles: { ...current, [profileKey(profile.residence, profile.year)]: { ...profile } } };
+      const { error } = await supabase.from("user_settings").update({ tax_profile: next }).eq("user_id", user!.id);
       if (error) throw error;
       return profile;
     },

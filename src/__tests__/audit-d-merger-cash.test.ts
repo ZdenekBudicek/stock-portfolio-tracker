@@ -4,7 +4,7 @@ import { normalizeMergers } from '@/lib/tax/appInput';
 // Merger cash is stored as a 0-share SELL with the payout in price_usd (statements.ts / fifo.ts).
 describe('normalizeMergers cash buyout (audit D #8)', () => {
   const R = { broker: 'Revolut', broker_account: 'R1' };
-  const row = (id: string, side: 'BUY' | 'SELL', shares: number, price: number, at: string, ext_id: string | null = null): any =>
+  const row = (id: string, side: 'BUY' | 'SELL', shares: number, price: number, at: string, ext_id: string | null = null) =>
     ({ id, ticker: 'OLD', side, shares, price_usd: price, executed_at: at, ext_id, ...R });
 
   it('sells the merged-out shares at the recorded payout, not shares x price of the 0-share row', () => {

@@ -2,18 +2,15 @@
 // engine (src/lib/tax/engines.ts) over the full ledger, in the country's currency, with the
 // yearly profile the user filled in. Every blocking gap is shown instead of a made-up number.
 import { useMemo, useState } from 'react';
-import { useQuery } from '@tanstack/react-query';
-import { supabase } from '@/integrations/supabase/client';
-import { fetchAllRows } from '@/hooks/usePortfolio';
 import { Link } from 'react-router-dom';
 import { useTranslation } from 'react-i18next';
 import { AlertTriangle, Info } from 'lucide-react';
-import { usePositions, useTransactions } from '@/hooks/usePortfolio';
+import { useTransactions } from '@/hooks/usePortfolio';
 import { useDividends } from '@/hooks/useExtras';
-import { useAssetKindResolver } from '@/hooks/useAssetKinds';
+import { useInstrumentRegistry } from '@/hooks/useAssetKinds';
 import { useTaxProfiles, profileKey } from '@/hooks/useTaxProfiles';
-import { taxEngineFor, type Country, type TaxReport, type AssetType } from '@/lib/tax/engines';
-import { buildTaxInput } from '@/lib/tax/appInput';
+import type { Country, TaxReport } from '@/lib/tax/engines';
+import { computeInternationalTaxModel } from '@/lib/internationalTaxModel';
 import { TaxProfileForm, CURRENCY_OF } from '@/components/tax/TaxProfileForm';
 import { TickerLogo } from '@/components/TickerLogo';
 import { fmtDate } from '@/components/v2/widgets';
@@ -163,50 +160,19 @@ export function InternationalTaxes({ country }: { country: Country }) {
   const profilesQ = useTaxProfiles();
   const txQ = useTransactions();
   const divQ = useDividends();
-  const posQ = usePositions();
-  // Instrument registry: ETF vs stock from ticker_profiles too (not only the position type), and
-  // aliases so one company under two tickers is one instrument (wash sales, UK pooling).
-  const regQ = useQuery({
-    queryKey: ['tax-instrument-registry'],
-    staleTime: 60 * 60 * 1000,
-    queryFn: async () => {
-      const [aliases, profiles] = await Promise.all([
-        fetchAllRows<{ alias: string; canonical: string }>((from, to) => (supabase as any).from('ticker_alias').select('alias,canonical').order('alias').range(from, to)),
-        fetchAllRows<{ ticker: string; asset_type: string | null }>((from, to) => (supabase as any).from('ticker_profiles').select('ticker,asset_type').order('ticker').range(from, to)),
-      ]);
-      return { aliases, profiles };
-    },
-  });
+  const regQ = useInstrumentRegistry();
   const profiles = profilesQ.data ?? {};
   const txs = txQ.data ?? [];
   const divs = divQ.data ?? [];
-  const positions = posQ.data ?? [];
-  const isLoading = profilesQ.isLoading || txQ.isLoading || divQ.isLoading || posQ.isLoading || regQ.isLoading;
+  const isLoading = profilesQ.isLoading || txQ.isLoading || divQ.isLoading || regQ.loading;
   // A failed read must never look like an empty history with zero tax.
-  const loadError = profilesQ.isError || txQ.isError || divQ.isError || posQ.isError || regQ.isError;
-  const kindResolver = useAssetKindResolver();
+  const loadError = profilesQ.isError || txQ.isError || divQ.isError || !!regQ.error;
   const profile = profiles[profileKey(country, year)];
-  const tickerById = useMemo(() => new Map((txs as any[]).map((x) => [String(x.id), String(x.ticker)])), [txs]);
+  const tickerById = useMemo(() => new Map(txs.map(x => [x.id, x.ticker])), [txs]);
   const today = new Date().toISOString().slice(0, 10);
-
-  const result = useMemo(() => {
-    if (!profile) return null;
-    const typeOf = new Map(positions.map((p: any) => [String(p.ticker), String(p.type ?? '')]));
-    const profileType = new Map((regQ.data?.profiles ?? []).map((p) => [p.ticker.toUpperCase(), String(p.asset_type ?? '')]));
-    const alias = new Map((regQ.data?.aliases ?? []).map((a) => [a.alias.toUpperCase(), (a.canonical || a.alias).toUpperCase()]));
-    const canonical = (ticker: string) => alias.get(ticker.toUpperCase()) ?? ticker.toUpperCase();
-    const kindOf = (ticker: string): AssetType => {
-      if (kindResolver(ticker).kind === 'crypto') return 'crypto';
-      const fund = /etf|fund/i;
-      return fund.test(typeOf.get(ticker) ?? '') || fund.test(profileType.get(ticker.toUpperCase()) ?? '') || fund.test(profileType.get(canonical(ticker)) ?? '') ? 'etf' : 'stock';
-    };
-    try {
-      const input = buildTaxInput({ profile, transactions: txs as any, dividends: divs as any, kindOf, canonical, today });
-      return { report: taxEngineFor(country).report(input), error: null as string | null };
-    } catch (e) {
-      return { report: null, error: String((e as Error).message ?? e) };
-    }
-  }, [profile, txs, divs, positions, kindResolver, regQ.data, country, today]);
+  const result = useMemo(() => computeInternationalTaxModel({ transactions: txs, dividends: divs,
+    registry: regQ.registry, residence: country, year, today, storedProfiles: { profiles } }),
+  [txs, divs, regQ.registry, country, year, today, profiles]);
 
   return (
     <div>
@@ -218,9 +184,9 @@ export function InternationalTaxes({ country }: { country: Country }) {
         <Panel title={t('intl.profile.title', { year })} className="max-w-3xl">
           <TaxProfileForm country={country} year={year} onSaved={() => setEditing(false)} />
         </Panel>
-      ) : result?.error ? (
-        <Panel title={t('intl.error.title')}><p className="text-sm text-muted-foreground">{t('intl.error.text')}</p><p className="mt-2 text-xs text-muted-foreground/80">{result.error}</p></Panel>
-      ) : result?.report ? (
+      ) : result.status !== 'ready' ? (
+        <Panel title={t('intl.error.title')}><p className="text-sm text-muted-foreground">{t('intl.error.text')}</p><p className="mt-2 text-xs text-muted-foreground/80">{result.reason}</p></Panel>
+      ) : result.status === 'ready' ? (
         <>
           <Report report={result.report} country={country} tickerById={tickerById} />
           <div className="mt-3 flex flex-wrap gap-3 text-xs">

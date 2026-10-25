@@ -20,6 +20,8 @@
 //    (`:pos:`) rows count too — they carry the broker's own cost, and the shares they add are
 //    in Hodnota.
 
+import type { BrokerSummary } from "./brokerSummary";
+
 /** XTB dividends are stored gross; the US treaty withholding (W-8BEN) is 15 %. */
 const XTB_ASSUMED_WHT = 0.15;
 
@@ -36,11 +38,7 @@ export interface DepositLedgerRow {
 }
 
 /** The connected Trading 212 account's summary (broker_connections.account_summary). */
-export interface T212AccountSummary {
-  currency: string | null;
-  total: number;
-  ppl: number;
-  result: number;
+export interface T212AccountSummary extends Pick<BrokerSummary, "currency" | "total" | "ppl" | "result"> {
   /** Account number the summary belongs to; absent on summaries stored before scoping. */
   account?: string | null;
 }
@@ -49,6 +47,8 @@ export interface T212AccountSummary {
 export interface DepositDividendRow {
   broker?: string | null;
   broker_account?: string | null;
+  gross_amount_usd?: number | null;
+  withholding_tax_usd?: number | null;
   status: string;
   total_amount_usd: number | null;
   pay_date?: string | null;
@@ -56,7 +56,17 @@ export interface DepositDividendRow {
   ext_id?: string | null;
 }
 
+export interface DatedDeposit {
+  broker: string | null;
+  broker_account?: string | null;
+  flow_date: string;
+  amount_usd: number;
+  original_currency?: string | null;
+  original_amount?: number | null;
+}
+
 export interface NetDeposits {
+  estimated?: boolean;
   usd: number;
   /** The same money in CZK at the rate of the day it went in (CZK account: exact). */
   czk: number;
@@ -79,13 +89,15 @@ function t212Identity(s: T212AccountSummary | null | undefined, usdCzk: number, 
   return null; // unknown account currency — never guess (EUR read as CZK is off by ~25 %)
 }
 
-export function computeNetDeposits({ txs, t212, usdCzk, localPerCzk = 1, fxAt, dividends = [] }: {
+export function computeNetDeposits({ txs, t212, usdCzk, localPerCzk = 1, localPerCzkAt = () => localPerCzk, fxAt, dividends = [], deposits = [] }: {
   txs: DepositLedgerRow[];
+  deposits?: DatedDeposit[];
   t212?: T212AccountSummary | null;
   /** Today's USD/CZK, for the connected account's CZK↔USD conversion. */
   usdCzk: number;
   /** Local display currency per 1 CZK today (1 = koruny); the `czk` result is in that currency. */
   localPerCzk?: number;
+  localPerCzkAt?: (date: string) => number;
   /** USD→local (USD/CZK for koruny) on a given day (YYYY-MM-DD), for flows booked in USD. */
   fxAt: (date: string) => number;
   /**
@@ -104,6 +116,11 @@ export function computeNetDeposits({ txs, t212, usdCzk, localPerCzk = 1, fxAt, d
   const isConnected = (t: DepositLedgerRow) =>
     isT212(t) && (account == null || t.broker_account === account || (!t.broker_account && !otherT212));
 
+  const flows = deposits.filter((d) => (d.broker ?? "").toUpperCase() === "T212" && d.broker_account === account);
+  const flowUsd = flows.reduce((sum, d) => sum + Number(d.amount_usd), 0);
+  const flowNative = flows.reduce((sum, d) => sum + (d.original_currency === t212?.currency && d.original_amount != null ? Number(d.original_amount) : t212?.currency === "USD" ? Number(d.amount_usd) : NaN), 0);
+  const ledgerComplete = !!identity && flows.length > 0 && Math.abs(flowNative - (t212!.total - t212!.ppl - t212!.result)) < 0.02;
+  const estimated = !!identity && !ledgerComplete;
   let usd = 0, czk = 0;
   const add = (amountUsd: number, date: string) => {
     if (!Number.isFinite(amountUsd) || amountUsd === 0) return;
@@ -134,10 +151,21 @@ export function computeNetDeposits({ txs, t212, usdCzk, localPerCzk = 1, fxAt, d
     const row = { ticker: "", side: "BUY" as const, shares: 0, price_usd: 0, executed_at: "", broker: d.broker, broker_account: d.broker_account };
     if (identity && isConnected(row)) continue; // lands in the tracked T212 free cash
     // XTB records the GROSS dividend; what reached the account is net of the withholding.
-    const received = Number(d.total_amount_usd) * (b === "xtb" ? 1 - XTB_ASSUMED_WHT : 1);
+    const received = d.gross_amount_usd != null && d.withholding_tax_usd != null
+      ? Number(d.gross_amount_usd) - Number(d.withholding_tax_usd)
+      : Number(d.total_amount_usd) * (b === "xtb" ? 1 - XTB_ASSUMED_WHT : 1);
     add(-received, d.pay_date ?? d.ex_date);
   }
 
-  if (identity) { usd += identity.usd; czk += identity.czk; }
-  return { usd, czk };
+  if (identity) {
+    if (ledgerComplete || (flows.length && t212?.currency === "USD")) {
+      usd += ledgerComplete ? flowUsd : identity.usd;
+      for (const d of flows) czk += d.original_currency === "CZK" && d.original_amount != null
+        ? Number(d.original_amount) * localPerCzkAt(d.flow_date)
+        : Number(d.amount_usd) * fxAt(d.flow_date);
+      // Only the undated remainder uses today's FX; known flows keep their dated rates.
+      if (!ledgerComplete) czk += (identity.usd - flowUsd) * usdCzk * localPerCzk;
+    } else { usd += identity.usd; czk += identity.czk; }
+  }
+  return { usd, czk, ...(estimated ? { estimated: true } : {}) };
 }
