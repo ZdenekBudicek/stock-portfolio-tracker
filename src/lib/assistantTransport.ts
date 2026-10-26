@@ -5,7 +5,6 @@
 import type { AgentEvent, ChatRequest } from '../../supabase/functions/agent/core/protocol.ts';
 import type { Thread, ThreadHistory } from '../../supabase/functions/agent/core/dataTypes.ts';
 import { createSseParser } from '@/lib/sse';
-import { createReplayTransport } from '@/demo/assistantReplay';
 
 export type { Thread, ThreadHistory };
 export type AssistantTransport = {
@@ -68,8 +67,20 @@ async function liveToken(): Promise<string | null> {
   return data.session?.access_token ?? null;
 }
 
+/** The demo replay (fixed answers over invented data) is loaded on first use, so the app's bundle never carries it. */
+function demoTransport(delayMs?: number): AssistantTransport {
+  let replay: Promise<AssistantTransport> | null = null;
+  const get = () => (replay ??= import('@/demo/assistantReplay').then(m => m.createReplayTransport({ delayMs })));
+  return {
+    async *stream(input, signal) { yield* (await get()).stream(input, signal); },
+    threads: async signal => (await get()).threads(signal),
+    history: async (id, signal) => (await get()).history(id, signal),
+    remove: async (id, signal) => (await get()).remove(id, signal),
+  };
+}
+
 export function createAssistantTransport(mode: TransportMode, deps: Deps = {}): AssistantTransport {
-  if (mode === 'demo') return createReplayTransport({ delayMs: deps.delayMs });
+  if (mode === 'demo') return demoTransport(deps.delayMs);
   const env = import.meta.env as unknown as Record<string, string | undefined>;
   const base = (deps.baseUrl ?? (mode === 'fixture' ? `${env.VITE_ASSISTANT_FIXTURE_URL ?? 'http://127.0.0.1:8787'}/agent`
     : `${env.VITE_SUPABASE_URL ?? ''}/functions/v1/agent`)).replace(/\/$/, '');

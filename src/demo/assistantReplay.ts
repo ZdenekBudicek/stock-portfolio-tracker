@@ -7,6 +7,7 @@ import type { Thread, ThreadHistory } from '../../supabase/functions/agent/core/
 import type { AssistantTransport } from '@/lib/assistantTransport';
 import { demoFacts, type DemoFacts, num, pct, usd } from './assistantFacts';
 import { demoDb } from './mockBackend';
+import { DEMO_QUESTION_TEXT } from './questions';
 
 type UiLang = 'cs' | 'en';
 /** One demo question; `text` writes the fixed answer, with the portfolio's figures read from the demo data. */
@@ -30,8 +31,8 @@ function msftValuation(l: UiLang, f: DemoFacts): string {
     cs(l, `Model férové hodnoty Trackory vychází na ${usd(p * 1.06, l)} (${pct(6, l)}), opatrněji než analytici.`,
       `The Trackora fair value model gives ${usd(p * 1.06, l)} (${pct(6, l)}), more cautious than analysts.`),
     cs(l, 'Dnešní cena počítá s růstem tržeb zhruba 15\u00a0% ročně v prvních dvou letech.', 'Today\'s price assumes revenue growth of about 15% a year for two years.'),
-    cs(l, 'Scénáře vycházejí z tržeb a marže podle analytiků a z P/E odpovídajícího růstu, který firmě ještě zbývá:',
-      'The scenarios use analysts\' revenue and margin and a P/E matching the growth still ahead:'),
+    cs(l, 'Scénáře vycházejí z tržeb a marže podle analytiků a z P/E podle růstu, který firmě ještě zbývá (nad dnešní P/E počítají jen s polovinou přecenění):',
+      'The scenarios use analysts\' revenue and margin and a P/E for the growth still ahead (above today\'s P/E, only half of that re-rating):'),
     ...rows,
     cs(l, 'Jsou to modelové scénáře, ne předpověď ani doporučení.', 'These are model scenarios, not a forecast or advice.')].join('\n');
 }
@@ -45,7 +46,7 @@ const cs = (lang: UiLang, czech: string, english: string) => lang === 'en' ? eng
 /** The demo questions in the order the panel lists them, each with its fixed answer. */
 export const DEMO_QUESTIONS: readonly Demo[] = [
   { key: 'today',
-    question: { cs: 'Co se dnes děje s mými akciemi?', en: 'What is happening with my stocks today?' },
+    question: DEMO_QUESTION_TEXT.today,
     trace: { cs: ['Pozice', 'Souhrn portfolia', 'Zprávy'], en: ['Holdings', 'Portfolio summary', 'News'] },
     text: (l, f) => {
       const { changePct, up, down } = f.today;
@@ -59,7 +60,7 @@ export const DEMO_QUESTIONS: readonly Demo[] = [
       return lines.join('\n\n');
     } },
   { key: 'trades',
-    question: { cs: 'Kolik jsem letos nakoupil a prodal?', en: 'How much did I buy and sell this year?' },
+    question: DEMO_QUESTION_TEXT.trades,
     trace: { cs: ['Obchody'], en: ['Trades'] },
     text: (l, f) => {
       const t = f.trades;
@@ -69,7 +70,7 @@ export const DEMO_QUESTIONS: readonly Demo[] = [
         cs(l, 'Zdroje: Trackora – obchody.', 'Sources: Trackora – trades.')].join('\n\n');
     } },
   { key: 'realized',
-    question: { cs: 'Jaký zisk jsem realizoval za poslední 2 roky?', en: 'What profit did I realize over the last 2 years?' },
+    question: DEMO_QUESTION_TEXT.realized,
     trace: { cs: ['Realizované výsledky'], en: ['Realized results'] },
     text: (l, f) => {
       const r = f.realized;
@@ -81,7 +82,7 @@ export const DEMO_QUESTIONS: readonly Demo[] = [
         cs(l, 'Zdroje: Trackora – realizované výsledky.', 'Sources: Trackora – realized results.')].join('\n\n');
     } },
   { key: 'buy',
-    question: { cs: 'Vyplatí se teď koupit NVDA?', en: 'Is NVDA worth buying now?' },
+    question: DEMO_QUESTION_TEXT.buy,
     trace: { cs: ['Cena', 'Názor analytiků', 'Férová hodnota', 'Historie ocenění', 'Zprávy', 'Pozice'], en: ['Price', 'Analyst view', 'Fair value', 'Valuation history', 'News', 'Holdings'] },
     text: (l, f) => {
       const p = f.price('NVDA'), w = f.weight('NVDA');
@@ -96,7 +97,7 @@ export const DEMO_QUESTIONS: readonly Demo[] = [
           `**My view**\nAt the current price this is neither a bargain nor overpriced – it is about fair. I would not add a lot; waiting for a better price or adding in small steps makes sense. The business looks healthy: profitable in the latest reported year (USD 73B) and generating cash (free cash flow USD 61B).${w >= 15 ? ' The position is already a large part of your portfolio, so I would weigh another purchase mainly on risk.' : ''}\nPrice vs valuation: about fair, no real discount. Confidence: medium.\nWhat would change it: a price below ${usd(p * 0.82, l)} or clearly better results.\nThis is my view from the available data, not investment advice – the decision is yours.`)].join('\n\n');
     } },
   { key: 'move',
-    question: { cs: 'Co se děje poslední dny s PLTR?', en: 'What is going on with PLTR lately?' },
+    question: DEMO_QUESTION_TEXT.move,
     trace: { cs: ['Historie ceny', 'Podobné firmy', 'Zprávy', 'Výsledky hospodaření'], en: ['Price history', 'Peers', 'News', 'Earnings'] },
     text: (l, f) => {
       const m = f.move('PLTR', 5), up = (m?.pct ?? 0) >= 0;
@@ -113,8 +114,7 @@ export const DEMO_QUESTIONS: readonly Demo[] = [
         cs(l, 'Jde o pravděpodobné důvody podle zpráv, ne o prokázané příčiny.', 'These are likely drivers based on the news, not proven causes.')].filter(Boolean).join('\n\n');
     } },
   { key: 'scenarios',
-    question: { cs: 'Udělej mi analýzu MSFT: čím se zabývá, jak ji vidíš do budoucna a kde bude cena za 2 roky.',
-      en: 'Analyse MSFT for me: what it does, how you see its future and where the price will be in 2 years.' },
+    question: DEMO_QUESTION_TEXT.scenarios,
     trace: { cs: ['Výkazy', 'Férová hodnota', 'Názor analytiků', 'Informace o firmě z webu', 'Zprávy'], en: ['Financials', 'Fair value', 'Analyst view', 'Company research', 'News'] },
     text: (l, f) => [
       cs(l, '**Shrnutí:** Microsoft roste hlavně díky cloudu Azure a AI v kancelářském softwaru. Ocenění je slušné, ne levné: další růst ceny stojí na tom, jestli se investice do AI promítnou do tržeb.',
@@ -132,13 +132,13 @@ export const DEMO_QUESTIONS: readonly Demo[] = [
         'What to watch\n• Next earnings and Azure growth.\n• How many companies pay for the AI tools in Office.'),
     ].join('\n\n') },
   { key: 'analysis',
-    question: { cs: 'Co dělá ASML a jaké má silné a slabé stránky?', en: 'What does ASML do, and what are its strengths and weaknesses?' },
+    question: DEMO_QUESTION_TEXT.analysis,
     trace: { cs: ['Informace o firmě z webu', 'Klíčové ukazatele', 'Zprávy'], en: ['Company research', 'Key metrics', 'News'] },
     text: l => cs(l,
       '**Shrnutí:** ASML je jediný výrobce nejpokročilejších litografických strojů na čipy; silná pozice, ale závislost na cyklu polovodičů.\n\nO firmě\n• **Stroje na výrobu čipů:** ASML vyrábí litografické systémy, bez kterých nejde vyrobit nejmodernější čipy.\n\nCo může táhnout růst\n• **Technologický náskok:** V nejpokročilejší litografii nemá ASML konkurenci, a výrobci čipů tak nemají alternativu.\n\nSlabiny a rizika\n• **Exportní omezení:** Vývozní pravidla omezují prodeje do Číny.\n• **Cyklus polovodičů:** Když výrobci čipů škrtají investice, objednávky strojů padají.\n\nJak to vidím\nDlouhodobě má ASML jednu z nejlepších pozic v technologiích. Krátkodobě bude kolísat s investicemi výrobců čipů a s politikou exportu.\nJe to úvaha nad zprávami a čísly výše, ne investiční doporučení.',
       '**Summary:** ASML is the only maker of the most advanced chip lithography machines; a strong position, but tied to the semiconductor cycle.\n\nAbout the company\n• **Chip-making machines:** ASML builds lithography systems without which the most advanced chips cannot be made.\n\nWhat could drive growth\n• **Technology lead:** ASML has no competitor in the most advanced lithography, so chipmakers have no alternative.\n\nWeaknesses and risks\n• **Export limits:** Export rules restrict sales to China.\n• **Chip cycle:** When chipmakers cut investment, machine orders fall.\n\nHow I see it\nLong term, ASML holds one of the best positions in tech. Short term it will swing with chipmakers\' spending and export policy.\nThis is a reading of the news and figures above, not investment advice.') },
   { key: 'web',
-    question: { cs: 'Co znamená snížení sazeb Fedu pro akcie?', en: 'What does a Fed rate cut mean for stocks?' },
+    question: DEMO_QUESTION_TEXT.web,
     trace: { cs: ['Vyhledávání na webu'], en: ['Web search'] },
     text: l => cs(l,
       '**Odpověď:** Nižší sazby akciím obvykle pomáhají, protože budoucí zisky mají dnes vyšší hodnotu a úvěry zlevní. Záleží ale na tom, proč Fed sazby snižuje – kvůli slábnoucí ekonomice mohou zisky firem naopak klesat.\n\nPodrobnosti\n• **Levnější peníze:** Nejvíc pomáhají nižší sazby růstovým a zadluženým firmám.\n• **Proč Fed snižuje:** Trhy rostou hlavně tehdy, když snížení přijde bez recese.',

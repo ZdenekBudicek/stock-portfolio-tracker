@@ -72,7 +72,7 @@ describe("parseT212Account", () => {
     expect(parseT212Account(header.join("\n"))).toBe("1234567");
   });
   it("falls back to the customer id when no account number is printed", () => {
-    expect(parseT212Account("ZÁKAZNICKÉ ID  JMÉNO ZÁKAZNÍKA\n 9000002  Jan Novak\n Výpis aktivit")).toBe("9000002");
+    expect(parseT212Account("ZÁKAZNICKÉ ID  JMÉNO ZÁKAZNÍKA\n 9604040  Jan Novak\n Výpis aktivit")).toBe("9604040");
   });
   it("returns null for a non-T212 document", () => {
     expect(parseT212Account("Account Statement\nGenerated on the 22 Jul 2026")).toBeNull();
@@ -81,7 +81,7 @@ describe("parseT212Account", () => {
 
 describe("parseRevolutAccount", () => {
   it("reads the Revolut account number", () => {
-    expect(parseRevolutAccount("Hlavni 1 Period   01 Feb 2025 - 22 Jul 2026\nAccount number   12345678\nPraha")).toBe("12345678");
+    expect(parseRevolutAccount("Josefa Hory Period   01 Feb 2025 - 22 Jul 2026\nAccount number   12345678\nTřešť")).toBe("12345678");
   });
   it("returns null when absent", () => {
     expect(parseRevolutAccount("no account here")).toBeNull();

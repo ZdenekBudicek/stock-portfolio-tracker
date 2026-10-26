@@ -796,6 +796,8 @@ export function calculateFairValue(f: CompanyFundamentals, price: number | null,
 /* ----------------------------- Ocenění v2: price scenarios ----------------------------- */
 export type ScenarioKind = 'bear' | 'base' | 'bull';
 /** Each case scales the growth above terminal growth, the net margin and the exit multiple by stated factors. */
+/** Share of the gap between today's P/E and the higher P/E for the growth left that the scenarios assume the market closes. */
+export const RERATING_SHARE = 0.5;
 export const SCENARIO_CASES: readonly { kind: ScenarioKind; growth: number; margin: number; multiple: number }[] = [
   { kind: 'bear', growth: 0.6, margin: 0.8, multiple: 0.8 },
   { kind: 'base', growth: 1, margin: 1, multiple: 1 },
@@ -865,6 +867,11 @@ export function priceScenarios(f: CompanyFundamentals, price: number | null, yea
     return out.every(x => finite(x.price) && x.price > 0) ? { years, scenarios: out, reason: null } : none('nonPositiveEps');
   }
   const basePath = revenueGrowthPath(start, terminal, years + 5);
+  // Today's P/E: what the market pays now. Where the multiple for the growth left lies above it, the scenarios assume
+  // the market closes only half of that gap (no full re-rating); a stock dearer than its growth keeps that multiple.
+  const trailingEps = valuationInputs(f).eps.value;
+  const todayPe = validPrice && trailingEps != null && trailingEps > 0 ? validPrice / trailingEps : null;
+  const exitMultiple = (justified: number) => todayPe != null && justified > todayPe ? todayPe + (justified - todayPe) * RERATING_SHARE : justified;
   const baseSales = revenue / shares * basePath.slice(0, years).reduce((v, g) => v * (1 + g), 1) / (1 + change) ** years;
   const scenarios = SCENARIO_CASES.map(c => {
     const path = basePath.map(g => terminal + (g - terminal) * c.growth);
@@ -879,7 +886,7 @@ export function priceScenarios(f: CompanyFundamentals, price: number | null, yea
       return { kind: c.kind, basis: 'sales' as const, startGrowth: path[0], netMargin: null, multiple, revenuePerShare: perShare, eps: null,
         price: value, annual: (value / validPrice!) ** (1 / years) - 1 };
     }
-    const multiple = (defaults.growthModel ? qualityMultiple(ahead, margin) : defaults.assumptions.pe) * c.multiple;
+    const multiple = (defaults.growthModel ? exitMultiple(qualityMultiple(ahead, margin)) : defaults.assumptions.pe) * c.multiple;
     const modelEps = (sales: number, m: number) => sales * Math.min(0.6, m);
     const eps = anchored
       ? consensusEps! * (margin != null && margin > 0 ? modelEps(perShare, margin * c.margin) / modelEps(baseSales, margin) : perShare / baseSales * c.margin)

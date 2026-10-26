@@ -70,7 +70,8 @@ describe('agent Edge import graph', () => {
     const offenders = files.filter(f => !LINK_ONLY.has(f) && (f.endsWith('.json') ? YAHOO_HOST.test(readFileSync(resolve(root, f), 'utf8'))
       : literals(resolve(root, f)).texts.some(t => YAHOO_HOST.test(t))));
     expect(offenders).toEqual([]);
-  });
+    // Walks the whole Edge import graph: allowed to be slow under a full parallel run.
+  }, 60_000);
 
   it('never lets the market fetcher call a Yahoo host (the network guard behind the rule above)', () => {
     const src = readFileSync(resolve(root, 'supabase/functions/agent/live/marketFetch.ts'), 'utf8');

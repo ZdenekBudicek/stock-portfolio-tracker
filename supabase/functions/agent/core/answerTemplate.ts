@@ -1739,8 +1739,8 @@ export function renderMoveAnswer(ctx: ToolCtx, ev: MoveEvidence, analysis: NewsA
           sk: 'Základný scenár berie zisk podľa analytikov a nižšie P/E, pesimistický počíta s otočením cyklu, optimistický s dlhším vrcholom:', en: 'Base: analysts\' earnings at a lower P/E; bear: the cycle turns; bull: a longer peak:' }
           : o.basis !== 'model' ? { cs: 'Scénáře vycházejí ze zisku na akcii za poslední rok, jeho růstu a P/E:', sk: 'Scenáre vychádzajú zo zisku na akciu za posledný rok, jeho rastu a P/E:',
             en: 'The scenarios grow last year\'s earnings per share and apply a P/E:' }
-            : o.fairModel?.value === 'revenue' ? { cs: 'Scénáře vycházejí z tržeb a marže podle analytiků a z P/E odpovídajícího růstu, který firmě ještě zbývá:',
-              sk: 'Scenáre vychádzajú z tržieb a marže podľa analytikov a z P/E zodpovedajúceho rastu, ktorý firme ešte zostáva:', en: 'The scenarios use analysts\' revenue and margin and a P/E matching the growth still ahead:' }
+            : o.fairModel?.value === 'revenue' ? { cs: 'Scénáře vycházejí z tržeb a marže podle analytiků a z P/E podle růstu, který firmě ještě zbývá (nad dnešní P/E počítají jen s polovinou přecenění):',
+              sk: 'Scenáre vychádzajú z tržieb a marže podľa analytikov a z P/E podľa rastu, ktorý firme ešte zostáva (nad dnešné P/E počítajú len s polovicou precenenia):', en: 'The scenarios use analysts\' revenue and margin and a P/E for the growth still ahead (above today\'s P/E, only half of that re-rating):' }
               : { cs: 'Scénáře vycházejí z tržeb, marže podle analytiků (jinak obvyklé marže firmy) a P/E z historie firmy:',
                 sk: 'Scenáre vychádzajú z tržieb, marže podľa analytikov (inak obvyklej marže firmy) a P/E z histórie firmy:', en: 'The scenarios use revenue, the analysts\' (else the usual) margin and the company\'s historical P/E:' };
       scen.push(say(method));

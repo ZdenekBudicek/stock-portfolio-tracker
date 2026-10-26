@@ -6,7 +6,7 @@ import { useTranslation } from 'react-i18next';
 import { ArrowUp, Sparkles } from 'lucide-react';
 import { useOptionalAssistantChat } from '@/hooks/useAssistantChat';
 import { assistantConfig } from '@/lib/assistantTransport';
-import { DEMO_QUESTIONS } from '@/demo/assistantReplay';
+import { demoQuestions } from '@/demo/questions';
 
 // The public demo: the prepared questions as chips and a note instead of the input (the chat is switched off).
 const DEMO = assistantConfig().mode === 'demo';
@@ -33,7 +33,7 @@ export function AssistantAskBar({ buyTicker }: { buyTicker: string | null }) {
   if (!chat) return null;
 
   const ticker = hidden || !buyTicker ? FALLBACK_BUY_TICKER : buyTicker;
-  const chips = DEMO ? DEMO_QUESTIONS.map(d => d.question[i18n.language?.startsWith('en') ? 'en' : 'cs']) : [
+  const chips = DEMO ? demoQuestions(i18n.language?.startsWith('en') ? 'en' : 'cs') : [
     t('assistant.entry.chips.today'),
     t('assistant.entry.chips.tax'),
     t('assistant.entry.chips.buy', { ticker }),

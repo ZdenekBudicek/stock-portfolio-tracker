@@ -1659,13 +1659,28 @@ var ZodError = class _ZodError extends Error {
           while (i < issue.path.length) {
             const el = issue.path[i];
             const terminal = i === issue.path.length - 1;
-            if (!terminal) {
-              curr[el] = curr[el] || { _errors: [] };
-            } else {
-              curr[el] = curr[el] || { _errors: [] };
-              curr[el]._errors.push(mapper(issue));
+            if (el === "_errors") {
+              if (terminal)
+                curr._errors.push(mapper(issue));
+              i++;
+              continue;
+            }
+            if (!Object.prototype.hasOwnProperty.call(curr, el)) {
+              if (el === "__proto__") {
+                Object.defineProperty(curr, el, {
+                  value: { _errors: [] },
+                  writable: true,
+                  enumerable: true,
+                  configurable: true
+                });
+              } else {
+                curr[el] = { _errors: [] };
+              }
             }
             curr = curr[el];
+            if (terminal) {
+              curr._errors.push(mapper(issue));
+            }
             i++;
           }
         }
@@ -1689,7 +1704,7 @@ var ZodError = class _ZodError extends Error {
     return this.issues.length === 0;
   }
   flatten(mapper = (issue) => issue.message) {
-    const fieldErrors = {};
+    const fieldErrors = /* @__PURE__ */ Object.create(null);
     const formErrors = [];
     for (const sub of this.issues) {
       if (sub.path.length > 0) {
@@ -2293,7 +2308,7 @@ var nanoidRegex = /^[a-z0-9_-]{21}$/i;
 var jwtRegex = /^[A-Za-z0-9-_]+\.[A-Za-z0-9-_]+\.[A-Za-z0-9-_]*$/;
 var durationRegex = /^[-+]?P(?!$)(?:(?:[-+]?\d+Y)|(?:[-+]?\d+[.,]\d+Y$))?(?:(?:[-+]?\d+M)|(?:[-+]?\d+[.,]\d+M$))?(?:(?:[-+]?\d+W)|(?:[-+]?\d+[.,]\d+W$))?(?:(?:[-+]?\d+D)|(?:[-+]?\d+[.,]\d+D$))?(?:T(?=[\d+-])(?:(?:[-+]?\d+H)|(?:[-+]?\d+[.,]\d+H$))?(?:(?:[-+]?\d+M)|(?:[-+]?\d+[.,]\d+M$))?(?:[-+]?\d+(?:[.,]\d+)?S)?)??$/;
 var emailRegex = /^(?!\.)(?!.*\.\.)([A-Z0-9_'+\-\.]*)[A-Z0-9_+-]@([A-Z0-9][A-Z0-9\-]*\.)+[A-Z]{2,}$/i;
-var _emojiRegex = `^(\\p{Extended_Pictographic}|\\p{Emoji_Component})+$`;
+var _emojiRegex = `^[\\p{Extended_Pictographic}\\p{Emoji_Component}]+$`;
 var emojiRegex;
 var ipv4Regex = /^(?:(?:25[0-5]|2[0-4][0-9]|1[0-9][0-9]|[1-9][0-9]|[0-9])\.){3}(?:25[0-5]|2[0-4][0-9]|1[0-9][0-9]|[1-9][0-9]|[0-9])$/;
 var ipv4CidrRegex = /^(?:(?:25[0-5]|2[0-4][0-9]|1[0-9][0-9]|[1-9][0-9]|[0-9])\.){3}(?:25[0-5]|2[0-4][0-9]|1[0-9][0-9]|[1-9][0-9]|[0-9])\/(3[0-2]|[12]?[0-9])$/;
@@ -4260,7 +4275,11 @@ function mergeValues(a, b) {
     const bKeys = util.objectKeys(b);
     const sharedKeys = util.objectKeys(a).filter((key) => bKeys.indexOf(key) !== -1);
     const newObj = { ...a, ...b };
+    if (Object.prototype.hasOwnProperty.call(newObj, "__proto__"))
+      delete newObj.__proto__;
     for (const key of sharedKeys) {
+      if (key === "__proto__")
+        continue;
       const sharedValue = mergeValues(a[key], b[key]);
       if (!sharedValue.valid) {
         return { valid: false };
@@ -5175,7 +5194,7 @@ ZodNaN.create = (params) => {
     ...processCreateParams(params)
   });
 };
-var BRAND = Symbol("zod_brand");
+var BRAND = /* @__PURE__ */ Symbol("zod_brand");
 var ZodBranded = class extends ZodType {
   _parse(input) {
     const { ctx } = this._processInputParams(input);
@@ -5377,14 +5396,14 @@ var ostring = () => stringType().optional();
 var onumber = () => numberType().optional();
 var oboolean = () => booleanType().optional();
 var coerce = {
-  string: (arg) => ZodString.create({ ...arg, coerce: true }),
-  number: (arg) => ZodNumber.create({ ...arg, coerce: true }),
-  boolean: (arg) => ZodBoolean.create({
+  string: ((arg) => ZodString.create({ ...arg, coerce: true })),
+  number: ((arg) => ZodNumber.create({ ...arg, coerce: true })),
+  boolean: ((arg) => ZodBoolean.create({
     ...arg,
     coerce: true
-  }),
-  bigint: (arg) => ZodBigInt.create({ ...arg, coerce: true }),
-  date: (arg) => ZodDate.create({ ...arg, coerce: true })
+  })),
+  bigint: ((arg) => ZodBigInt.create({ ...arg, coerce: true })),
+  date: ((arg) => ZodDate.create({ ...arg, coerce: true }))
 };
 var NEVER = INVALID;
 
@@ -7760,6 +7779,7 @@ function calculateFairValue(f, price, assumptions, closes = [], market) {
     sensitivity: { discounts, growths, cells: discounts.map((discount) => growths.map((growth) => cell(discount, growth))) }
   };
 }
+var RERATING_SHARE = 0.5;
 var SCENARIO_CASES = [
   { kind: "bear", growth: 0.6, margin: 0.8, multiple: 0.8 },
   { kind: "base", growth: 1, margin: 1, multiple: 1 },
@@ -7821,6 +7841,9 @@ function priceScenarios(f, price, years, market, closes = []) {
     return out.every((x) => finite2(x.price) && x.price > 0) ? { years, scenarios: out, reason: null } : none("nonPositiveEps");
   }
   const basePath = revenueGrowthPath(start2, terminal, years + 5);
+  const trailingEps = valuationInputs(f).eps.value;
+  const todayPe = validPrice && trailingEps != null && trailingEps > 0 ? validPrice / trailingEps : null;
+  const exitMultiple = (justified) => todayPe != null && justified > todayPe ? todayPe + (justified - todayPe) * RERATING_SHARE : justified;
   const baseSales = revenue / shares * basePath.slice(0, years).reduce((v, g) => v * (1 + g), 1) / (1 + change) ** years;
   const scenarios = SCENARIO_CASES.map((c) => {
     const path = basePath.map((g) => terminal + (g - terminal) * c.growth);
@@ -7842,7 +7865,7 @@ function priceScenarios(f, price, years, market, closes = []) {
         annual: (value2 / validPrice) ** (1 / years) - 1
       };
     }
-    const multiple = (defaults.growthModel ? qualityMultiple(ahead, margin) : defaults.assumptions.pe) * c.multiple;
+    const multiple = (defaults.growthModel ? exitMultiple(qualityMultiple(ahead, margin)) : defaults.assumptions.pe) * c.multiple;
     const modelEps = (sales2, m) => sales2 * Math.min(0.6, m);
     const eps = anchored ? consensusEps * (margin != null && margin > 0 ? modelEps(perShare, margin * c.margin) / modelEps(baseSales, margin) : perShare / baseSales * c.margin) : modelEps(perShare, margin * c.margin);
     const value = eps * multiple;

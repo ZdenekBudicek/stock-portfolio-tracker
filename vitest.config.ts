@@ -13,6 +13,8 @@ export default defineConfig({
     // import time without a URL. Placeholder values let the suite run in a fresh checkout or CI
     // (no .env), and keep tests from ever talking to the real project.
     env: { VITE_SUPABASE_URL: "http://localhost:54321", VITE_SUPABASE_PUBLISHABLE_KEY: "test-publishable-key" },
+    // The full suite runs files in parallel; on a busy laptop or CI runner an ordinary async test can pass 5 s.
+    testTimeout: 15_000,
   },
   resolve: {
     alias: { "@": path.resolve(__dirname, "./src") },

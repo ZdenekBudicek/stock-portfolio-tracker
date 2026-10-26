@@ -21,7 +21,8 @@ it("R1 keeps the permitted lint scope free of errors", async () => {
   const excluded = /^(supabase\/functions\/(agent\/|company-data\/|request-fundamentals\/|_shared\/requestBody\.ts)|scripts\/price-worker\.mjs|src\/(components\/assistant\/|contexts\/AssistantChatContext\.tsx|lib\/assistant))/;
   expect(results.filter(r => !excluded.test(relative(process.cwd(), r.filePath).replace(/\\/g, "/")))
     .flatMap(r => r.messages.filter(m => m.severity === 2).map(m => `${r.filePath}:${m.line} ${m.ruleId}`))).toEqual([]);
-}, 30000);
+  // ESLint over the whole project: 15–30 s alone, longer while the full suite runs in parallel.
+}, 120_000);
 
 it("R3 removes only modules without static, dynamic or test importers", () => {
   for (const name of removed) expect(existsSync(`src/components/${name}.tsx`)).toBe(false);
@@ -43,7 +44,8 @@ it("R3 removes only modules without static, dynamic or test importers", () => {
     expect(existsSync(`src/assets/${name}`)).toBe(false);
     expect(sources().filter(s => !s.path.endsWith("audit-final-structure.test.ts")).some(s => s.text.includes(name))).toBe(false);
   }
-});
+  // Parses every source file: allowed to be slow under a full parallel run.
+}, 60_000);
 
 it("R5 loads the statement importer through lazy and Suspense on both pages", () => {
   for (const page of ["Index", "Accounts"]) {

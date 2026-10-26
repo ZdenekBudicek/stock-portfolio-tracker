@@ -1035,6 +1035,8 @@ export function calculateFairValue(f: CompanyFundamentals, price: number | null,
 };
 export type ScenarioKind = 'bear' | 'base' | 'bull';
 /** Each case scales the growth above terminal growth, the net margin and the exit multiple by stated factors. */
+/** Share of the gap between today's P/E and the higher P/E for the growth left that the scenarios assume the market closes. */
+export const RERATING_SHARE = 0.5;
 export const SCENARIO_CASES: readonly {
     kind: ScenarioKind;
     growth: number;

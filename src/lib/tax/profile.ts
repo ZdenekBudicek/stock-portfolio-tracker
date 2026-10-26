@@ -1,4 +1,6 @@
-import { z } from "zod";
+// The v3 API of the zod package: the agent's calculation bundle runs on the Edge, and zod 4's core reads globalThis,
+// which the bundle audit (scripts/build-agent-lib.mjs) forbids. The forms use zod 4 itself.
+import { z } from "zod/v3";
 
 const money = z.number().finite().nonnegative();
 const signedMoney = z.number().finite();

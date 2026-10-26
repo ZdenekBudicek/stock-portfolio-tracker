@@ -23,7 +23,7 @@ A full-stack tracker for a stock & crypto portfolio spread across several broker
 | Database | PostgreSQL on Supabase — row-level security on every table, triggers that keep positions and cash consistent with the transaction ledger, RPC functions for imports and reconciliation |
 | Backend | Supabase Edge Functions (Deno) for price refresh, broker sync, snapshots, splits, news, sectors and on-demand fundamentals, plus the assistant (tool-calling agent with grounded answers, per-user rate limits and a calculation bundle built from the same `src/lib` code as the UI) |
 | Scheduling | `pg_cron` inside the database + GitHub Actions workers (`scripts/*.mjs`) for price history and company financials |
-| Tests | Vitest (2,205 tests), plus a Python eval harness for the assistant over synthetic fixtures |
+| Tests | Vitest (2,229 tests), plus a Python eval harness for the assistant over synthetic fixtures |
 
 Some design decisions worth a look:
 
@@ -60,6 +60,6 @@ The database schema lives in `supabase/migrations/`; with the Supabase CLI you c
 
 ## Public snapshot validation
 
-This snapshot (late October 2026) passed 2,205 tests, the TypeScript checks, the calculation-bundle check and both production builds (app and demo). `npm audit` currently reports advisories in Tailwind CSS 3 build tooling (`braces`, `postcss-selector-parser`); they affect the development/build toolchain, not the shipped bundle, and fixing them needs a Tailwind 4 migration. Live broker synchronization and a deployment against a new Supabase project were not exercised; those require your own configured backend and credentials. The browser demo uses a separate in-memory data adapter and does not prove the live integrations.
+This snapshot (late October 2026) passed 2,229 tests, the TypeScript checks, the calculation-bundle check and both production builds (app and demo), and `npm audit` reports no vulnerabilities. Live broker synchronization and a deployment against a new Supabase project were not exercised; those require your own configured backend and credentials. The browser demo uses a separate in-memory data adapter and does not prove the live integrations.
 
 Scheduled data workers (price history, company financials, ČNB rates) are disabled unless the repository variable ENABLE_PORTFOLIO_WORKERS is set to true. Configure the required repository secrets for your own backend before opting in.

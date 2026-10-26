@@ -12,7 +12,7 @@ import { SafeMarkdown } from '@/lib/safeMarkdown';
 import { chatText, withHeadings } from '@/lib/assistantText';
 import { useAssistantChat, type UiMessage } from '@/hooks/useAssistantChat';
 import { assistantConfig } from '@/lib/assistantTransport';
-import { DEMO_QUESTIONS } from '@/demo/assistantReplay';
+import { demoQuestions } from '@/demo/questions';
 import { useWrittenOut } from '@/hooks/useWrittenOut';
 import type { TraceItem } from '../../../supabase/functions/agent/core/protocol.ts';
 
@@ -26,7 +26,7 @@ const chip = 'group flex items-center justify-between gap-3 rounded-2xl border b
 function DemoQuestions({ onAsk, exclude = [], compact }: { onAsk: (q: string) => void; exclude?: string[]; compact?: boolean }) {
   const { i18n } = useTranslation();
   const lang = i18n.language?.startsWith('en') ? 'en' : 'cs';
-  const left = DEMO_QUESTIONS.map(d => d.question[lang]).filter(q => !exclude.includes(q));
+  const left = demoQuestions(lang).filter(q => !exclude.includes(q));
   // After an answer the remaining questions are small pills, so the answer stays the focus.
   return (
     <div className={compact ? 'flex flex-wrap gap-1.5' : 'grid gap-2'}>

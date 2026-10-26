@@ -36,7 +36,7 @@ function database(tables: Record<string, Row[]>, failedUsers: string[] = [], key
 }
 
 // Execute the actual handler with local ports; no credentials, provider calls or database access.
-function handler(name: string, client: ReturnType<typeof database>["client"], fetchImpl = vi.fn(async () => new Response("{}"))) {
+function handler(name: string, client: ReturnType<typeof database>["client"], fetchImpl = vi.fn(async (_url: string) => new Response("{}"))) {
   let serve: (req: Request) => Promise<Response>;
   const source = transpileModule(readFileSync(`supabase/functions/${name}/index.ts`, "utf8"), {
     compilerOptions: { module: ModuleKind.ESNext, target: ScriptTarget.ES2022 },

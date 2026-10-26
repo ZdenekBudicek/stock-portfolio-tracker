@@ -3,7 +3,7 @@ import type { CompanyFundamentals, FundamentalMetric, FundamentalSeries } from '
 import fixtures from './fixtures/fair-value-companies.json';
 import {
   analystCheck, calculateFairValue, consensusEpsAt, cycleProfile, CYCLICAL_PE, defaultAssumptions, epsPath, forwardEps, forwardRevenueGrowth, growthDcf, growthMultiple,
-  priceScenarios, recentRevenueGrowth, revenueBasisFactor, reverseGrowthDcf, revenueGrowthPath, shareChange, shareDilution, usableEstimates,
+  priceScenarios, recentRevenueGrowth, revenueBasisFactor, RERATING_SHARE, valuationInputs, reverseGrowthDcf, revenueGrowthPath, shareChange, shareDilution, usableEstimates,
   GROWTH_MODEL_MIN, LATE_GROWTH_CAP, type ConsensusEstimate, type GrowthDcfInput, type MarketContext,
 } from '@/lib/fairValue';
 
@@ -364,5 +364,21 @@ describe("consensus revenue on the statements' basis (NU: net revenue reported, 
     expect(a.revenueGrowth).toBeCloseTo(b.revenueGrowth, 2);
     expect(a.targetMargin).toBeCloseTo(b.targetMargin, 2);
     expect(a.pe).toBeCloseTo(b.pe, 1);
+  });
+});
+
+describe("scenario multiples: no full re-rating above today's P/E", () => {
+  it("closes half the gap between today's P/E and each case's multiple for its growth; a dearer stock keeps that multiple", () => {
+    const cases = (price: number) => priceScenarios(grower(), price, 3, market).scenarios;
+    // At 400 USD today's P/E is far above any growth multiple: each case keeps its own (bear × 0.8, bull × 1.15).
+    const full = cases(400);
+    // At 20 USD today's P/E (on the trailing 2.36 EPS) is below them: each case pays halfway between the two.
+    const todayPe = 20 / valuationInputs(grower()).eps.value!;
+    const factor = { bear: 0.8, base: 1, bull: 1.15 } as const;
+    for (const c of cases(20)) {
+      const justified = full.find(x => x.kind === c.kind)!.multiple / factor[c.kind];
+      expect(todayPe).toBeLessThan(justified);
+      expect(c.multiple).toBeCloseTo((todayPe + (justified - todayPe) * RERATING_SHARE) * factor[c.kind], 9);
+    }
   });
 });
