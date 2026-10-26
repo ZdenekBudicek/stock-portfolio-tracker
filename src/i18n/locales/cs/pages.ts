@@ -113,6 +113,7 @@ export default {
       text: "Začni jedním ze tří způsobů: napoj Trading 212, nahraj výpis (XTB / Revolut), nebo přidej obchod ručně. Jakmile budeš mít data, ukáže se ti celá nástěnka.",
     },
     hero: { value: "Hodnota portfolia" },
+    market: { open: "Market Open", closed: "Market Closed", hint: "Americký akciový trh (NYSE, Nasdaq): běžné obchodování 9:30–16:00 newyorského času v obchodní dny.", holiday: "Dnes je burzovní svátek." },
     profit: {
       title: "Celkový zisk",
       realized: "realizováno",

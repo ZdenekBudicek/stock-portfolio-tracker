@@ -113,6 +113,7 @@ export default {
       text: "Start in one of three ways: connect Trading 212, upload a statement (XTB / Revolut), or add a trade by hand. Once you have data, the whole dashboard appears.",
     },
     hero: { value: "Portfolio value" },
+    market: { open: "Market Open", closed: "Market Closed", hint: "US stock market (NYSE, Nasdaq): regular session 9:30–16:00 New York time on trading days.", holiday: "Today is an exchange holiday." },
     profit: {
       title: "Total profit",
       realized: "realized",

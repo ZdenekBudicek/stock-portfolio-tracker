@@ -12,6 +12,7 @@ import QuickTradeDialog from '@/components/QuickTradeDialog';
 import BrokerConnect from '@/components/BrokerConnect';
 import { lazy, Suspense } from 'react';
 import PerformanceChart from '@/components/PerformanceChart';
+import MarketStatus from '@/components/MarketStatus';
 import { TickerLogo } from '@/components/TickerLogo';
 import { AllocationCard, AttentionCard, MoversCard, UpcomingCard, fmtDate, holdingsOf, monthShort } from '@/components/v2/widgets';
 import { Panel, Pill, Label, Footnote } from '@/components/v2/ui';
@@ -92,7 +93,10 @@ function Hero() {
               : `$${Math.round(p.totalValue).toLocaleString(currentLocale())}`}</span>
           </div>
         </div>
-        <div className="sm:hidden"><QuickTradeDialog /></div>
+        <div className="flex flex-col items-end gap-2">
+          <MarketStatus />
+          <div className="sm:hidden"><QuickTradeDialog /></div>
+        </div>
       </div>
       <div className="mt-2"><PerformanceChart embedded /></div>
     </Panel>
