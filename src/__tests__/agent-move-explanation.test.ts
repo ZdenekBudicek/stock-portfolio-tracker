@@ -43,15 +43,15 @@ describe('move_explanation routing (cs/sk/en)', () => {
     'Jak si vedla NBIS za poslední měsíc?', 'Co je s NBIS za poslední dva týdny?', 'Proč bitcoin poslední dny padá?',
     'Prečo SYNN tento týždeň klesá?', 'Čo sa deje s NBIS posledné dni?', 'Prečo NBIS rastie?',
     'Why is NBIS down?', "What's going on with NBIS this week?", 'Why did NBIS lose so much this week?', 'What happened to NBIS over the past month?',
-    'Why did bitcoin drop this week?',
+    'Why did bitcoin drop this week?', 'Co se dnes stalo s NU?', 'Co se dnes děje s NBIS?', 'What is happening with NBIS today?', 'Čo sa dnes stalo s NBIS?',
   ])('"%s" is move_explanation', question => {
     expect(keywordIntent(question)).toBe('move_explanation');
   });
 
   it.each([
-    ['Co se dnes děje s NBIS?', 'quote'], ['Jaká je cena SYNA?', 'quote'], ['Co se dnes děje s mými akciemi?', 'movers'],
+    ['Jak se dnes hýbe NBIS?', 'quote'], ['Jaká je cena SYNA?', 'quote'], ['Co se dnes děje s mými akciemi?', 'movers'],
     ['Kolik jsem prodělal na SYNA?', 'realized'], ['Mám koupit NBIS?', 'buy'], ['Kolik jsem minulý týden koupil SYNA?', 'transactions'],
-    ['What is happening with NBIS today?', 'quote'],
+    ['How is NBIS moving today?', 'quote'],
   ])('"%s" keeps %s', (question, intent) => {
     expect(keywordIntent(question)).toBe(intent);
   });
@@ -117,7 +117,7 @@ describe('move_explanation evidence: period move, S&P 500, peers, news, analysts
     expect(calls.findIndex(c => c.method === 'news')).toBeGreaterThan(calls.findIndex(c => c.method === 'peers'));
     // The analyst runs after all of them, without tools (a rejected first answer gets one repair).
     expect(r.writers.length).toBeGreaterThanOrEqual(1);
-    expect(r.writers.length).toBeLessThanOrEqual(2);
+    expect(r.writers.length).toBeLessThanOrEqual(3);
     expect(r.writers.every(w => (w.tools ?? []).length === 0)).toBe(true);
   });
 
@@ -191,12 +191,11 @@ describe('move_explanation without an accepted analysis', () => {
     expect(r.answer!.links).toEqual([]);
   });
 
-  it('"Co se dnes děje s SYNA?" stays the quote answer and adds the last days briefly', async () => {
+  it('"Co se dnes děje s SYNA?" gives both: the price move (today first, then the last days) and the news behind it', async () => {
     const r = await ask('Co se dnes děje s SYNA?');
-    expect(r.metrics.toolsUsed).toEqual(expect.arrayContaining(['get_quote', 'get_price_history']));
-    expect(r.metrics.toolsUsed).not.toContain('get_peers');
-    expect(r.text).toMatch(/150,00 USD/);
-    expect(r.text).toMatch(/Od 16\. 10\. 2026 do 22\. 10\. 2026 se cena SYNA změnila o \+4,2 %\./);
+    expect(r.metrics.toolsUsed).toEqual(expect.arrayContaining(['get_quote', 'get_price_history', 'get_peers', 'get_stock_news']));
+    expect(r.text).toMatch(/^\*\*Shrnutí:\*\* Dnešní změna ceny SYNA je /m);
+    expect(r.text).toMatch(/Aktuální cena SYNA je 150,00 USD, dnešní změna \+1,4 %\.\nOd 16\. 10\. 2026 do 22\. 10\. 2026 se cena SYNA změnila o \+4,2 %/);
   });
 });
 
@@ -256,5 +255,53 @@ describe('live peers and recent history', () => {
     await marketFetch('https://api.twelvedata.com/time_series?symbol=NBIS', { fetchImpl, now: Date.now }, marketContext());
     await expect(marketFetch('https://finnhub.io/api/v1/stock/profile2?symbol=NBIS', { fetchImpl, now: Date.now }, marketContext())).rejects.toThrow();
     expect(fetchImpl).toHaveBeenCalledTimes(2);
+  });
+});
+
+describe("today's drop asked with a request for a detailed analysis (NU, 26. 10. 2026)", () => {
+  const Q = 'Proč je dneska tak obrovksej propad na SYNN? Co se změnilo okolo tak skvělé firmy? Udělej podrobnou analýzu';
+  it('is a move question: explained from the news of the move, not as a three-year outlook', async () => {
+    expect(keywordIntent(Q)).toBe('move_explanation');
+    const { market, calls } = spyMarket();
+    const r = await ask(Q, { market });
+    expect(calls.some(c => c.method === 'news')).toBe(true);
+    expect(r.metrics.toolsUsed).not.toContain('get_fair_value');
+    expect(r.metrics.toolsUsed).not.toContain('get_company_research');
+    expect(r.text).not.toMatch(/Ocenění a kde může být cena/);
+  });
+  it("leads with today's change and tells the analyst the question is about today's move", async () => {
+    const r = await ask(Q, { market: spyMarket().market });
+    expect(r.text).toMatch(/^\*\*Shrnutí:\*\* Dnešní změna ceny SYNN je [+-]?\d/m);
+    const sent = JSON.stringify(r.writers[0]?.messages ?? []);
+    expect(sent).toMatch(/SYNN today \(live quote\)/);
+    expect(sent).toMatch(/why SYNN moved today/);
+  });
+});
+
+describe('questions typed without diacritics, with the English layout or as a follow-up (26. 10. 2026)', () => {
+  it.each([
+    'Proc NU dneska tak spadla?', 'co se dnes stalo s NU', 'Zkus znova zjistit co se s NU stalo analyzuj', 'Preco NU klesa?',
+  ])('"%s" is move_explanation', question => {
+    expect(keywordIntent(question)).toBe('move_explanation');
+  });
+  it('reads a question typed with the English layout on a Czech keyboard', async () => {
+    const { repairLayout } = await import('../../supabase/functions/agent/core/router.ts');
+    expect(repairLayout('Ykus to ynova t5eba u6 yjist93 co se dnes stalo s NU')).toBe('Zkus to znova třeba už zjistíš co se dnes stalo s NU');
+    // Ordinary text, tickers and figures stay as written.
+    for (const q of ['Kolik mám v NVDA za Q3 2026?', 'Co dělá S&P 500 a 3M?', 'Why is NBIS down 12%?']) expect(repairLayout(q)).toBe(q);
+  });
+  it('a follow-up judgement without a symbol is the company analysis of the instrument the conversation is about', () => {
+    expect(keywordIntent('Takze s akcii neni nic spatne jde jen o nejistotu byznys to furt je skvelej.')).toBe('move_explanation');
+    expect(keywordIntent('Takže s akcií není nic špatně, jde jen o nejistotu, byznys je furt skvělej?')).toBe('move_explanation');
+  });
+  it('"what happened" is explained from the news of the move even when an analysis is asked for too', async () => {
+    const { isWhyMoveQuestion } = await import('../../supabase/functions/agent/core/router.ts');
+    expect(isWhyMoveQuestion('Zkus znova zjistit co se s NU stalo analyzuj')).toBe(true);
+    expect(isWhyMoveQuestion('Udělej analýzu NU')).toBe(false);
+  });
+  it('folding never makes an English "me" a personal question', async () => {
+    const { isPersonalQuestion } = await import('../../supabase/functions/agent/core/router.ts');
+    expect(isPersonalQuestion('Tell me what happened to NBIS')).toBe(false);
+    expect(isPersonalQuestion('kolik mam v portfoliu')).toBe(true);
   });
 });

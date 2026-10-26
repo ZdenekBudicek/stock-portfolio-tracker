@@ -8,6 +8,7 @@ import type { NewsItem } from './marketTypes.ts';
 import type { MoveEvidence, MoveNews } from './moveExplanation.ts';
 import type { NewsAnalysis } from './newsAnalyst.ts';
 import type { Lang, Link } from './protocol.ts';
+import { isTodayQuestion } from './router.ts';
 import { calculate } from './tools/calculate.ts';
 import type { AnalysisEvidence, AnswerBlock, AnswerBlockKind, AnswerDraft, Confidence, Fact, Intent, NumericClaim, ReferencedClaim, Route, ToolCtx,
   Verdict } from './types.ts';
@@ -1488,10 +1489,9 @@ const OW = {
   viewNote: { cs: 'Je to úvaha nad zprávami a čísly výše, ne investiční doporučení.', sk: 'Je to úvaha nad správami a číslami vyššie, nie investičné odporúčanie.',
     en: 'This is a reading of the news and figures above, not investment advice.' },
   price: { cs: 'Vývoj ceny', sk: 'Vývoj ceny', en: 'Price trend' },
-  noAnalysis: { cs: 'Rozbor článků se teď nepodařilo připravit (AI je chvíli vytížená). Níže jsou ověřená čísla; zkus otázku za pár minut znovu.',
-    sk: 'Rozbor článkov sa teraz nepodarilo pripraviť (AI je chvíľu vyťažená). Nižšie sú overené čísla; skús otázku o pár minút znova.',
-    en: 'The article analysis could not be prepared right now (the AI is busy). The verified figures follow; try again in a few minutes.' },
-};
+  noAnalysis: { cs: 'Podrobný rozbor článků se tentokrát nepodařilo připravit, takže ukazuji jen ověřené údaje.',
+    sk: 'Podrobný rozbor článkov sa tentoraz nepodarilo pripraviť, takže ukazujem len overené údaje.',
+    en: 'The detailed article analysis could not be prepared this time, so only verified figures follow.' },};
 export function renderMoveAnswer(ctx: ToolCtx, ev: MoveEvidence, analysis: NewsAnalysis | null): StoredAnswer {
   const lang = ev.lang, T = ev.ticker, used: Fact[] = [];
   const show = (f: Fact, signed = false) => {
@@ -1503,6 +1503,8 @@ export function renderMoveAnswer(ctx: ToolCtx, ev: MoveEvidence, analysis: NewsA
   const crypto = ev.peerBasis === 'crypto';
   const noun = say(crypto ? { cs: 'ostatní kryptoměny', sk: 'ostatné kryptomeny', en: 'other major coins' } : { cs: 'podobné firmy', sk: 'podobné firmy', en: 'peers' });
   const down = (num(ev.change ?? undefined) ?? 0) < 0;
+  // "Why did it drop today?": the closes end at the last close, so today's move (the quote) leads the answer.
+  const todayAsk = !!ev.question && isTodayQuestion(ev.question) && !!ev.dayChange && num(ev.dayChange) !== null && ev.focus !== 'outlook';
 
   // What happened: the period move against the S&P 500 and the peers.
   const happened: string[] = [];
@@ -1552,8 +1554,9 @@ export function renderMoveAnswer(ctx: ToolCtx, ev: MoveEvidence, analysis: NewsA
   if (scope[ev.scope]) happened.push(say(scope[ev.scope]!));
   if (ev.price && num(ev.price) !== null) {
     const price = show(ev.price), today = ev.dayChange && num(ev.dayChange) !== null ? show(ev.dayChange, true) : null;
-    happened.push(say({ cs: `Aktuální cena ${T} je ${price}${today ? `, dnešní změna ${today}` : ''}.`, sk: `Aktuálna cena ${T} je ${price}${today ? `, dnešná zmena ${today}` : ''}.`,
-      en: `The current ${T} price is ${price}${today ? `, today's change ${today}` : ''}.` }));
+    const line = say({ cs: `Aktuální cena ${T} je ${price}${today ? `, dnešní změna ${today}` : ''}.`, sk: `Aktuálna cena ${T} je ${price}${today ? `, dnešná zmena ${today}` : ''}.`,
+      en: `The current ${T} price is ${price}${today ? `, today's change ${today}` : ''}.` });
+    if (todayAsk) happened.unshift(line); else happened.push(line);
   }
 
   // Why it is likely happening: the analyst's themes, else attributed extracts; honest when there is nothing to read.
@@ -1629,7 +1632,10 @@ export function renderMoveAnswer(ctx: ToolCtx, ev: MoveEvidence, analysis: NewsA
   // The analyst's summary when it gave a usable one; else the server's reading of the numbers, or — without numbers —
   // the analysis' main themes by their titles.
   const themeLead: T3 = { cs: 'Hlavní témata ze zpráv', sk: 'Hlavné témy zo správ', en: 'Main themes in the news' };
+  const daySummary: T3 | null = todayAsk ? { cs: `Dnešní změna ceny ${T} je ${show(ev.dayChange!, true)}.`, sk: `Dnešná zmena ceny ${T} je ${show(ev.dayChange!, true)}.`,
+    en: `Today's ${T} price change is ${show(ev.dayChange!, true)}.` } : null;
   const summary = analysis?.summary ? plainProse(analysis.summary)
+    : daySummary ? say(daySummary)
     : analysis?.themes.length && ev.scope === 'unknown' ? `${say(themeLead)}: ${analysis.themes.slice(0, 2).map(t => plainProse(t.title)).join('; ')}.`
       : say(summaries[ev.scope]);
 
@@ -1768,7 +1774,10 @@ export function renderMoveAnswer(ctx: ToolCtx, ev: MoveEvidence, analysis: NewsA
       if (o?.companyType?.value === 'cyclical') bits.push(say({ cs: 'jde o cyklickou firmu blízko vrcholu cyklu', sk: 'ide o cyklickú firmu blízko vrcholu cyklu', en: 'it is a cyclical company near the top of its cycle' }));
       return bits.length ? `${T}: ${bits.join('; ')}.` : say(OW.summary(T));
     };
-    add('summary', `**${W.heading.summary[lang]}:** ${analysis?.summary ? withoutAttribution(plainProse(analysis.summary), outlets) : factSummary()}`);
+    // A big move today leads the answer: it is usually what the question is about.
+    const day = ev.dayChange && num(ev.dayChange) !== null && Math.abs(num(ev.dayChange)!) >= 3 ? show(ev.dayChange, true) : null;
+    const dayNote = day ? ` ${say({ cs: `Dnešní změna ceny ${T} je ${day}.`, sk: `Dnešná zmena ceny ${T} je ${day}.`, en: `Today's ${T} price change is ${day}.` })}` : '';
+    add('summary', `**${W.heading.summary[lang]}:** ${analysis?.summary ? withoutAttribution(plainProse(analysis.summary), outlets) : factSummary()}${dayNote}`);
     if (analysis) {
       newsFacts(cited);
       if (asks.business) add('business', lines(OW.business, themesOf('business').length ? themesOf('business')

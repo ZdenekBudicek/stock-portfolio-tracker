@@ -17,7 +17,7 @@ import type { AgentEvent, ChatMessage, ChatRequest, Lang, TraceItem } from './pr
 import { executeTool, projectForModel } from './registry.ts';
 import { analystChain } from './modelPolicy.ts';
 import { modelMessages } from './modelPrivacy.ts';
-import { detectLang, isCompanyQuestion, isMoveQuestion, isOutlookQuestion, isPersonalQuestion, recentHistory, routeQuestion } from './router.ts';
+import { detectLang, isCompanyQuestion, isMoveQuestion, isOutlookQuestion, isPersonalQuestion, isWhyMoveQuestion, recentHistory, repairLayout, routeQuestion } from './router.ts';
 import { followUpCalls, intentEvidence, MOVERS_ANALYZED, planIntent, topMovers, type IntentEvidence } from './intentContract.ts';
 import { CALCULATION_VERSION, resolveTicker } from './tools/common.ts';
 import { type AnalysisEvidence, type AnswerDraft, type Fact, type Intent, ToolInputError, type Route, type ToolCtx, type ToolResult } from './types.ts';
@@ -339,7 +339,13 @@ async function runAnalyst(input: AnalystInput, { ctx, llm }: Deps, metrics: RunM
   // A thin analysis (fewer themes than asked) is kept while its repair is tried; it answers when the repair does not do better.
   let thin: NewsAnalysis | null = null;
   const fallback = (reason: Extract<AnalystResult, { ok: false }>['reason']): AnalystResult => thin ? { ok: true, analysis: thin } : { ok: false, reason };
-  for (let attempt = 0; attempt < (repair ? 2 : 1); attempt++) {
+  // A rejected or cut-off answer is retried by the next model of the chain (another model, its own quota), not the same one
+  // again: one attempt per model, as long as the question's budget still holds a call.
+  let chain = analystChain(llm.policy);
+  const attempts = repair ? Math.max(2, chain.length) : 1;
+  for (let attempt = 0; attempt < attempts; attempt++) {
+    // A usable (thin) analysis after its repair answers; a further model is asked only when nothing usable came back.
+    if (attempt >= 2 && thin) return { ok: true, analysis: thin };
     if (stage.remainingMs() <= 0) return fallback('timeout');
     const fix: LlmMessage | null = reasons ? { role: 'user', content: analystRepairPrompt(sanitizeReasons(reasons)) } : null;
     // The estimate is of the redacted messages actually sent; the repair note is part of the same call, which resends
@@ -353,7 +359,7 @@ async function runAnalyst(input: AnalystInput, { ctx, llm }: Deps, metrics: RunM
     const check = analystValidator(input, shown);
     let completion;
     try {
-      completion = await llm.complete(analystChain(llm.policy), { messages: project(messages), tools: [], maxOutput: outputOf(input).max,
+      completion = await llm.complete(chain, { messages: project(messages), tools: [], maxOutput: outputOf(input).max,
         minOutput: outputOf(input).min, phase: attempt ? 'repair' : 'answer', callLimit: ANALYST_CALL_TOKEN_LIMIT },
       { budget: stage, tokens: llm.tokens, policy: llm.policy, keys: llm.keys, fetchImpl: llm.fetchImpl, now: llm.now, sleep: llm.sleep });
     } catch (error) {
@@ -373,6 +379,8 @@ async function runAnalyst(input: AnalystInput, { ctx, llm }: Deps, metrics: RunM
       reasons = result.reasons ?? ['themes_few'];
     } else reasons = result.reasons;
     rejectCompletion(llm.tokens, completion, sanitizeReasons(reasons));
+    const used = chain.findIndex(m => m.provider === completion.model.provider && m.id === completion.model.id);
+    if (used >= 0 && chain.length > 1) chain = [...chain.slice(used + 1), ...chain.slice(0, used + 1)];
   }
   return fallback('invalid');
 }
@@ -463,7 +471,9 @@ async function explainMove(route: Route, question: string, { ctx, llm }: Deps, e
   emit({ type: 'status', text: TEXT.loading[lang] });
   // A company or outlook question: a small model reads what it asks (Běh 31), merged with the keyword reading.
   // Only a question about a price move reads as a move; any other question about the company is an outlook (Běh 31).
-  const resolved = focus ?? (isOutlookQuestion(question) || isCompanyQuestion(question) || !isMoveQuestion(question) ? 'outlook' : 'move');
+  // "Why did it drop today? Give me a detailed analysis" is still a move question: the news of the move answers it.
+  const resolved = focus ?? (isWhyMoveQuestion(question) ? 'move'
+    : isOutlookQuestion(question) || isCompanyQuestion(question) || !isMoveQuestion(question) ? 'outlook' : 'move');
   const asks = resolved === 'outlook' ? asksFrom(await classifyAspects(question, ctx, llm)) : undefined;
   const { evidence, calls } = await collectMoveEvidence(ticker, question, ctx, lang, batch => runTools(ctx, batch), resolved, asks);
   metrics.toolCalls += calls.length;
@@ -497,7 +507,8 @@ export async function answerQuestion(input: { request: ChatRequest; history: Cha
   const started = now();
   const metrics = emptyMetrics();
   // One canonical form for the keyword router, guards and the writer (decomposed accents hide keyword intents).
-  const question = input.request.question.normalize('NFC');
+  // Typed with the English layout on a Czech keyboard ("t5eba u6 yjist93"): read as meant (Czech letters, Y and Z swapped).
+  const question = repairLayout(input.request.question.normalize('NFC'));
   let lang: Lang = detectLang(question) ?? ctx.lang;
   let activeRoute: Route | undefined, contract: IntentEvidence | undefined;
   const finish = (outcome: ChatOutcome['outcome'], answer: StoredAnswer | null, error?: ChatOutcome['error']): ChatOutcome => {

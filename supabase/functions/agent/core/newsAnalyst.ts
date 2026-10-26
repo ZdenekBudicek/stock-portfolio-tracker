@@ -98,6 +98,7 @@ const REPAIR_HINTS: Record<string, string> = {
   unbacked_number: 'only figures written in the cited article', unbacked_event: 'name an event (bankruptcy, lawsuit, takeover…) only when the cited article reports it', unattributed_number: 'name the publisher in the sentence with a figure',
   unknown_source: 'cite only listed article ids', lang: 'all text in the language the instructions name, never English', ticker_text: 'no tickers except the listed ones',
   technical: 'no article ids in the text', url: 'no links', unbound_conclusion: 'no buy or sell advice',
+  truncated: 'shorter: at most 3 themes of 2-3 sentences, short summary', finish_reason: 'answer with the JSON object only',
 };
 export function analystRepairPrompt(reasons: readonly string[]): string {
   const hints = [...new Set(reasons.map(r => REPAIR_HINTS[r.split(':')[0]]).filter(Boolean))].slice(0, 5);

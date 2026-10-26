@@ -50,3 +50,26 @@ describe('section headings in the chat', () => {
     expect(withHeadings(text)).toBe('**Shrnutí:** Firma roste.\n\n**O firmě**\n• **Software:** prodává Office.\n\n**Ocenění a kde může být cena za 2 roky**\nAkcie dnes stojí 533 USD.\n\nJen jedna věta bez dalších řádků\n\nAnalytici: 5 z 9 koupit.\nDruhý řádek.');
   });
 });
+
+describe('a reopened chat', () => {
+  it('shows an answer written out before at once: closing and reopening the panel does not write it out again', () => {
+    motion(false); vi.useFakeTimers();
+    const text = 'První odstavec.\n\nDruhý odstavec.';
+    const first = renderHook(() => useWrittenOut(text, true, 'local-r1-a'));
+    for (let i = 0; i < 400 && first.result.current.writing; i++) act(() => { vi.advanceTimersByTime(16); });
+    expect(first.result.current).toEqual({ text, writing: false });
+    first.unmount();
+    // The panel mounts its messages again: the whole answer is there in the first frame.
+    expect(renderHook(() => useWrittenOut(text, true, 'local-r1-a')).result.current).toEqual({ text, writing: false });
+  });
+  it('closed while writing, it keeps the finished paragraphs and only resumes the cut one', () => {
+    motion(false); vi.useFakeTimers();
+    const text = 'Hotový odstavec.\n\n' + 'Rozepsaný odstavec, který se ještě píše. '.repeat(20);
+    const first = renderHook(() => useWrittenOut(text, true, 'local-r2-a'));
+    for (let i = 0; i < 400 && !first.result.current.text.startsWith('Hotový odstavec.\n\n'); i++) act(() => { vi.advanceTimersByTime(16); });
+    first.unmount();
+    const again = renderHook(() => useWrittenOut(text, true, 'local-r2-a'));
+    expect(again.result.current.text).toBe('Hotový odstavec.');
+    expect(again.result.current.writing).toBe(true);
+  });
+});

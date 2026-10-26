@@ -7244,15 +7244,25 @@ function recentRevenueGrowth(f) {
   const last = at(a, "revenue", m - 1), prior = at(a, "revenue", m - 2);
   return m >= 2 && last != null && prior != null && last > 0 && prior > 0 && consecutive(a.periods.slice(-2), 320, 410) ? last / prior - 1 : null;
 }
+function revenueBasisFactor(f, estimates) {
+  const current = estimates.find((e) => e.period === "current");
+  const last = lastReported(f.annual, "revenue");
+  if (!current?.endDate || !finite2(current.revenue) || current.revenue <= 0 || !finite2(current.revenueGrowth) || current.revenueGrowth <= -0.9 || !last || last.value <= 0) return 1;
+  const gap2 = dayGap(last.date, current.endDate);
+  if (gap2 < 320 || gap2 > 410) return 1;
+  const k = last.value / (current.revenue / (1 + current.revenueGrowth));
+  return !finite2(k) || k > 0.9 && k < 1.1 ? 1 : clamp(k, 0.2, 5);
+}
 function forwardRevenueGrowth(f, market) {
   const base2 = revenueBase(f);
   const estimates = usableEstimates(f, market);
+  const scale = revenueBasisFactor(f, estimates);
   if (base2) for (const period2 of ["next", "current"]) {
     const e = estimates.find((x) => x.period === period2);
     if (!e?.endDate || !finite2(e.revenue) || e.revenue <= 0) continue;
     const years = dayGap(base2.date, e.endDate) / 365.25;
     if (years < 0.4 || years > 3) continue;
-    const rate = (e.revenue / base2.value) ** (1 / years) - 1;
+    const rate = (e.revenue * scale / base2.value) ** (1 / years) - 1;
     if (finite2(rate)) return { rate: clamp(rate, -0.5, 1.5), source: "consensus" };
   }
   const recent = recentRevenueGrowth(f);
@@ -7306,11 +7316,11 @@ function reverseGrowthDcf(input, price) {
   }
   return result((low + high) / 2);
 }
-function consensusNetMargin(estimates, shares, base2, growth) {
+function consensusNetMargin(estimates, shares, base2, growth, scale = 1) {
   const e = estimates.find((x) => x.period === "next") ?? estimates.find((x) => x.period === "current");
   if (!e || !finite2(e.eps) || !shares) return null;
   const years = base2 && e.endDate ? dayGap(base2.date, e.endDate) / 365.25 : null;
-  const revenue = finite2(e.revenue) && e.revenue > 0 ? e.revenue : base2 && finite2(growth) && years != null && years > 0 && years <= 3 ? base2.value * (1 + growth) ** years : null;
+  const revenue = finite2(e.revenue) && e.revenue > 0 ? e.revenue * scale : base2 && finite2(growth) && years != null && years > 0 && years <= 3 ? base2.value * (1 + growth) ** years : null;
   if (!revenue) return null;
   const margin = e.eps * shares / revenue;
   return finite2(margin) ? margin : null;
@@ -7457,7 +7467,7 @@ function defaultAssumptions(f, closes = [], market) {
   const path = revenueGrowthPath(revenueGrowth, 0.025);
   const fcfMode = normalizedFcf(f) == null ? "latest" : "normalized";
   const fcfMargin = marginOf(f, valuationInputs(f, fcfMode).fcf.value);
-  const consensusMargin = consensusNetMargin(estimates, inputs.shares, revenueBase(f), revenueGrowth);
+  const consensusMargin = consensusNetMargin(estimates, inputs.shares, revenueBase(f), revenueGrowth, revenueBasisFactor(f, estimates));
   const targetMargin = cyclical ? clamp(cycle.midFcfMargin ?? cycle.midNetMargin ?? 0.05, 0.02, 0.4) : clamp(Math.max(fcfMargin ?? 0, consensusMargin ?? bestMargin(f, "freeCashFlow") ?? 0), 0.03, 0.55);
   const growthDiscount = revenueGrowth > 0.4 ? 0.11 : 0.1;
   const revenueAhead = mean(path.slice(2, 7));

@@ -1,6 +1,6 @@
 {
   "schemaVersion": 1,
-  "calculationVersion": "23ec38b26937f99ce20f38c19cfce8ed9dd0f3f14ad046243300369fb21eab4b",
+  "calculationVersion": "09f81488f42435db29aaaab10b467a1ea08154b91c36e5ed53a03a56f9cd4b90",
   "inputHashes": {
     "docs/ai-assistant/cpu-policy.json": "86f070ebb1f67c8ae28017b37e97343401a347c80929a876df6a80b553e78d89",
     "node_modules/zod/index.d.cts": "5780b706cece027f0d4444fbb4e1af62dc51e19da7c3d3719f67b22b033859b9",
@@ -44,7 +44,7 @@
     "src/lib/dividendAnalytics.ts": "2e0b22341ea11ea695e9e5f067c6dc58ed73e147a4a1bdac04f57fcd182b849e",
     "src/lib/dividendModel.ts": "5d141920b0f149447014b27bfb90eff07795160148700561b7d3f302033e3d83",
     "src/lib/dividendTax.ts": "68062de51f7495dfcdfd63059a465832e6532a8305840aecdcc9d730ecf41653",
-    "src/lib/fairValue.ts": "2c5b519a5d99fa7a205163d35d87ff974897c82ae40beb79593d00203eb3039b",
+    "src/lib/fairValue.ts": "c8a834e41a0d58d5df92d480b79724c9a378e00b90202f26b1b6b0fe4de72254",
     "src/lib/fifo.ts": "a3c5374f0b476dde1cca78ec51a9839553687bd803fdbf00482aeb8677a694f9",
     "src/lib/fxLookup.ts": "d2c4c70fa0802e29942fe90e415677fd1442856bccd42b47d5060ff5fca4d334",
     "src/lib/instrumentRegistry.ts": "80ae89ab70a880fc4c109e555873a4d6fbea1661915a08f80501ac8174caef9a",

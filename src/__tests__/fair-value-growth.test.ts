@@ -3,7 +3,7 @@ import type { CompanyFundamentals, FundamentalMetric, FundamentalSeries } from '
 import fixtures from './fixtures/fair-value-companies.json';
 import {
   analystCheck, calculateFairValue, consensusEpsAt, cycleProfile, CYCLICAL_PE, defaultAssumptions, epsPath, forwardEps, forwardRevenueGrowth, growthDcf, growthMultiple,
-  priceScenarios, recentRevenueGrowth, reverseGrowthDcf, revenueGrowthPath, shareChange, shareDilution, usableEstimates,
+  priceScenarios, recentRevenueGrowth, revenueBasisFactor, reverseGrowthDcf, revenueGrowthPath, shareChange, shareDilution, usableEstimates,
   GROWTH_MODEL_MIN, LATE_GROWTH_CAP, type ConsensusEstimate, type GrowthDcfInput, type MarketContext,
 } from '@/lib/fairValue';
 
@@ -347,5 +347,22 @@ describe('Ocenění v3: a cyclical company is valued through its cycle', () => {
     expect(bear.netMargin).toBeCloseTo(cycleProfile(memory()).midNetMargin!, 10);
     expect(bear.price).toBeLessThan(base.price);
     expect(bull.price).toBeGreaterThan(base.price);
+  });
+});
+
+describe("consensus revenue on the statements' basis (NU: net revenue reported, gross revenue estimated)", () => {
+  // The consensus counts revenue half as large again as the statements (a bank's gross vs net revenue), growth unchanged.
+  const gross = consensus.map(e => ({ ...e, revenue: e.revenue! * 1.5 }));
+  const grossMarket: MarketContext = { ...market, estimates: gross };
+  it('scales the consensus to the reported year it implies, so a change of basis is not read as growth', () => {
+    expect(revenueBasisFactor(grower(), gross)).toBeCloseTo(1372 / (1900 * 1.5 / 1.38), 9);
+    expect(revenueBasisFactor(grower(), consensus)).toBe(1);
+    expect(forwardRevenueGrowth(grower(), grossMarket)!.rate).toBeCloseTo(forwardRevenueGrowth(grower(), market)!.rate, 2);
+  });
+  it('keeps the default assumptions (growth, margin, multiple) of the same company on either basis', () => {
+    const a = defaultAssumptions(grower(), [], grossMarket).assumptions, b = defaultAssumptions(grower(), [], market).assumptions;
+    expect(a.revenueGrowth).toBeCloseTo(b.revenueGrowth, 2);
+    expect(a.targetMargin).toBeCloseTo(b.targetMargin, 2);
+    expect(a.pe).toBeCloseTo(b.pe, 1);
   });
 });

@@ -66,7 +66,7 @@ function TraceList({ items }: { items: TraceItem[] }) {
 function AssistantMessage({ message }: { message: UiMessage }) {
   const { t } = useTranslation();
   // A live answer is written out paragraph by paragraph as each one is final (Ocenění v3).
-  const written = useWrittenOut(message.role === 'assistant' ? withHeadings(chatText(message.content)) : '', !!message.live);
+  const written = useWrittenOut(message.role === 'assistant' ? withHeadings(chatText(message.content)) : '', !!message.live, message.id);
   if (message.role === 'user') {
     return (
       <div className="flex justify-end">

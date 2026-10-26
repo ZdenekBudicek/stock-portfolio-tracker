@@ -206,18 +206,36 @@ export function recentRevenueGrowth(f: CompanyFundamentals): number | null {
   return m >= 2 && last != null && prior != null && last > 0 && prior > 0 && consecutive(a.periods.slice(-2), 320, 410) ? last / prior - 1 : null;
 }
 
+/**
+ * The consensus revenue on the statements' basis. For a bank or fintech the statements carry net revenue while the
+ * consensus counts gross revenue (NU 2025: 10.6 bn USD reported, 15.8 bn implied by the consensus), so comparing the
+ * two reads the change of basis as growth. The current year's consensus and its own growth give the year before;
+ * against that year as reported they give the scale (1 when the two agree within 10 %).
+ */
+export function revenueBasisFactor(f: CompanyFundamentals, estimates: ConsensusEstimate[]): number {
+  const current = estimates.find(e => e.period === 'current');
+  const last = lastReported(f.annual, 'revenue');
+  if (!current?.endDate || !finite(current.revenue) || current.revenue <= 0 || !finite(current.revenueGrowth) || current.revenueGrowth <= -0.9
+    || !last || last.value <= 0) return 1;
+  const gap = dayGap(last.date, current.endDate);
+  if (gap < 320 || gap > 410) return 1;
+  const k = last.value / (current.revenue / (1 + current.revenueGrowth));
+  return !finite(k) || (k > 0.9 && k < 1.1) ? 1 : clamp(k, 0.2, 5);
+}
+
 export type GrowthSource = 'consensus' | 'recent';
 /** Yearly revenue growth from the latest reported revenue to the consensus of the next fiscal year
  * (or the current one); without estimates the latest year-on-year growth. */
 export function forwardRevenueGrowth(f: CompanyFundamentals, market?: MarketContext | null): { rate: number; source: GrowthSource } | null {
   const base = revenueBase(f);
   const estimates = usableEstimates(f, market);
+  const scale = revenueBasisFactor(f, estimates);
   if (base) for (const period of ['next', 'current'] as const) {
     const e = estimates.find(x => x.period === period);
     if (!e?.endDate || !finite(e.revenue) || e.revenue <= 0) continue;
     const years = dayGap(base.date, e.endDate) / 365.25;
     if (years < 0.4 || years > 3) continue;
-    const rate = (e.revenue / base.value) ** (1 / years) - 1;
+    const rate = (e.revenue * scale / base.value) ** (1 / years) - 1;
     if (finite(rate)) return { rate: clamp(rate, -0.5, 1.5), source: 'consensus' };
   }
   const recent = recentRevenueGrowth(f);
@@ -291,11 +309,13 @@ export function reverseGrowthDcf(input: GrowthDcfInput, price: number | null): E
 
 /** Net margin the consensus implies for the next fiscal year (EPS × today's shares / revenue). Without a
  * revenue consensus (live Nasdaq data) the revenue is today's grown at `growth` to that year end. */
-function consensusNetMargin(estimates: ConsensusEstimate[], shares: number | null, base?: { value: number; date: string } | null, growth?: number): number | null {
+function consensusNetMargin(estimates: ConsensusEstimate[], shares: number | null, base?: { value: number; date: string } | null, growth?: number,
+  scale = 1): number | null {
   const e = estimates.find(x => x.period === 'next') ?? estimates.find(x => x.period === 'current');
   if (!e || !finite(e.eps) || !shares) return null;
   const years = base && e.endDate ? dayGap(base.date, e.endDate) / 365.25 : null;
-  const revenue = finite(e.revenue) && e.revenue > 0 ? e.revenue
+  // On the statements' basis (revenueBasisFactor), the same revenue the margin is later applied to.
+  const revenue = finite(e.revenue) && e.revenue > 0 ? e.revenue * scale
     : base && finite(growth) && years != null && years > 0 && years <= 3 ? base.value * (1 + growth) ** years : null;
   if (!revenue) return null;
   const margin = e.eps * shares / revenue;
@@ -483,7 +503,7 @@ export function defaultAssumptions(f: CompanyFundamentals, closes: PriceClose[] 
   const path = revenueGrowthPath(revenueGrowth, 0.025);
   const fcfMode: Assumptions['fcfMode'] = normalizedFcf(f) == null ? 'latest' : 'normalized';
   const fcfMargin = marginOf(f, valuationInputs(f, fcfMode).fcf.value);
-  const consensusMargin = consensusNetMargin(estimates, inputs.shares, revenueBase(f), revenueGrowth);
+  const consensusMargin = consensusNetMargin(estimates, inputs.shares, revenueBase(f), revenueGrowth, revenueBasisFactor(f, estimates));
   const targetMargin = cyclical ? clamp(cycle.midFcfMargin ?? cycle.midNetMargin ?? 0.05, 0.02, 0.4)
     : clamp(Math.max(fcfMargin ?? 0, consensusMargin ?? bestMargin(f, 'freeCashFlow') ?? 0), 0.03, 0.55);
   // Required return by how much of the value lies in distant growth: 10 %, above 40 % growth 11 %.

@@ -834,6 +834,13 @@ export function consensusEpsAt(path: {
 export const ANALYST_MIN = 3;
 /** The latest four quarters against the four before; otherwise the latest fiscal year against the one before. */
 export function recentRevenueGrowth(f: CompanyFundamentals): number | null;
+/**
+ * The consensus revenue on the statements' basis. For a bank or fintech the statements carry net revenue while the
+ * consensus counts gross revenue (NU 2025: 10.6 bn USD reported, 15.8 bn implied by the consensus), so comparing the
+ * two reads the change of basis as growth. The current year's consensus and its own growth give the year before;
+ * against that year as reported they give the scale (1 when the two agree within 10 %).
+ */
+export function revenueBasisFactor(f: CompanyFundamentals, estimates: ConsensusEstimate[]): number;
 export type GrowthSource = 'consensus' | 'recent';
 /** Yearly revenue growth from the latest reported revenue to the consensus of the next fiscal year
  * (or the current one); without estimates the latest year-on-year growth. */

@@ -6,7 +6,7 @@ import type { AnalystInput } from './newsAnalyst.ts';
 import { type Aspect, type AspectRead, keywordAspects } from './aspects.ts';
 import type { AnalystView, EarningsInfo, NewsItem, PeerList, ResearchKind } from './marketTypes.ts';
 import type { Lang } from './protocol.ts';
-import { isCompanyQuestion, isOutlookQuestion } from './router.ts';
+import { isCompanyQuestion, isOutlookQuestion, isTodayQuestion, isWhyMoveQuestion } from './router.ts';
 import type { Fact, ToolCtx, ToolResult } from './types.ts';
 
 // "Co se děje poslední dny s NBIS?" (Běh 22, articles in Běh 23). The server loads the period move, the S&P 500 and
@@ -122,7 +122,7 @@ export function moveScope(stock: number | null, market: number | null, peers: re
 export async function collectMoveEvidence(ticker: string, question: string, ctx: ToolCtx, lang: Lang,
   run: (calls: MoveCall[]) => Promise<ToolResult<unknown>[]>,
   // Běh 30: a company question gets the full outlook pipeline too (research, analysts, valuation); its asks pick the sections.
-  focus: MoveEvidence['focus'] = isOutlookQuestion(question) || isCompanyQuestion(question) ? 'outlook' : 'move', given?: OutlookAsks):
+  focus: MoveEvidence['focus'] = !isWhyMoveQuestion(question) && (isOutlookQuestion(question) || isCompanyQuestion(question)) ? 'outlook' : 'move', given?: OutlookAsks):
   Promise<{ evidence: MoveEvidence; calls: MoveCall[] }> {
   // What the question asks (the caller's model classification, else keywords) picks the research topics and the horizon.
   const asks = focus === 'outlook' ? given ?? outlookAsks(question) : undefined;
@@ -385,6 +385,12 @@ export function moveAnalystInput(ev: MoveEvidence): AnalystInput {
   const facts = valueOf(ev.change) === null ? [`${ev.ticker} ${from}..${to}: price move not available; explain what the articles report about ${ev.ticker}.`]
     : [`${ev.ticker} ${from}..${to} ${direction(valueOf(ev.change))}; S&P 500 ${direction(valueOf(ev.spx))}`
     + `${ev.peers.length ? `; peers ${ev.peers.map(p => p.ticker).join(', ')} ${direction(ev.peerMedian)}` : ''}: ${reading(ev)}.`];
+  // The closes end at the last close: today's move comes from the quote, and a question about today leads with it.
+  const day = valueOf(ev.dayChange);
+  if (day !== null) facts.push(`${ev.ticker} today (live quote): ${direction(day)}.`);
+  if (day !== null && ev.question && isTodayQuestion(ev.question)) {
+    facts.push(`The user asks why ${ev.ticker} moved today: explain today's move first (the event behind it) and what it means for the company.`);
+  }
   if (ev.analystChanges.length) facts.push(`Rating changes: ${ev.analystChanges.map(c => `${neutralize(c.firm, 40)} ${neutralize(c.from, 20) || '-'}->${neutralize(c.to, 20) || '-'}`).join('; ')}.`);
   if (ev.earningsInPeriod.length) facts.push('Earnings were reported in the period.');
   if (ev.outlook) facts.push(...outlookFactsInWords(ev.outlook, ev.ticker));

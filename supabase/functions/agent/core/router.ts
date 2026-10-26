@@ -44,6 +44,30 @@ export function detectLang(question: string): Lang | null {
   return sk === best && sk > cs ? 'sk' : cs === best ? 'cs' : en === best ? 'en' : 'sk';
 }
 
+/** The text without diacritics: "proc", "neni nic spatne" typed without háčky and čárky read like "proč", "není nic špatně". */
+export const fold = (text: string) => text.normalize('NFD').replace(/\p{M}/gu, '').normalize('NFC');
+const FOLDED = new WeakMap<RegExp, RegExp>();
+/** A keyword pattern matches the question as written or, both without diacritics, its folded form. */
+function has(re: RegExp, q: string): boolean {
+  if (re.test(q)) return true;
+  if (!(re instanceof RegExp)) return false;
+  let folded = FOLDED.get(re);
+  if (!folded) FOLDED.set(re, folded = new RegExp(fold(re.source), re.flags));
+  return folded.test(fold(q));
+}
+const LAYOUT: Record<string, string> = { 2: 'ě', 3: 'š', 4: 'č', 5: 'ř', 6: 'ž', 7: 'ý', 8: 'á', 9: 'í', 0: 'é' };
+/**
+ * A question typed with the English layout on a Czech keyboard ("Ykus to ynova t5eba u6 yjist93 co se dnes stalo"): digits
+ * inside words are the Czech letters of that key and Y and Z are swapped. Only when two or more words carry such digits.
+ */
+export function repairLayout(question: string): string {
+  // A digit within a word: next to a letter or to another such digit ("yjist93" = "zjistíš").
+  const inWord = /(?<=\p{Ll}[02-9]*)[02-9]|[02-9](?=[02-9]*\p{Ll})/gu;
+  const words = question.split(/\s+/).filter(w => new RegExp(inWord.source, 'u').test(w));
+  if (words.length < 2) return question;
+  return question.replace(inWord, d => LAYOUT[d]).replace(/[yzYZ]/g, c => ({ y: 'z', z: 'y', Y: 'Z', Z: 'Y' })[c]!);
+}
+
 /** Upper-case symbols written in a text (RKLB, BRK.B); currencies and abbreviations excluded. */
 export function tickersIn(text: string): string[] {
   const found = (text.match(/(?<![\p{L}\p{N}])[A-Z][A-Z0-9]{1,5}(?:\.[A-Z])?(?![\p{L}\p{N}])/gu) ?? []).filter(t => !NOT_TICKERS.has(t));
@@ -65,29 +89,40 @@ const GROUP_PATTERNS: [RouteGroup, RegExp][] = [
 const TODAY = /(?<![\p{L}])(?:dnes|dneska|dnešn\p{L}*|dnešk\p{L}*|today'?s?)(?![\p{L}])/iu;
 const MOVING = /děj|deje|děl[aá]|robia|ved[eo]|daří|darí|hýb|hyb|pohyb\p{L}*|pohnul\p{L}*|změn\p{L}*|zmen\p{L}*|happen\p{L}*|\bdoing\b|\bgoing\b|\bmov(?:e|es|ed|ing|ers)\b|\bchang\p{L}*|\bperform\p{L}*|\bup or down\b/iu;
 const OWN_STOCKS = /akci\p{L}*|portf[oó]li\p{L}*|pozic\p{L}*|pozíci\p{L}*|investic\p{L}*|\bstocks\b|\bshares\b|\bholdings\b|\bpositions\b|\bportfolio\b|\binvestments\b/iu;
-const MOVERS = { test: (q: string) => TODAY.test(q) && MOVING.test(q) && OWN_STOCKS.test(q) } as unknown as RegExp;
+const MOVERS = { test: (q: string) => has(TODAY, q) && has(MOVING, q) && has(OWN_STOCKS, q) } as unknown as RegExp;
 // Why a named instrument moved over recent days (cs/sk/en): "Co se děje poslední dny s NBIS?", "Proč NBIS spadla?",
 // "Prečo SYNN tento týždeň klesá?", "Why is NBIS down?", "What's going on with NBIS this week?".
 const WHY = /(?<![\p{L}])(?:proč|prečo|why)(?![\p{L}])/iu;
 const MOVE_VERB = /(?<![\p{L}])(?:spadl\p{L}*|pad[aá]\p{L}*|padl\p{L}*|klesl\p{L}*|kles[aá]\p{L}*|rost\p{L}*|roste|vzrostl\p{L}*|vyletěl\p{L}*|vyletel\p{L}*|letí|stoupl\p{L}*|stoup[aá]\p{L}*|stúp\p{L}*|propad\p{L}*|prepad\p{L}*|posíl\p{L}*|oslab\p{L}*|rast\p{L}*|rástl\p{L}*|zlevn\p{L}*|zdraž\p{L}*|down|up|fall\p{L}*|fell|drop\p{L}*|plung\p{L}*|crash\p{L}*|soar\p{L}*|surg\p{L}*|jump\p{L}*|rall\p{L}*|tank\p{L}*|sink\p{L}*|sank|rise|rises|rising|rose|climb\p{L}*|slid\p{L}*|slump\p{L}*|lose|loses|losing|lost)(?![\p{L}])/iu;
-const GOING_ON = /co\s+se\s+(?:to\s+)?(?:děje|deje|stalo)|co\s+je\s+(?:s|se)\s|čo\s+sa\s+(?:to\s+)?(?:deje|stalo)|čo\s+je\s+s\s|what'?s\s+(?:going\s+on|happening|up|wrong)\s+with|what\s+is\s+(?:going\s+on|happening|up|wrong)\s+with|what\s+happened\s+(?:to|with)|jak\s+(?:si\s+)?(?:ved\p{L}*|vede)|jak\s+se\s+(?:\p{L}+\s+)?da[řr]\p{L}*|ako\s+sa\s+dar\p{L}*|how\s+(?:has|did|is)\s+\S+\s+(?:done|doing|perform\p{L}*)/iu;
+const GOING_ON = /co\s+se\s+(?:[\p{L}\p{N}.]+\s+){0,3}?(?:děje|deje|stalo)|co\s+je\s+(?:s|se)\s|čo\s+sa\s+(?:[\p{L}\p{N}.]+\s+){0,3}?(?:deje|stalo)|čo\s+je\s+s\s|what'?s\s+(?:going\s+on|happening|up|wrong)\s+with|what\s+is\s+(?:going\s+on|happening|up|wrong)\s+with|what\s+happened\s+(?:to|with)|jak\s+(?:si\s+)?(?:ved\p{L}*|vede)|jak\s+se\s+(?:\p{L}+\s+)?da[řr]\p{L}*|ako\s+sa\s+dar\p{L}*|how\s+(?:has|did|is)\s+\S+\s+(?:done|doing|perform\p{L}*)/iu;
 const PERIOD = /(?<![\p{L}])(?:posledn\p{L}*|minul\p{L}*|uplynul\p{L}*|tento|tenhle|tomto|tomhle|this|last|past|recent|previous|few|couple(?:\s+of)?|za|over\s+the|in\s+the)\s+(?:(?:pár|par|několik|niekoľko|several|few|\d{1,2}|dva|dvě|dve|two|tři|tri|three|čtyři|štyri|four|pět|päť|five|šest|šesť|six)\s+)?(?:dn(?:y|í|ech|ů|i)|dní|dňoch|týd(?:en|ny|nů|nu|ne|nech)|týž?d\p{L}*|měsíc\p{L}*|mesiac\p{L}*|days?|weeks?|months?)(?![\p{L}])/iu;
 /** "What is happening with NBIS today?": today's quote, with the last days added briefly. */
-export const isTodayMoveQuestion = (q: string) => TODAY.test(q) && !PERIOD.test(q) && !(WHY.test(q) && MOVE_VERB.test(q)) && (GOING_ON.test(q) || MOVING.test(q));
+export const isTodayMoveQuestion = (q: string) => has(TODAY, q) && !has(PERIOD, q) && !(has(WHY, q) && has(MOVE_VERB, q)) && (has(GOING_ON, q) || has(MOVING, q));
 /** A recent-move question about a named instrument (the ticker itself is checked by the caller). */
-export const isMoveQuestion = (q: string) => !isTodayMoveQuestion(q)
-  && ((WHY.test(q) && MOVE_VERB.test(q)) || GOING_ON.test(q) || (PERIOD.test(q) && (MOVE_VERB.test(q) || MOVING.test(q))));
+// "Co se dnes stalo s NU?" asks what happened (the news behind today's move), not only for the quote (owner, 2026-10-26):
+// a today question with "what is happening / what happened" is a move question too; "Jak se dnes hýbe NU?" stays a quote.
+export const isMoveQuestion = (q: string) => (has(WHY, q) && has(MOVE_VERB, q)) || has(GOING_ON, q) || (has(PERIOD, q) && (has(MOVE_VERB, q) || has(MOVING, q)));
 const MOVE = { test: isMoveQuestion } as unknown as RegExp;
+/**
+ * "Proč je dneska takový propad na NU? … Udělej podrobnou analýzu": why the price moved, asked outright. It is explained
+ * from the news of the move even when an analysis or the company is mentioned too — the move is what is asked.
+ */
+export const isWhyMoveQuestion = (q: string) => (has(WHY, q) && has(MOVE_VERB, q)) || has(HAPPENED, q);
+// "Zkus znova zjistit, co se s NU stalo, analyzuj": what happened is asked, whatever else the question adds.
+const HAPPENED = /co\s+se\s+(?:[\p{L}\p{N}.]+\s+){0,3}?stalo|čo\s+sa\s+(?:[\p{L}\p{N}.]+\s+){0,3}?stalo|what\s+happened/iu;
+/** The question is about today's move ("dnes", "dneska", "today"), with no other period named. */
+export const isTodayQuestion = (q: string) => has(TODAY, q) && !has(PERIOD, q);
 // How a named company is doing and why it is valued as it is (Běh 26): "Jak hodnotíš, jak se daří SPCX? V čem je jejich
 // síla, proč mají tak obrovskou valuaci?", "Co si myslíš o NBIS?", "How is RKLB doing?". Answered from the articles like a move.
-const COMPANY = /(?<![\p{L}])(?:hodnotíš|hodnotis|hodnotíte|vidíš|vidíte|myslíš|myslíte|myslis|říkáš|říkáte|názor\p{L}*|daří|darí|dari|síl[aeuy]|siln\p{L}*|slab\p{L}*\s+strán\p{L}*|valuac\p{L}*|ocenění|ocenenie|tržní\s+hodnot\p{L}*|výhled\p{L}*|vyhliadk\p{L}*|perspektiv\p{L}*|budoucnost\p{L}*|budúcnos\p{L}*|obchodní\s+model\p{L}*|podnikání|opinion|outlook|strengths?|weakness\p{L}*|valuation|valued|prospects?)(?![\p{L}])|think\s+(?:of|about)|business\s+model|how\s+(?:is|are|has)\s+\S+\s+(?:doing|performing)/iu;
+// A judgement asked for ("není s ní nic špatně", "je to furt skvělá firma", "jen nejistota") counts too.
+const COMPANY = /(?<![\p{L}])(?:nic\s+špatn\p{L}*|skvěl\p{L}*|nejistot\p{L}*|hodnotíš|hodnotis|hodnotíte|vidíš|vidíte|myslíš|myslíte|myslis|říkáš|říkáte|názor\p{L}*|daří|darí|dari|síl[aeuy]|siln\p{L}*|slab\p{L}*\s+strán\p{L}*|valuac\p{L}*|ocenění|ocenenie|tržní\s+hodnot\p{L}*|výhled\p{L}*|vyhliadk\p{L}*|perspektiv\p{L}*|budoucnost\p{L}*|budúcnos\p{L}*|obchodní\s+model\p{L}*|podnikání|opinion|outlook|strengths?|weakness\p{L}*|valuation|valued|prospects?)(?![\p{L}])|think\s+(?:of|about)|business\s+model|how\s+(?:is|are|has)\s+\S+\s+(?:doing|performing)/iu;
 // A fair-value or ratio question keeps the valuation tools; a buy question the buy analysis.
 const VALUATION_TOOLS = /férov\p{L}*|fair\s+value|vnitřní\s+hodnot\p{L}*|intrinsic|(?<![\p{L}])(?:P\/E|P\/S|EV\/EBITDA|DCF)(?![\p{L}])/iu;
-export const isCompanyQuestion = (q: string) => COMPANY.test(q) && !VALUATION_TOOLS.test(q) && !ANALYSIS.test(q);
+export const isCompanyQuestion = (q: string) => has(COMPANY, q) && !has(VALUATION_TOOLS, q) && !has(ANALYSIS, q);
 // Where a company and its price may be in a few years (Běh 27): "Jak vidíš vývoj META do budoucna, kde bude cena za 3 roky?",
 // "Kde vidíš cenu akcie za tři roky?", "Where will NVDA be in 5 years?", "price target". Analysts, valuation and scenarios.
 const OUTLOOK = /(?<![\p{L}])(?:do\s+budoucna|budoucnost\p{L}*|budúcnos\p{L}*|do\s+budúcna|výhled\p{L}*|vyhliadk\p{L}*|prognóz\p{L}*|predikc\p{L}*|předpově\p{L}*|predpove\p{L}*|cílov\p{L}*\s+cen\p{L}*|cieľov\p{L}*\s+cen\p{L}*|dlouhodob\p{L}*|dlhodob\p{L}*|forecast\p{L}*|outlook|long[\s-]term|price\s+targets?|future)(?![\p{L}])|(?:za|o|in)\s+(?:\d{1,2}|dva|dvě|dve|tři|tri|čtyři|štyri|pět|päť|deset|desať|two|three|four|five|ten|pár|par|několik|niekoľko|a\s+few|several)\s+(?:let|rok\p{L}*|years?)(?![\p{L}])|kde\s+(?:\p{L}+\s+){0,3}(?:vidíš|vidíte|bude|budú|skončí)/iu;
-export const isOutlookQuestion = (q: string) => (OUTLOOK.test(q) || ANALYSIS_REQUEST.test(q)) && !VALUATION_TOOLS.test(q) && !ANALYSIS.test(q);
+export const isOutlookQuestion = (q: string) => (has(OUTLOOK, q) || has(ANALYSIS_REQUEST, q)) && !has(VALUATION_TOOLS, q) && !has(ANALYSIS, q);
 // An analysis of a company is asked for (Běh 30): "udělej mi analýzu HIMS", "silné a slabé stránky", "co si myslí analytici".
 const ANALYSIS_REQUEST = /(?<![\p{L}])(?:analýz\p{L}*|analyz\p{L}*|rozbor\p{L}*|silné\s+(?:a\s+slabé\s+)?stránk\p{L}*|slabé\s+stránk\p{L}*|silné\s+stránk\p{L}*|co\s+si\s+myslí\s+analytici|analysis|strengths\s+and\s+weaknesses)(?![\p{L}])/iu;
 // Capitalised words that start questions or are common, never a company name.
@@ -136,7 +171,7 @@ export function keywordIntent(question: string): Intent | undefined {
   question = requestedText(question.normalize('NFC'));
   // A company named by its name outside the built-in map ("Intuitive Machines") counts for company and outlook questions (Běh 30).
   const hasTicker = tickersIn(question).length > 0 || (!!companyNameIn(question) && (isCompanyQuestion(question) || isOutlookQuestion(question)));
-  if (SALE.test(question) && /kdyby|keby|\bby(ch|chom)?\b|\b(if|would|simulate|simulation|hypothetical)\b|simul\p{L}*|(?:při|pri)\s+(?:prodeji|predaji)|(?:chci|chcem|want to)\s+(?:prodat|predať|sell)/iu.test(question)) {
+  if (has(SALE, question) && /kdyby|keby|\bby(ch|chom)?\b|\b(if|would|simulate|simulation|hypothetical)\b|simul\p{L}*|(?:při|pri)\s+(?:prodeji|predaji)|(?:chci|chcem|want to)\s+(?:prodat|predať|sell)/iu.test(question)) {
     return /úč(?:et|t\p{L}*)|account/iu.test(question) && !/\d+\s*(kus|akci|share)/iu.test(question) ? 'account_clarification' : 'simulation';
   }
   if (/časov\p{L}*\s+test|time[ -]test|holding period|(?<![\p{L}])lot(?:s|y|ů|ov)?(?![\p{L}])|tax.exempt/iu.test(question)) return 'lots';
@@ -146,7 +181,7 @@ export function keywordIntent(question: string): Intent | undefined {
     return hasTicker && isMoveQuestion(question) && !FIRST_PERSON.test(question) ? 'move_explanation' : 'realized';
   }
   if (/(?<![\p{L}])(?:neprodal\p{L}*|nepredal\p{L}*)(?![\p{L}])|\bdid i not (?:buy|sell)\b/iu.test(question)) return 'transactions';
-  let found = INTENTS.find(([, re, needsTicker]) => re.test(question) && (!needsTicker || hasTicker))?.[0];
+  let found = INTENTS.find(([, re, needsTicker]) => has(re, question) && (!needsTicker || hasTicker))?.[0];
   // "Výhled pro polovodičový sektor" asks about an industry, not the own allocation (Běh 27): that needs own words.
   if (found === 'allocation' && !PERSONAL.test(question) && !/portf[oó]li|portfolio|alok[áa]c|allocation|rozložen|rozlož/iu.test(question)) found = undefined;
   // "Vyplácí KO dividendu?" asks about the company, not the dividends the user received (Běh 31): a named company, no own words.
@@ -156,16 +191,19 @@ export function keywordIntent(question: string): Intent | undefined {
     && !PERSONAL.test(question)) return 'move_explanation';
   // A follow-up outlook about "the company" or "its stock" without a symbol ("kde metu vidíš za 3 roky, kde vidíš cenu
   // akcie?"): the outlook of the instrument the conversation is about (the route inherits it).
-  if (!hasTicker && (!found || found === 'quote') && isOutlookQuestion(question) && FOLLOW_UP_COMPANY.test(question) && !PERSONAL.test(question)) return 'move_explanation';
+  // So is a follow-up judgement of it ("Takže s akcií není nic špatně, jde jen o nejistotu, byznys je furt skvělej?").
+  if (!hasTicker && (!found || found === 'quote') && (isOutlookQuestion(question) || isCompanyQuestion(question)) && has(FOLLOW_UP_COMPANY, question)
+    && !PERSONAL.test(question)) return 'move_explanation';
   return found;
 }
-const FOLLOW_UP_COMPANY = /(?<![\p{L}])(?:firm\p{L}*|společnost\p{L}*|spoločnos\p{L}*|akci[ei]|akcií|jejich|její|jeho|company|stock|its|their)(?![\p{L}])/iu;
+const FOLLOW_UP_COMPANY = /(?<![\p{L}])(?:firm\p{L}*|společnost\p{L}*|spoločnos\p{L}*|akci[ei]|akcií|byzn\p{L}*|biznis\p{L}*|jejich|její|jeho|company|stock|business|its|their)(?![\p{L}])/iu;
 const INTENT_GROUP: Record<Intent, RouteGroup> = { move_explanation: 'trh', movers: 'portfolio', transactions: 'portfolio', realized: 'dane', simulation: 'dane', lots: 'dane', account_clarification: 'dane',
   tax: 'dane', dividends: 'portfolio', quote: 'trh', buy: 'valuace', performance: 'portfolio', allocation: 'portfolio', holdings: 'portfolio', summary: 'portfolio' };
 
 // A question about the user's own data (possessives, "I have", cash, "of that"): answered from selected facts only,
 // never with free explanatory prose around personal numbers.
-const PERSONAL = /(?<![\p{L}])(?:můj|moje|mojí|mého|mému|mých|mým|mými|mou|mé|mám|máš|jsem|môj|moja|moju|mojej|môjho|môjmu|mojom|mojich|mojim|mojimi|mojou|som|my|mine|i (?:have|hold|own|bought|sold)|i'm|i've|z toho|of (?:it|that)|hotovos[tť]\p{L}*|cash)(?![\p{L}])/iu;
+// Also typed without diacritics ("muj", "mam"); never folded as a whole ("mé" would become the English "me").
+const PERSONAL = /(?<![\p{L}])(?:můj|muj|mam|mych|mym|mymi|moje|mojí|mého|mému|mých|mým|mými|mou|mé|mám|máš|jsem|môj|moja|moju|mojej|môjho|môjmu|mojom|mojich|mojim|mojimi|mojou|som|my|mine|i (?:have|hold|own|bought|sold)|i'm|i've|z toho|of (?:it|that)|hotovos[tť]\p{L}*|cash)(?![\p{L}])/iu;
 export const isPersonalQuestion = (question: string) => PERSONAL.test(question);
 
 // Finance vocabulary beyond the keyword intents: concepts, instruments, markets and crypto (cs/sk/en stems).
@@ -176,10 +214,10 @@ const FINANCE_WORDS = /(?<![\p{L}])(?:akci\p{L}*|burz\p{L}*|trh(?:u|y|ů|och|ov|
  * Such a question is never answered with the off-topic text, whatever the router model says.
  */
 export function isFinanceQuestion(question: string): boolean {
-  if (tickersIn(question).length > 0 || FINANCE_WORDS.test(question) || keywordIntent(question)) return true;
+  if (tickersIn(question).length > 0 || has(FINANCE_WORDS, question) || keywordIntent(question)) return true;
   const text = requestedText(question) || question;
   return GROUP_PATTERNS.some(([group, re]) => group !== 'trh' && re.test(text))
-    || INTENTS.some(([intent, re, needsTicker]) => intent !== 'buy' && !needsTicker && re.test(text));
+    || INTENTS.some(([intent, re, needsTicker]) => intent !== 'buy' && !needsTicker && has(re, text));
 }
 
 function yearPeriod(today: string, question: string): Period {
