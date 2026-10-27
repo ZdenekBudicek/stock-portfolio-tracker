@@ -114,7 +114,8 @@ export async function runAnalystWorker({
     : analystSymbols([...tables.positions, ...askedPositions(tables.fundamentals_requests, now())], tables.watchlist, tables.ticker_alias, tables.ticker_profiles);
   const prior = new Map(tables.analyst_snapshots.map((row) => [up(row.symbol), row]));
   const queue = requested.length ? symbols : symbols.filter(({ symbol }) => analystsDue(prior.get(symbol) ?? null, now()));
-  const summary = { updated: 0, failed: 0, skipped: symbols.length - queue.length };
+  // `unavailable`: no analyst coverage (an OTC or delisted symbol, an empty consensus) — an answer, not a failure.
+  const summary = { updated: 0, failed: 0, unavailable: 0, skipped: symbols.length - queue.length };
   let session = queue.length ? await yahooSession(fetchImpl) : null;
   let renewed = false;
 
@@ -133,6 +134,8 @@ export async function runAnalystWorker({
         });
       }
       limited = response.status === 429;
+      // Yahoo does not know the symbol (delisted, OTC): no coverage, like an empty consensus.
+      if (response.status === 404) status = 'unavailable';
       if (!response.ok) { await response.body?.cancel(); throw new Error(`Yahoo HTTP ${response.status}`); }
       try {
         data = parseAnalystSnapshot(JSON.parse(await boundedText(response)), symbol);
@@ -150,7 +153,7 @@ export async function runAnalystWorker({
       await db.write(symbol, prior.has(symbol)
         ? { status, last_attempt_at: attempt }
         : { data: null, fetched_at: null, last_attempt_at: attempt, status }, prior.has(symbol));
-      summary.failed++;
+      if (status === 'unavailable') summary.unavailable++; else summary.failed++;
       log(`${symbol}: ${String(error?.message ?? error).slice(0, 120)}`);
       if (limited) { summary.skipped += queue.length - index - 1; log('Yahoo rate limit: remaining symbols wait for the next run'); break; }
       continue;
@@ -159,7 +162,7 @@ export async function runAnalystWorker({
     await db.write(symbol, { data, fetched_at: fetched, last_attempt_at: fetched, status: 'ok' }, false);
     summary.updated++;
   }
-  log(`Analysts: ${summary.updated} updated, ${summary.failed} failed, ${summary.skipped} not due or deferred`);
+  log(`Analysts: ${summary.updated} updated, ${summary.failed} failed, ${summary.unavailable} without coverage, ${summary.skipped} not due or deferred`);
   return summary;
 }
 

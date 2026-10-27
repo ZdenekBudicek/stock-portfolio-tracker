@@ -92,22 +92,33 @@ const OWN_STOCKS = /akci\p{L}*|portf[oó]li\p{L}*|pozic\p{L}*|pozíci\p{L}*|inve
 const MOVERS = { test: (q: string) => has(TODAY, q) && has(MOVING, q) && has(OWN_STOCKS, q) } as unknown as RegExp;
 // Why a named instrument moved over recent days (cs/sk/en): "Co se děje poslední dny s NBIS?", "Proč NBIS spadla?",
 // "Prečo SYNN tento týždeň klesá?", "Why is NBIS down?", "What's going on with NBIS this week?".
-const WHY = /(?<![\p{L}])(?:proč|prečo|why)(?![\p{L}])/iu;
+// "Jak to, že dneska tak prudce roste RKLB?", "Jak je možné…", "Čím to je…", "How come…" ask why as well (owner, 27. 10. 2026).
+const WHY = /(?<![\p{L}])(?:proč|prečo|why|how\s+come|jak\s+to,?\s+že|ako\s+to,?\s+že|jak\s+je\s+(?:to\s+)?možné|ako\s+je\s+(?:to\s+)?možné|z\s+jakého\s+důvodu|z\s+akého\s+dôvodu|čím\s+(?:to\s+)?(?:je|bylo|to)|důvod\p{L}*|dôvod\p{L}*|reasons?)(?![\p{L}])/iu;
 const MOVE_VERB = /(?<![\p{L}])(?:spadl\p{L}*|pad[aá]\p{L}*|padl\p{L}*|klesl\p{L}*|kles[aá]\p{L}*|rost\p{L}*|roste|vzrostl\p{L}*|vyletěl\p{L}*|vyletel\p{L}*|letí|stoupl\p{L}*|stoup[aá]\p{L}*|stúp\p{L}*|propad\p{L}*|prepad\p{L}*|posíl\p{L}*|oslab\p{L}*|rast\p{L}*|rástl\p{L}*|zlevn\p{L}*|zdraž\p{L}*|down|up|fall\p{L}*|fell|drop\p{L}*|plung\p{L}*|crash\p{L}*|soar\p{L}*|surg\p{L}*|jump\p{L}*|rall\p{L}*|tank\p{L}*|sink\p{L}*|sank|rise|rises|rising|rose|climb\p{L}*|slid\p{L}*|slump\p{L}*|lose|loses|losing|lost)(?![\p{L}])/iu;
 const GOING_ON = /co\s+se\s+(?:[\p{L}\p{N}.]+\s+){0,3}?(?:děje|deje|stalo)|co\s+je\s+(?:s|se)\s|čo\s+sa\s+(?:[\p{L}\p{N}.]+\s+){0,3}?(?:deje|stalo)|čo\s+je\s+s\s|what'?s\s+(?:going\s+on|happening|up|wrong)\s+with|what\s+is\s+(?:going\s+on|happening|up|wrong)\s+with|what\s+happened\s+(?:to|with)|jak\s+(?:si\s+)?(?:ved\p{L}*|vede)|jak\s+se\s+(?:\p{L}+\s+)?da[řr]\p{L}*|ako\s+sa\s+dar\p{L}*|how\s+(?:has|did|is)\s+\S+\s+(?:done|doing|perform\p{L}*)/iu;
 const PERIOD = /(?<![\p{L}])(?:posledn\p{L}*|minul\p{L}*|uplynul\p{L}*|tento|tenhle|tomto|tomhle|this|last|past|recent|previous|few|couple(?:\s+of)?|za|over\s+the|in\s+the)\s+(?:(?:pár|par|několik|niekoľko|several|few|\d{1,2}|dva|dvě|dve|two|tři|tri|three|čtyři|štyri|four|pět|päť|five|šest|šesť|six)\s+)?(?:dn(?:y|í|ech|ů|i)|dní|dňoch|týd(?:en|ny|nů|nu|ne|nech)|týž?d\p{L}*|měsíc\p{L}*|mesiac\p{L}*|days?|weeks?|months?)(?![\p{L}])/iu;
 /** "What is happening with NBIS today?": today's quote, with the last days added briefly. */
-export const isTodayMoveQuestion = (q: string) => has(TODAY, q) && !has(PERIOD, q) && !(has(WHY, q) && has(MOVE_VERB, q)) && (has(GOING_ON, q) || has(MOVING, q));
+export const isTodayMoveQuestion = (q: string) => has(TODAY, q) && !has(PERIOD, q) && !askedWhy(q) && (has(GOING_ON, q) || has(MOVING, q));
 /** A recent-move question about a named instrument (the ticker itself is checked by the caller). */
 // "Co se dnes stalo s NU?" asks what happened (the news behind today's move), not only for the quote (owner, 2026-10-26):
 // a today question with "what is happening / what happened" is a move question too; "Jak se dnes hýbe NU?" stays a quote.
-export const isMoveQuestion = (q: string) => (has(WHY, q) && has(MOVE_VERB, q)) || has(GOING_ON, q) || (has(PERIOD, q) && (has(MOVE_VERB, q) || has(MOVING, q)));
+// "Co dneska způsobilo ten růst?", "What caused the drop?": a cause asked with a move word (verb or noun) is a why.
+// "Co tomu růstu pomohlo?", "Co ji táhne nahoru?", "What pushed NBIS up?": what helped or drove the move is a cause too.
+const CAUSE = /(?<![\p{L}])(?:způsobil\p{L}*|zapříčinil\p{L}*|spôsobil\p{L}*|zapríčinil\p{L}*|pomohl\p{L}*|pomáh\p{L}*|pohán\p{L}*|poháň\p{L}*|táhl\p{L}*|táhne|ťahá|žene|stojí\s+za|stojí\s+za\s+tím|vyvolal\p{L}*|spustil\p{L}*|caused?|causing|drove|driving|behind|helped|pushed|fuel(?:l)?ed|sparked|triggered)(?![\p{L}])/iu;
+const MOVE_NOUN = /(?<![\p{L}])(?:růst\p{L}*|nárůst\p{L}*|rast\p{L}*|nárast\p{L}*|pokles\p{L}*|skok\p{L}*|vzestup\p{L}*|výstup\p{L}*|rally|surge|jump|spike|gain\p{L}*|nahoru|dolů|dolu|hore|dole)(?![\p{L}])/iu;
+// A move told outright with its size or day ("dneska tak prudce roste RKLB", "NBIS tolik padá") asks what is behind it, unless a
+// price is asked for: the move answer starts with the price anyway (owner: both the move and what happened, 26. 10. 2026).
+const INTENSE = /(?<![\p{L}])(?:prudce|prudk\p{L}*|výrazně|výrazn\p{L}*|strmě|tolik|tak\s+(?:moc|silně|hodně|rychle|výrazně)|takhle|takto|obrovsk\p{L}*|masivn\p{L}*|brutáln\p{L}*|sharply|so\s+(?:much|hard|fast)|huge|massive(?:ly)?)(?![\p{L}])/iu;
+const PRICE_ASK = /(?<![\p{L}])(?:cena|ceny|cenu|ceně|kurz\p{L}*|kolik\s+stojí|koľko\s+stojí|price|quote)(?![\p{L}])/iu;
+const toldMove = (q: string) => has(MOVE_VERB, q) && (has(INTENSE, q) || has(TODAY, q)) && !has(PRICE_ASK, q);
+const askedWhy = (q: string) => (has(WHY, q) && (has(MOVE_VERB, q) || has(MOVE_NOUN, q))) || (has(CAUSE, q) && (has(MOVE_VERB, q) || has(MOVE_NOUN, q))) || toldMove(q);
+export const isMoveQuestion = (q: string) => askedWhy(q) || has(GOING_ON, q) || (has(PERIOD, q) && (has(MOVE_VERB, q) || has(MOVING, q)));
 const MOVE = { test: isMoveQuestion } as unknown as RegExp;
 /**
  * "Proč je dneska takový propad na NU? … Udělej podrobnou analýzu": why the price moved, asked outright. It is explained
  * from the news of the move even when an analysis or the company is mentioned too — the move is what is asked.
  */
-export const isWhyMoveQuestion = (q: string) => (has(WHY, q) && has(MOVE_VERB, q)) || has(HAPPENED, q);
+export const isWhyMoveQuestion = (q: string) => askedWhy(q) || has(HAPPENED, q);
 // "Zkus znova zjistit, co se s NU stalo, analyzuj": what happened is asked, whatever else the question adds.
 const HAPPENED = /co\s+se\s+(?:[\p{L}\p{N}.]+\s+){0,3}?stalo|čo\s+sa\s+(?:[\p{L}\p{N}.]+\s+){0,3}?stalo|what\s+happened/iu;
 /** The question is about today's move ("dnes", "dneska", "today"), with no other period named. */
@@ -182,6 +193,9 @@ export function keywordIntent(question: string): Intent | undefined {
   }
   if (/(?<![\p{L}])(?:neprodal\p{L}*|nepredal\p{L}*)(?![\p{L}])|\bdid i not (?:buy|sell)\b/iu.test(question)) return 'transactions';
   let found = INTENTS.find(([, re, needsTicker]) => has(re, question) && (!needsTicker || hasTicker))?.[0];
+  // Any other wording of a move of a named instrument ("Co říkáš na to, jak RKLB roste?") is a move question rather than
+  // the open tool loop, which answered such questions with a bare quote (27. 10. 2026).
+  if (!found && hasTicker && tickersIn(question).length && has(MOVE_VERB, question) && !PERSONAL.test(question)) found = 'move_explanation';
   // "Výhled pro polovodičový sektor" asks about an industry, not the own allocation (Běh 27): that needs own words.
   if (found === 'allocation' && !PERSONAL.test(question) && !/portf[oó]li|portfolio|alok[áa]c|allocation|rozložen|rozlož/iu.test(question)) found = undefined;
   // "Vyplácí KO dividendu?" asks about the company, not the dividends the user received (Běh 31): a named company, no own words.

@@ -46,7 +46,7 @@ function fixture(fail = false, nasdaqFail = false) {
 describe('analyst worker', () => {
   it('pages/deduplicates the equity union independently of any fundamentals queue', async () => {
     const f = fixture();
-    expect(await runAnalystWorker({ db: f.db, fetchImpl: f.fetchImpl, now: () => marketNow, sleep: async () => {} })).toEqual({ updated: 3, failed: 0, skipped: 0 });
+    expect(await runAnalystWorker({ db: f.db, fetchImpl: f.fetchImpl, now: () => marketNow, sleep: async () => {} })).toEqual({ updated: 3, failed: 0, unavailable: 0, skipped: 0 });
     expect(f.pages).toContain('positions:1000'); expect(f.fetchImpl).toHaveBeenCalledTimes(8);
     expect(f.fetchImpl.mock.calls.filter(c => String(c[0]).includes('quoteSummary'))).toHaveLength(3);
     expect(f.fetchImpl.mock.calls.filter(c => String(c[0]).includes('api.nasdaq.com'))).toHaveLength(3);
@@ -62,7 +62,7 @@ describe('analyst worker', () => {
     expect(withLaterYears(yahoo, null)).toBe(yahoo);
     expect(withLaterYears({ estimates: [] }, nasdaq)).toEqual({ estimates: [] });
     const f = fixture(false, true);
-    expect(await runAnalystWorker({ db: f.db, fetchImpl: f.fetchImpl, now: () => marketNow, sleep: async () => {}, log: () => {} })).toEqual({ updated: 3, failed: 0, skipped: 0 });
+    expect(await runAnalystWorker({ db: f.db, fetchImpl: f.fetchImpl, now: () => marketNow, sleep: async () => {}, log: () => {} })).toEqual({ updated: 3, failed: 0, unavailable: 0, skipped: 0 });
   });
   it('patches only attempt/status after a failed refresh, preserving successful data/time', async () => {
     const f = fixture(true); await runAnalystWorker({ db: f.db, fetchImpl: f.fetchImpl, now: () => marketNow, sleep: async () => {} });
@@ -76,7 +76,7 @@ describe('analyst worker', () => {
     f.db.write = async (symbol, patch, preserve) => { writes.push({ symbol, patch, preserve }); };
     const fetchImpl = vi.fn(async (url: string) => new URL(url).hostname === 'fc.yahoo.com' ? new Response(null, { status: 404 })
       : new Response(JSON.stringify({ quoteSummary: { result: [{ financialData: {} }], error: null } })));
-    expect(await runAnalystWorker({ db: f.db, fetchImpl, now: () => marketNow, sleep: async () => {}, log: () => {} })).toEqual({ updated: 0, failed: 3, skipped: 0 });
+    expect(await runAnalystWorker({ db: f.db, fetchImpl, now: () => marketNow, sleep: async () => {}, log: () => {} })).toEqual({ updated: 0, failed: 0, unavailable: 3, skipped: 0 });
     expect(writes.find(w => w.symbol === 'WATCH')).toEqual({ symbol: 'WATCH', preserve: false, patch: { data: null, fetched_at: null, last_attempt_at: new Date(marketNow).toISOString(), status: 'unavailable' } });
     expect(new URL(String(fetchImpl.mock.calls[1][0])).searchParams.has('crumb')).toBe(false);
   });
@@ -85,7 +85,7 @@ describe('analyst worker', () => {
     f.db.read = async (table, from, to) => table === 'ticker_profiles' ? [{ ticker: 'WATCH', asset_type: 'ETF' }]
       : table === 'analyst_snapshots' ? [{ symbol: 'SECOND', data: {}, fetched_at: new Date(marketNow - 3600000).toISOString(), status: 'ok', last_attempt_at: null }]
         : original(table, from, to);
-    expect(await runAnalystWorker({ db: f.db, fetchImpl: f.fetchImpl, now: () => marketNow, sleep: async () => {}, log: () => {} })).toEqual({ updated: 1, failed: 0, skipped: 1 });
+    expect(await runAnalystWorker({ db: f.db, fetchImpl: f.fetchImpl, now: () => marketNow, sleep: async () => {}, log: () => {} })).toEqual({ updated: 1, failed: 0, unavailable: 0, skipped: 1 });
     expect(f.writes.map(w => w.symbol)).toEqual(['RKLB']);
   });
   it('does not start without the explicit enable flag', async () => {
@@ -105,7 +105,7 @@ describe('analyst worker', () => {
       { symbol: 'ASKED', requested_at: new Date(marketNow - 10 * 86_400_000).toISOString() },
       { symbol: 'OLDASK', requested_at: new Date(marketNow - 100 * 86_400_000).toISOString() },
     ].slice(from, to + 1) : original(table, from, to);
-    expect(await runAnalystWorker({ db: f.db, fetchImpl: f.fetchImpl, now: () => marketNow, sleep: async () => {}, log: () => {} })).toEqual({ updated: 4, failed: 0, skipped: 0 });
+    expect(await runAnalystWorker({ db: f.db, fetchImpl: f.fetchImpl, now: () => marketNow, sleep: async () => {}, log: () => {} })).toEqual({ updated: 4, failed: 0, unavailable: 0, skipped: 0 });
     expect(f.writes.map(w => w.symbol).sort()).toEqual(['ASKED', 'RKLB', 'SECOND', 'WATCH']);
   });
   it('on demand fetches exactly the requested tickers, due or not, and still leaves funds out', async () => {
@@ -113,7 +113,7 @@ describe('analyst worker', () => {
     f.db.read = async (table, from, to) => table === 'ticker_profiles' ? [{ ticker: 'FUNDX', asset_type: 'ETF' }] : original(table, from, to);
     // RKLB was fetched 25 hours ago and NEWCO is in nobody's data yet: both are fetched now; FUNDX is a fund.
     expect(await runAnalystWorker({ db: f.db, fetchImpl: f.fetchImpl, now: () => marketNow, sleep: async () => {}, log: () => {}, only: ['RKLB', 'NEWCO', 'FUNDX'] }))
-      .toEqual({ updated: 2, failed: 0, skipped: 0 });
+      .toEqual({ updated: 2, failed: 0, unavailable: 0, skipped: 0 });
     expect(f.writes.map(w => w.symbol).sort()).toEqual(['NEWCO', 'RKLB']);
   });
   it('runs nightly since the owner enabled it (Ocenění v2) and for the symbols of an on-demand run, never blocking it', () => {
@@ -125,5 +125,22 @@ describe('analyst worker', () => {
     const demand = workflow.slice(workflow.indexOf('  on-demand:'));
     expect(demand).toMatch(/- name: Fetch analyst estimates\s*\n\s*if: [^\n]+\n\s*continue-on-error: true/);
     expect(demand.indexOf('Fetch analyst estimates')).toBeLessThan(demand.indexOf('Finish requests'));
+  });
+});
+
+describe('symbols without analyst coverage (27. 10. 2026: BTAFF, SYMC … failed the nightly run)', () => {
+  it('a symbol Yahoo does not know (HTTP 404) is without coverage, not a failure', async () => {
+    const f = fixture(); f.db.write = async () => {};
+    const fetchImpl = vi.fn(async (url: string) => new URL(url).hostname === 'fc.yahoo.com' ? new Response(null, { status: 404 }) : new Response('', { status: 404 }));
+    expect(await runAnalystWorker({ db: f.db, fetchImpl, now: () => marketNow, sleep: async () => {}, log: () => {} }))
+      .toEqual({ updated: 0, failed: 0, unavailable: 3, skipped: 0 });
+  });
+  it('asks again about a symbol without coverage after a week, not every night', async () => {
+    const { analystsDue } = await import('../../scripts/analyst-snapshot.mjs');
+    const day = 86_400_000, row = (daysAgo: number) => ({ status: 'unavailable', fetched_at: null, last_attempt_at: new Date(marketNow - daysAgo * day).toISOString() });
+    expect(analystsDue(row(2), marketNow)).toBe(false);
+    expect(analystsDue(row(8), marketNow)).toBe(true);
+    // A real error is retried on the next run (after the hour).
+    expect(analystsDue({ ...row(2), status: 'error' }, marketNow)).toBe(true);
   });
 });

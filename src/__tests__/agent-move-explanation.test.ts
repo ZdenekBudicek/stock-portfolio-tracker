@@ -305,3 +305,52 @@ describe('questions typed without diacritics, with the English layout or as a fo
     expect(isPersonalQuestion('kolik mam v portfoliu')).toBe(true);
   });
 });
+
+describe('a move question about several instruments (SOFI and NBIS, 27. 10. 2026)', () => {
+  const Q = 'CO dneska způsobilo tka obrovský růst na SYNN a na SYNA?';
+  it('reads "co způsobilo … růst" as a why of the move, and capitals CO as a word, not a symbol', async () => {
+    const { tickersIn, isWhyMoveQuestion } = await import('../../supabase/functions/agent/core/router.ts');
+    expect(keywordIntent(Q)).toBe('move_explanation');
+    expect(tickersIn(Q)).toEqual(['SYNN', 'SYNA']);
+    expect(isWhyMoveQuestion('What caused the jump in NBIS?')).toBe(true);
+    expect(isWhyMoveQuestion('Co způsobilo propad NU?')).toBe(true);
+    expect(keywordIntent('Jaký je růst tržeb NVDA?')).not.toBe('move_explanation');
+  });
+  it('explains each instrument under its own symbol in one answer', async () => {
+    const { market, calls } = spyMarket();
+    const r = await ask(Q, { market });
+    expect(calls.filter(c => c.method === 'news').map(c => c.ticker)).toEqual(expect.arrayContaining(['SYNN', 'SYNA']));
+    expect(r.text).toMatch(/^\*\*SYNN\*\*\n/);
+    expect(r.text).toMatch(/\n\n\*\*SYNA\*\*\n/);
+    expect(r.text.match(/Co se stalo/g)?.length).toBe(2);
+    // No repair round with two instruments: at most one analyst call (and its model fallbacks) each.
+    expect(r.writers.length).toBeLessThanOrEqual(2);
+  });
+  it('one instrument keeps the single answer, without a symbol heading', async () => {
+    const r = await ask('Co dneska způsobilo tak obrovský růst na SYNN?', { market: spyMarket().market });
+    expect(r.text).not.toMatch(/^\*\*SYNN\*\*\n/);
+    expect(r.text).toMatch(/Co se stalo/);
+  });
+});
+
+describe('a move told outright or asked "how come" (RKLB and NBIS, 27. 10. 2026)', () => {
+  it.each([
+    'Jak to že dneska tak prudce roste SYNN a SYNA po těch propadech?', 'Jak to, že SYNN tak roste?', 'jak to ze dneska tak roste SYNN',
+    'Jak je možné, že SYNN padá?', 'Čím to je, že SYNN klesá?', 'Co tomu růstu SYNN dneska pomohlo?', 'Co táhne SYNN nahoru?',
+    'Dneska prudce roste SYNN, co se děje?', 'SYNN dnes tolik padá', 'Z jakého důvodu SYNN vyletěla?', 'How come SYNN is up so much?',
+    'What pushed SYNN up today?', 'Ako to, že SYNN rastie?', 'Co říkáš na to, jak SYNN roste?',
+  ])('"%s" is move_explanation', question => {
+    expect(keywordIntent(question)).toBe('move_explanation');
+  });
+  it.each([
+    ['Jaká je dnes cena SYNN?', 'quote'], ['Jak se dnes hýbe SYNN?', 'quote'], ['Kolik dnes stojí SYNN?', 'quote'],
+  ])('"%s" keeps %s', (question, intent) => {
+    expect(keywordIntent(question)).toBe(intent);
+  });
+  it('explains both instruments, not only their quotes', async () => {
+    const { market, calls } = spyMarket();
+    const r = await ask('Jak to že dneska tak prudce roste SYNN a SYNA po těch propadech?', { market });
+    expect(calls.filter(c => c.method === 'news').map(c => c.ticker)).toEqual(expect.arrayContaining(['SYNN', 'SYNA']));
+    expect(r.text.match(/Co se stalo/g)?.length).toBe(2);
+  });
+});

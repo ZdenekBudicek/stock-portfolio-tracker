@@ -15,6 +15,8 @@ import type { Fact, ToolCtx, ToolResult } from './types.ts';
 // attributed likely drivers. News stays untrusted data throughout; only verified publishers are read or cited.
 
 export const MOVE_NEWS_MAX = 8, MOVE_PEERS_MAX = 4, MOVE_PEER_NEWS = 2, MOVE_DEFAULT_DAYS = 5, RESEARCH_MAX = 6;
+/** Instruments one move question explains ("Co způsobilo růst SOFI a NBIS?"); the question's token budget is shared. */
+export const MOVE_TICKERS_MAX = 3;
 /** "How is SPCX doing?" without a period: the last three months (Běh 26). */
 export const COMPANY_DEFAULT_DAYS = 63;
 const DAY = 86_400_000;

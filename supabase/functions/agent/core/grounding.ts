@@ -127,7 +127,9 @@ const NUMBER_WORDS: Record<Lang, string[]> = {
 };
 // Upper-case words that are not instrument tickers.
 export const NOT_TICKERS = new Set(['USD', 'CZK', 'EUR', 'GBP', 'PLN', 'ETF', 'EPS', 'DCF', 'EBITDA', 'EV', 'PE', 'PS', 'FCF', 'HHI', 'CEO', 'CFO',
-  'AI', 'USA', 'EU', 'ČNB', 'CNB', 'SEC', 'IPO', 'GDP', 'OK', 'IT', 'S&P', 'NASDAQ', 'NYSE', 'DPH', 'ČR', 'SR', 'UK', 'US', 'FIFO']);
+  'AI', 'USA', 'EU', 'ČNB', 'CNB', 'SEC', 'IPO', 'GDP', 'OK', 'IT', 'S&P', 'NASDAQ', 'NYSE', 'DPH', 'ČR', 'SR', 'UK', 'US', 'FIFO',
+  // Question words typed in capitals ("CO dneska způsobilo…"); real symbols such as SE (Sea) or TO stay tickers.
+  'CO', 'ČO', 'JAK', 'AKO', 'KDE', 'KDY', 'PROC', 'PROČ', 'PREČO', 'DNES', 'DNESKA']);
 const CURRENCY_NEAR_SLOT = /\{\{\w+\}\}\s*(kč|czk|usd|eur|gbp|pln|us\$|\$|€|£|zł|dolar\p{L}*|korun\p{L}*|eur\p{L}*)(?![\p{L}])|(kč|czk|usd|eur|gbp|pln|\$|€|£)\s*\{\{/iu;
 const word = (w: string) => new RegExp(`(?<![\\p{L}\\p{N}_])${w}(?![\\p{L}\\p{N}_])`, 'iu');
 // A number word in any supported language counts, whatever the answer's language.

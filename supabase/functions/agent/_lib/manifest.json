@@ -1,6 +1,6 @@
 {
   "schemaVersion": 1,
-  "calculationVersion": "3d90c50349b438efb5bc5fee7e881f970b06f0d6faeb1e305a09d43f623a9b28",
+  "calculationVersion": "244c1809cca47f457d6fa56073761c9e4743150cddec457df3ef55a0345ab98f",
   "inputHashes": {
     "docs/ai-assistant/cpu-policy.json": "86f070ebb1f67c8ae28017b37e97343401a347c80929a876df6a80b553e78d89",
     "node_modules/zod/v3/ZodError.d.cts": "d5aefcc5d3381ee4fc8b31672dc34ee8c587c95f17666c43e7b74eda31fb8af2",
@@ -30,8 +30,8 @@
     "package.json": "ddb94535dcc90d9feec8e3dd8c5d733ce1e534d0da770c8aa506f9562f04b6a4",
     "scripts/build-agent-lib.mjs": "7577762f9a32efec81b808a262e7a40809d1bb724f61cbd3655c1cbc9132861b",
     "scripts/check-agent-lib.mjs": "1e2b13c6f0465be564a16636ab1f2aa38c7f8bae225a2820f21044deac2e4a00",
-    "src/data/cnbRates.json": "2836ebe181caf984890d825e7f5e2f6d3c4acc7a65c423126b04acece27240ff",
-    "src/data/cnbUsdCzk.json": "e4d71ebbfa281ab67972693fe3ad95d7b57227e492958a1d908de6da610e6179",
+    "src/data/cnbRates.json": "41918f5d4732593d394220168aa260fe8b500d13eb2666c11bfe361ec2556262",
+    "src/data/cnbUsdCzk.json": "41aa6c06726757d69264bc7b5715de485c7f61bf9dd1c8354a4fd3c083d7f88e",
     "src/lib/agentLib.ts": "4751440b06f21bda36f0e4ef1334c32fb3f8ba439f675a988dbe30a0aa104e5f",
     "src/lib/allocationModel.ts": "70283c3b6992167206baf9bd3ac02df62ec411ec818625a6939f52f494c86dd0",
     "src/lib/brokerSummary.ts": "66e209d9931012658be089da0005f601ac13c07ba396a4806e14527822f4e0e1",
@@ -83,7 +83,7 @@
     "tsconfig.app.json": "2e9b1a92f522b7a771d6bb6b7603a597474c394ba62929fceb4029fcf7b8f5e1",
     "build-config": "ef5d25e341a4a0c29495a8f53fe901058dc6f3cd4b3ec02aafcb420b0c766dd8"
   },
-  "cnbThrough": "2026-10-23",
+  "cnbThrough": "2026-10-26",
   "cpuPolicy": {
     "mode": "limited",
     "maxTransactions": 5000,

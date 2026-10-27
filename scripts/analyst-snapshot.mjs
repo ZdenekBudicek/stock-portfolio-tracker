@@ -53,5 +53,7 @@ export function analystsDue(row, now) {
   if (!row) return true;
   const fetched = Date.parse(row.fetched_at ?? ''), attempted = Date.parse(row.last_attempt_at ?? '');
   if (row.status !== 'ok' && Number.isFinite(attempted) && now - attempted >= 0 && now - attempted < 3600000) return false;
+  // No coverage (OTC, delisted, empty consensus): asked again after a week, not every night.
+  if (row.status === 'unavailable' && Number.isFinite(attempted) && now - attempted >= 0 && now - attempted < 7 * 86400000) return false;
   return !Number.isFinite(fetched) || now < fetched || now - fetched >= 86400000;
 }

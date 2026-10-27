@@ -1,6 +1,6 @@
 import { analysisPolicy, buildVerifiedTemplate, isNoDataText, renderMoveAnswer, renderWebAnswer, renderMoverThemes, renderSelectedFacts, type AnalysisPolicy } from './answerTemplate.ts';
 import { nameKeywords, webSearchQuery } from './articleText.ts';
-import { asksFrom, collectArticles, collectMoveEvidence, direction, moveAnalystInput, type MoveEvidence } from './moveExplanation.ts';
+import { asksFrom, collectArticles, collectMoveEvidence, direction, moveAnalystInput, MOVE_TICKERS_MAX, type MoveEvidence } from './moveExplanation.ts';
 import { classifyAspects } from './aspects.ts';
 import { ANALYST_FORMAT, type AnalystInput, outputOf, analystMessages, analystRepairPrompt, analystValidator,
   type NewsAnalysis } from './newsAnalyst.ts';
@@ -453,48 +453,68 @@ async function explainMove(route: Route, question: string, { ctx, llm }: Deps, e
   const lang = route.lang;
   // The article analysis may reserve the larger question budget (Běh 27).
   llm.tokens.allowAnalysis();
-  let ticker: string;
-  try {
-    ticker = (await resolveTicker({ ...ctx, budget: stageBudget(ctx.budget) }, route.tickers[0])).ticker;
-  } catch (error) {
-    if (ctx.budget.signal.aborted) throw ctx.budget.signal.reason ?? error;
-    if (error instanceof ToolInputError && error.code === 'clarify') {
+  // "Co dneska způsobilo růst SOFI a NBIS?": every named instrument (up to MOVE_TICKERS_MAX) is explained in turn.
+  const named = route.tickers.slice(0, MOVE_TICKERS_MAX);
+  const tickers: string[] = [];
+  for (const name of named) {
+    try {
+      tickers.push((await resolveTicker({ ...ctx, budget: stageBudget(ctx.budget) }, name)).ticker);
+    } catch (error) {
+      if (ctx.budget.signal.aborted) throw ctx.budget.signal.reason ?? error;
+      if (!(error instanceof ToolInputError && error.code === 'clarify')) throw error;
+      // Among several instruments one that maps to no symbol is left out; the others are still explained.
+      if (named.length > 1) continue;
       // A company name no provider could map to a symbol (Běh 30): the question is searched and answered from the pages.
-      if (!/^[A-Z0-9.-]{1,10}$/.test(route.tickers[0] ?? '') && !isPersonalQuestion(question)) {
+      if (!/^[A-Z0-9.-]{1,10}$/.test(name) && !isPersonalQuestion(question)) {
         const answered = await webAnswer({ ...route, tickers: [] }, question, { ctx, llm }, emit, metrics, finish);
         if (answered) return answered;
       }
       metrics.groundingOk = true; return finish('ok', plainAnswer(TEXT.clarify[lang], lang));
     }
-    throw error;
   }
+  if (!tickers.length) { metrics.groundingOk = true; return finish('ok', plainAnswer(TEXT.clarify[lang], lang)); }
   emit({ type: 'status', text: TEXT.loading[lang] });
   // A company or outlook question: a small model reads what it asks (Běh 31), merged with the keyword reading.
   // Only a question about a price move reads as a move; any other question about the company is an outlook (Běh 31).
   // "Why did it drop today? Give me a detailed analysis" is still a move question: the news of the move answers it.
   const resolved = focus ?? (isWhyMoveQuestion(question) ? 'move'
     : isOutlookQuestion(question) || isCompanyQuestion(question) || !isMoveQuestion(question) ? 'outlook' : 'move');
+  // An outlook is a whole analysis of one company; several instruments are explained as moves only.
+  const subjects = resolved === 'outlook' ? tickers.slice(0, 1) : tickers;
   const asks = resolved === 'outlook' ? asksFrom(await classifyAspects(question, ctx, llm)) : undefined;
-  const { evidence, calls } = await collectMoveEvidence(ticker, question, ctx, lang, batch => runTools(ctx, batch), resolved, asks);
-  metrics.toolCalls += calls.length;
-  metrics.toolsUsed.push(...calls.map(c => c.name).filter((n, i, all) => all.indexOf(n) === i && !metrics.toolsUsed.includes(n)));
   const trace = () => runsOf(ctx).map(r => traceOf(r.name, r.result, lang));
-  emit({ type: 'trace', items: trace() });
-  let failed: Extract<AnalystResult, { ok: false }> | undefined;
-  if (evidence.news.length) {
-    emit({ type: 'status', text: TEXT.writing[lang] });
-    const result = await runAnalyst(moveAnalystInput(evidence), { ctx, llm }, metrics, true);
-    if (result.ok) {
-      metrics.groundingOk = true;
-      return finish('ok', { ...renderMoveAnswer(ctx, evidence, (result as Extract<AnalystResult, { ok: true }>).analysis), outcome: 'ok', trace: trace() });
+  const parts: { ticker: string; answer: StoredAnswer; failed?: Extract<AnalystResult, { ok: false }> }[] = [];
+  for (const ticker of subjects) {
+    const { evidence, calls } = await collectMoveEvidence(ticker, question, ctx, lang, batch => runTools(ctx, batch), resolved, asks);
+    metrics.toolCalls += calls.length;
+    metrics.toolsUsed.push(...calls.map(c => c.name).filter((n, i, all) => all.indexOf(n) === i && !metrics.toolsUsed.includes(n)));
+    emit({ type: 'trace', items: trace() });
+    let failed: Extract<AnalystResult, { ok: false }> | undefined;
+    if (evidence.news.length) {
+      emit({ type: 'status', text: TEXT.writing[lang] });
+      // With several instruments the question's budget is shared: no repair round, so each one still gets its call.
+      const result = await runAnalyst(moveAnalystInput(evidence), { ctx, llm }, metrics, subjects.length === 1);
+      if (result.ok) {
+        metrics.groundingOk = true;
+        parts.push({ ticker, answer: renderMoveAnswer(ctx, evidence, (result as Extract<AnalystResult, { ok: true }>).analysis) });
+        continue;
+      }
+      failed = result as Extract<AnalystResult, { ok: false }>;
+      metrics.errorCode = failed.reason;
     }
-    failed = result as Extract<AnalystResult, { ok: false }>;
-    metrics.errorCode = failed.reason;
+    parts.push({ ticker, answer: renderMoveAnswer(ctx, evidence, null), failed });
   }
-  if (!ctx.facts.size && failed?.reason === 'quota') return finish('quota', null, { code: 'quota', text: TEXT.quota[lang], ...(failed.retryAt ? { retryAt: failed.retryAt } : {}) });
-  if (!ctx.facts.size && failed?.reason === 'timeout') return finish('timeout', null, { code: 'timeout', text: TEXT.timeout[lang] });
-  const outcome = failed?.reason === 'timeout' ? 'timeout' : 'fallback';
-  return finish(outcome, { ...renderMoveAnswer(ctx, evidence, null), outcome, trace: trace() });
+  const failures = parts.map(p => p.failed).filter((x): x is Extract<AnalystResult, { ok: false }> => !!x);
+  const lastFailure = failures[failures.length - 1];
+  if (!ctx.facts.size && lastFailure?.reason === 'quota') return finish('quota', null, { code: 'quota', text: TEXT.quota[lang], ...(lastFailure.retryAt ? { retryAt: lastFailure.retryAt } : {}) });
+  if (!ctx.facts.size && lastFailure?.reason === 'timeout') return finish('timeout', null, { code: 'timeout', text: TEXT.timeout[lang] });
+  const outcome = !failures.length && parts.every(p => p.answer.outcome === 'ok') ? 'ok'
+    : failures.some(f => f.reason === 'timeout') ? 'timeout' : 'fallback';
+  if (parts.length === 1) return finish(outcome, { ...parts[0].answer, outcome, trace: trace() });
+  // One answer, one part per instrument under its symbol.
+  const text = parts.map(p => `**${p.ticker}**\n${p.answer.text}`).join('\n\n');
+  const links = parts.flatMap(p => p.answer.links).filter((l, i, all) => all.findIndex(x => x.url === l.url) === i);
+  return finish(outcome, { ...parts[0].answer, text, links, sections: undefined, outcome, trace: trace() });
 }
 
 /**
@@ -525,6 +545,9 @@ export async function answerQuestion(input: { request: ChatRequest; history: Cha
     activeRoute = route;
     lang = route.lang;
     metrics.routerModel = llm.policy.router[0]?.id ?? null;
+    // One line per question for the function log, so a question that fell to the wrong path can be found and covered by a
+    // test: the group, the intent and how many instruments — never the question, a symbol or a user detail.
+    try { console.log(JSON.stringify({ agent_route: { group: route.group, intent: route.intent ?? 'none', tickers: route.tickers.length, analysis: route.analysis } })); } catch { /* logging never fails a request */ }
     if (route.group === 'mimo_temu') { metrics.groundingOk = true; return finish('ok', plainAnswer(TEXT.offTopic[lang], lang)); }
     if (route.needsClarification) { metrics.groundingOk = true; return finish('ok', plainAnswer(TEXT.clarify[lang], lang)); }
     const history = recentHistory(input.history, await modelMessages(ctx));
